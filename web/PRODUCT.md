@@ -29,7 +29,8 @@ data centre, and the games are the ones the player already owns on Steam.
 ## Operating Context
 
 A laptop or desktop browser at home, often a Mac; sometimes a phone. Sign-in is Steam's own (no password,
-no account). The launch pages, the crew page and the crew invite share one visual world with this app.
+no account). The app keeps its own Paper Band look (`DESIGN.md`); the crew page and the crew invite keep
+the launch set's light lobby look under the app's dark bar.
 
 ## Capabilities and Constraints
 
@@ -43,8 +44,9 @@ no account). The launch pages, the crew page and the crew invite share one visua
 ## Brand Commitments
 
 - Name: Lanterel.
-- The approved look is the launch set's light world, Impeccable version of the crew page and invite
-  (`data/swiff-landing-design/launch/assets/css/lobby-impeccable.css`), chosen by the captain.
+- The app's look is the Paper Band look it had before #107 (`DESIGN.md`). The light look #107 brought in on
+  2026-10-07 is superseded: the captain asked the same day to restore the previous look. The crew page and
+  invite keep the launch set's light lobby look, which the captain chose for them.
 - Lime is a mark, never a fill.
 
 ## Evidence on Hand
@@ -56,7 +58,7 @@ estimate, or usage numbers exist, and none may be invented.
 
 1. In a game fast: every screen points at the one next action.
 2. Say what is true about the machine: latency, time free, who owns it.
-3. One product: the app, the launch pages and the crew pages read as the same place.
+3. One product: the app, the launch pages and the crew pages carry the same name, words and marks.
 
 ## Accessibility & Inclusion
 
