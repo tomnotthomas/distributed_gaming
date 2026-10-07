@@ -13,8 +13,7 @@
 //
 // The pages hold the product's name, the site's origin and the app's origin as
 // tokens, filled in here from brand.ts, SITE_ORIGIN and PUBLIC_ORIGIN. An
-// invite page names only what the product knows about its invite
-// (invite-copy.ts), and its buttons carry the
+// invite page names nobody (invite-copy.ts), and its buttons carry the
 // invite's code on to the sign-up form (?i=type:code), which posts it with the
 // email (signups.ts). The share page shows a confirmed sign-up's own crew link.
 
