@@ -1273,7 +1273,15 @@ describe("when a step stops", () => {
       expect(said("no-machine").why).toMatch(/add them in Settings, then go live again\.$/);
       expect(said("unknown-machine").why).toMatch(/check it in Settings/);
       expect(said("failed").why).toMatch(/check the internet connection, then try again\.$/);
-      expect(said("something new")).toMatchObject({ title: "Couldn't reach the server" });
+      // A local failure of the elevated read is the TPM's, not the network's; a server fault says try later.
+      expect(said("something new")).toMatchObject({
+        title: "Couldn't read the TPM",
+        why: "Reading this PC's TPM failed: try Go live again, or restart the PC if it fails again.",
+      });
+      expect(said("unavailable")).toMatchObject({
+        title: "The server couldn't check the TPM",
+        why: "The Lanterel server couldn't check this PC's TPM right now: try again later.",
+      });
       // The server doesn't know the TPM's maker: the details go to Lanterel first, then Try again.
       expect(said("untrusted")).toMatchObject({ action: "send", label: "Send details to Lanterel" });
       expect(said("untrusted", { reportedAt: 1 })).toMatchObject({ action: "again" });
