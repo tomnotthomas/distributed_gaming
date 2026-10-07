@@ -87,10 +87,15 @@ function serve(more: Record<string, unknown> = {}) {
                   name: "Alex",
                   crewName: null,
                   own: false,
-                  size: 1,
+                  size: 2,
                   state: "no-pc",
                   pcs: 0,
                   member: false,
+                  session: { at: Date.now() + 86_400_000, yes: 1, no: 1 },
+                  guests: [
+                    { name: "Alex", admin: true, rsvp: "yes" },
+                    { name: "Sam", admin: false, rsvp: "no" },
+                  ],
                 },
               },
             ]

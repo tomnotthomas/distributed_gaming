@@ -6,18 +6,21 @@
 // in this tab, puts /invite in the address instead, and comes back there from
 // sign-in. Only with storage blocked does it stay in the path.
 
-import type { CrewView } from "./crews";
+import type { CrewView, Rsvp } from "./crews";
 import { STEAM_LOGIN_URL } from "./steam";
 
-/** An invite as the friend opening it sees it: the crew, and whether they are in it already. */
-export type OpenedInvite = CrewView & { member: boolean };
+/** Someone in the crew as its invite shows them: persona, whether they founded it, their answer to its Zockrunde. */
+export type InviteGuest = { name: string | null; admin: boolean; rsvp: Rsvp | null };
+
+/** An invite as the friend opening it sees it: the crew, whether they are in it already, and who is in it. */
+export type OpenedInvite = CrewView & { member: boolean; guests: InviteGuest[] };
 
 /** Where invite links point: /invite/<token>. */
 export const INVITE_PATH = "/invite";
 
 /** Where this tab keeps the token of the invite it is signing in for. */
 const PENDING_KEY = "swiff.invite";
-/** Set while this tab is away at Steam to join that invite: only then does coming back join. */
+/** Set while this tab is away at Steam to join that invite, to the answer to give: only then does coming back join. */
 const JOINING_KEY = "swiff.inviteJoin";
 
 /** The link a token makes, on this site. */
@@ -66,10 +69,13 @@ export function rememberedInvite(): string {
   }
 }
 
-/** Note that this tab is going to Steam to join the invite it remembers; false when storage is blocked. */
-export function meanToJoin(): boolean {
+/**
+ * Note that this tab is going to Steam to join the invite it remembers,
+ * answering its Zockrunde with `rsvp` (null: no answer); false when storage is blocked.
+ */
+export function meanToJoin(rsvp: Rsvp | null = null): boolean {
   try {
-    sessionStorage.setItem(JOINING_KEY, "1");
+    sessionStorage.setItem(JOINING_KEY, rsvp ?? "join");
     return true;
   } catch {
     return false;
@@ -77,16 +83,19 @@ export function meanToJoin(): boolean {
 }
 
 /**
- * Whether this tab went to Steam to join, which counts once: reading it
- * clears it, so a reload or Back never joins again.
+ * Whether this tab went to Steam to join, and with which answer: "yes" or
+ * "no" to the crew's Zockrunde, "join" for none, null when it did not go to
+ * join. It counts once: reading it clears it, so a reload or Back never joins again.
  */
-export function cameBackToJoin(): boolean {
+export function cameBackToJoin(): Rsvp | "join" | null {
   try {
-    const set = sessionStorage.getItem(JOINING_KEY) === "1";
+    const set = sessionStorage.getItem(JOINING_KEY);
     sessionStorage.removeItem(JOINING_KEY);
-    return set;
+    if (set === "yes" || set === "no") return set;
+    // "1" is what a tab that went before answers were asked for kept.
+    return set === "join" || set === "1" ? "join" : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -124,13 +133,21 @@ export async function openInvite(
   }
 }
 
-/** Join the invite's crew as the signed-in player: the crew joined (`id` names it), or why not ("full": in too many crews). */
+/**
+ * Join the invite's crew as the signed-in player, answering its Zockrunde with
+ * `rsvp` when it has one: the crew joined (`id` names it), or why not ("full":
+ * in too many crews).
+ */
 export async function joinInvite(
   token: string,
+  rsvp: Rsvp | null = null,
   get: typeof fetch = fetch,
 ): Promise<{ id: string; crew: CrewView; joined: boolean } | "invalid" | "full" | null> {
   try {
-    const response = await get(`/api/invites/${encodeURIComponent(token)}/join`, { method: "POST" });
+    const response = await get(`/api/invites/${encodeURIComponent(token)}/join`, {
+      method: "POST",
+      ...(rsvp ? { headers: { "content-type": "application/json" }, body: JSON.stringify({ rsvp }) } : {}),
+    });
     if (response.status === 404) return "invalid";
     // In as many crews as anyone may be: leaving one makes room.
     if (response.status === 409) return "full";

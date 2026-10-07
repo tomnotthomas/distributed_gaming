@@ -41,6 +41,7 @@ import {
   zonedAt,
 } from "./crews";
 import { crewText, type CopyKey, type Lang } from "./crewCopy";
+import { CrewPlay, playPc } from "./CrewPlay";
 import { Avatar, LobbyArt, LobbyTitle, PcIcon, Tick, useCrewText, useShare } from "./crewUi";
 import { Glyph } from "./Glyph";
 import { inviteLink } from "./invite";
@@ -312,7 +313,7 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
   // Asked the group for a gaming PC: the PC step waits for one.
   const [asked, setAsked] = useState(false);
   const { note, say, share, copyLink } = useShare(swiff.inviteShared);
-  const { crewChanges, crewReady, dismissCrewReady, openCrew, goHome } = swiff;
+  const { crewChanges, crewReady, dismissCrewReady, openCrew } = swiff;
   const ticketRef = useRef<HTMLElement>(null);
 
   const load = useCallback(
@@ -444,6 +445,7 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
             <h1 id="lb-h1" className="gc-name crew-name">
               {title}
             </h1>
+            {crew.machines.some((m) => m.playing) ? <span className="pl-live">{t("pl.onNow")}</span> : null}
             <span className="gc-whose">
               {crew.own
                 ? t("g.founded")
@@ -658,22 +660,7 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
                   </>
                 )
               ) : crew.state === "ready" ? (
-                <>
-                  <h2>{t("cp.nextReady")}</h2>
-                  <p className="gc-p">
-                    {crew.pcs > 1
-                      ? t("cp.nextReadyMany", { n: crew.pcs })
-                      : t("cp.nextReadyLine", { pc: pcName })}
-                  </p>
-                  <div className="gc-acts">
-                    <button type="button" className="lpill solid" onClick={goHome}>
-                      {t("cp.play")}
-                      <span className="lpill-c">
-                        <Glyph name="arrow" size={18} />
-                      </span>
-                    </button>
-                  </div>
-                </>
+                <CrewPlay crew={crew} swiff={swiff} busy={busy} apply={apply} />
               ) : (
                 <>
                   <h2>{t("cp.nextOffline")}</h2>
@@ -687,6 +674,12 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
           <p className="cp-toast" role="status" aria-live="polite" hidden={!note}>
             {note}
           </p>
+          {current === "play" && crew.state === "ready" && playPc(crew) ? (
+            <p className="pl-pcline">
+              <PcIcon />
+              <span>{t("pl.pcLine", { pc: pcTitle(lang, playPc(crew)!) })}</span>
+            </p>
+          ) : null}
 
           {session && crew.size > 1 ? (
             <section className="gc-who" aria-labelledby="gc-who-h">

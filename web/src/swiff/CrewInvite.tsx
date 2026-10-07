@@ -1,13 +1,15 @@
-// The page a crew's link opens (/invite/<token>), in the approved lobby look:
-// who asks, which crew, how it works in three lines, and one button. Nothing
-// about it asks whether the friend has a gaming PC. Signed out, the button is
-// Steam sign-in, which comes back here and joins at once; signed in, it joins.
-// Either way the friend lands on the crew's page, where someone who joined is
-// shown the PC card first.
+// The page a crew's link opens (/invite/<token>), in the approved "ticket"
+// design (data/lanterel-design-round, b-invite impeccable): who asks you into
+// which crew and when its Zockrunde is, with one button that joins and says
+// yes, and beside it the Zockrunde as a ticket: its date, who is in, who
+// can't, the friend's own open spot, and whether a gaming PC is in yet.
+// "Can't make it" still joins, answering no. Signed out, the button is Steam
+// sign-in, which comes back here and joins at once with the answer chosen;
+// signed in, it joins. Either way the friend lands on the crew's page.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { crewTitle, sessionWhen } from "./crews";
-import { Avatar, LobbyArt, LobbyTitle, PcIcon, ProgressStops, useCrewText } from "./crewUi";
+import { sessionClock, sessionDate, sessionDay, sessionTime, sessionWeekday, type Rsvp } from "./crews";
+import { Avatar, LobbyArt, PcIcon, Tick, useCrewText } from "./crewUi";
 import { Glyph } from "./Glyph";
 import {
   cameBackToJoin,
@@ -30,7 +32,7 @@ type Opened = OpenedInvite | "invalid" | "unanswered" | null;
 export function CrewInvite({ swiff }: { swiff: Swiff }) {
   const { lang, t } = useCrewText();
   // Back from "Join with Steam": the tab noted it was going there to join, which counts once.
-  const fromSignIn = useMemo(() => inviteTokenAt(location.pathname) === "" && cameBackToJoin(), []);
+  const fromSignIn = useMemo(() => (inviteTokenAt(location.pathname) === "" ? cameBackToJoin() : null), []);
   const token = useMemo(() => inviteTokenAt(location.pathname) || rememberedInvite(), []);
   const { signedIn, signInKnown, openCrew, goStart } = swiff;
   const [opened, setOpened] = useState<Opened>(token ? null : "invalid");
@@ -58,10 +60,10 @@ export function CrewInvite({ swiff }: { swiff: Swiff }) {
     };
   }, [token, signedIn, attempt]);
 
-  const join = () => {
+  const join = (rsvp: Rsvp | null) => {
     setJoining(true);
     setJoinFailed(false);
-    void joinInvite(token).then((answer) => {
+    void joinInvite(token, rsvp).then((answer) => {
       setJoining(false);
       if (answer === "invalid") setOpened("invalid");
       else if (answer === "full") setJoinFailed("full");
@@ -84,7 +86,7 @@ export function CrewInvite({ swiff }: { swiff: Swiff }) {
     )
       return;
     joinedOnce.current = true;
-    join();
+    join(fromSignIn === "join" ? null : fromSignIn);
     // join reads only the token, which never changes.
   }, [fromSignIn, signInKnown, signedIn, opened]);
 
@@ -126,149 +128,176 @@ export function CrewInvite({ swiff }: { swiff: Swiff }) {
   const crew = opened;
   const name = crew.name;
   const crewName = crew.crewName ?? t("jn.crewWord");
-  const button = !signedIn ? (
-    <a className="lpill solid" href={signInForInvite(token)} onClick={() => meanToJoin()}>
-      {t("jn.joinSteam")}
+  const session = crew.session;
+  const answer: Rsvp | null = session ? "yes" : null;
+  const main = (
+    <>
+      <span className="ci-pill-t">
+        <span>{t(session ? "ci.in" : "ci.joinCrew")}</span>
+        {signedIn ? null : <small>{t("ci.withSteam")}</small>}
+      </span>
       <span className="lpill-c">
         <Glyph name="arrow" size={18} />
       </span>
-    </a>
-  ) : (
-    <button type="button" className="lpill solid" onClick={join} disabled={joining}>
-      {joining ? t("jn.joining") : t("jn.join")}
-      <span className="lpill-c">
-        <Glyph name="arrow" size={18} />
-      </span>
-    </button>
+    </>
   );
-  const others = crew.size - 1;
+  const buttons = !signedIn ? (
+    <>
+      <a className="lpill solid ci-main" href={signInForInvite(token)} onClick={() => meanToJoin(answer)}>
+        {main}
+      </a>
+      {session ? (
+        <a className="ci-txt" href={signInForInvite(token)} onClick={() => meanToJoin("no")}>
+          {t("ci.cant")}
+        </a>
+      ) : null}
+    </>
+  ) : (
+    <>
+      <button
+        type="button"
+        className="lpill solid ci-main"
+        onClick={() => join(answer)}
+        disabled={joining}
+        aria-busy={joining}
+      >
+        {main}
+      </button>
+      {session ? (
+        <button type="button" className="ci-txt" onClick={() => join("no")} disabled={joining}>
+          {t("ci.cant")}
+        </button>
+      ) : null}
+    </>
+  );
+  const founder = crew.guests.find((g) => g.admin)?.name ?? name;
+  const pcLine =
+    crew.state === "ready"
+      ? [crew.pcs > 1 ? t("ci.pcInMany", { n: crew.pcs }) : t("ci.pcIn"), t("ci.pcInLine")]
+      : crew.state === "offline"
+        ? [t("ci.pcOff"), t("ci.pcOffLine")]
+        : [t("ci.pcMissing"), t("ci.pcMissingLine")];
 
   return (
-    <main className="crew-lobby" data-testid="invite" data-state={crew.state}>
+    <main className="crew-lobby gc ci" data-testid="invite" data-state={crew.state}>
       <section className="lb-lobby" aria-labelledby="lb-h1">
         <LobbyArt />
-        <div className="lb-wrap lb-in">
-          <div>
-            <p className="lb-tag">
-              <Avatar name={name} index={0} />
-              <span>{t("jn.tag")}</span>
-            </p>
-            <LobbyTitle prose>
+        <div className="ci-wrap">
+          <div className="ci-lead">
+            <h1 id="lb-h1" className="ci-h">
               {name ? t("jn.wants", { name }) : t("jn.invited")} <b>{crewName}</b>.
-            </LobbyTitle>
-            {crew.session ? (
-              <p className="lb-state jn-when">
-                <b>{t("jn.when", { when: sessionWhen(lang, crew.session.at) })}</b>{" "}
-                {t("jn.going", { n: crew.session.yes })}
-              </p>
-            ) : null}
-            <p className="lb-state">
-              {crew.state === "ready"
-                ? crew.pcs > 1
-                  ? t("jn.readyMany", { n: crew.pcs })
-                  : t("jn.ready")
-                : crew.state === "offline"
-                  ? t("jn.offline")
-                  : t("jn.almost")}
+            </h1>
+            <span className="mark" aria-hidden="true" />
+            <p className="ci-when">
+              {session
+                ? t("ci.when", { day: sessionDate(lang, session.at), time: sessionTime(lang, session.at) })
+                : t("ci.noDate")}
             </p>
+            <div className="ci-acts">
+              {crew.member ? (
+                <>
+                  <p role="status">{t("jn.member")}</p>
+                  <button type="button" className="lpill solid" onClick={() => openCrew()}>
+                    {t("jn.toCrew")}
+                    <span className="lpill-c">
+                      <Glyph name="arrow" size={18} />
+                    </span>
+                  </button>
+                </>
+              ) : (
+                buttons
+              )}
+              {joinFailed ? (
+                <p role="alert">{t(joinFailed === "full" ? "crews.full" : "jn.joinFailed")}</p>
+              ) : null}
+            </div>
+            {crew.member ? null : <p className="ci-fine">{t("ci.fine")}</p>}
           </div>
 
-          <ol className="lb-slots" aria-label={t("jn.slots")}>
-            <li className="lb-slot">
-              <Avatar name={name} index={0} />
-              <span className="lb-who">
-                <span className="lb-name">{name ?? crewTitle(lang, crew)}</span>
-                <span className="lb-meta">
-                  {t("jn.founder")}
-                  {others > 0 ? ` · ${t("jn.others", { n: crew.size })}` : ""}
-                </span>
-              </span>
-              <span className="lchip go">{t("cp.readyChip")}</span>
-            </li>
-            <li className={crew.member ? "lb-slot" : "lb-slot you-wait"}>
-              <Avatar name={null} index={1} empty="?" />
-              <span className="lb-who">
-                <span className="lb-name">{t("jn.yourSeat")}</span>
-                <span className="lb-meta">{name ? t("jn.saving", { name }) : t("jn.savingAnon")}</span>
-              </span>
-              <span className="lchip wait">{t("jn.forYou")}</span>
-            </li>
-            <li className={crew.pcs ? "lb-slot" : "lb-slot pc"}>
-              <span className="av pc" aria-hidden="true">
-                <PcIcon />
-              </span>
-              <span className="lb-who">
-                <span className="lb-name">{t("jn.pc")}</span>
-                <span className="lb-meta">{t("jn.pcLine")}</span>
-              </span>
-              <span className={crew.pcs ? "lchip go" : "lchip wait"}>
-                {t(crew.pcs ? "jn.pcIn" : "jn.pcOpen")}
-              </span>
-            </li>
-            <li className="lb-slot open">
-              <Avatar name={null} index={2} empty="+" />
-              <span className="lb-who">
-                <span className="lb-name">{t("jn.everyone")}</span>
-                <span className="lb-meta">{t("jn.everyoneLine")}</span>
-              </span>
-              <span className="lchip free">{t("jn.everyoneChip")}</span>
-            </li>
-          </ol>
-          <ProgressStops crew={crew} label={t("cp.progress")} />
-
-          <ol className="jn-three">
-            <li>
-              <span className="n">1</span>
-              <b>{t("jn.step1")}</b>
-              <span>{t("jn.step1Line")}</span>
-            </li>
-            <li>
-              <span className="n">2</span>
-              <b>{t("jn.step2")}</b>
-              <span>{t("jn.step2Line")}</span>
-            </li>
-            <li>
-              <span className="n">3</span>
-              <b>{t("jn.step3")}</b>
-              <span>{t("jn.step3Line")}</span>
-            </li>
-          </ol>
-
-          <div className="lb-join">
-            {crew.member ? (
-              <>
-                <p role="status">{t("jn.member")}</p>
-                <button type="button" className="lpill solid" onClick={() => openCrew()}>
-                  {t("jn.toCrew")}
-                  <span className="lpill-c">
-                    <Glyph name="arrow" size={18} />
+          <section className="gc-tk ci-tk" aria-labelledby="ci-date">
+            <div className="gc-head">
+              <h2 className={session ? "gc-date" : "gc-date none"} id="ci-date">
+                <span className="gc-pre">{t("g.session")}</span>
+                {session ? (
+                  <>
+                    <span>{sessionDay(lang, session.at)}</span>{" "}
+                    <span className="gc-time">{sessionClock(session.at)}</span>
+                  </>
+                ) : (
+                  <span>{t("g.noDate")}</span>
+                )}
+              </h2>
+            </div>
+            <ul className="ci-people" aria-label={t("g.who")}>
+              {crew.guests.map((g, i) => (
+                <li key={i} className={session && g.rsvp === "no" ? "no" : undefined}>
+                  <Avatar name={g.name ?? t("cp.anon")} index={0} />
+                  <span className="gc-nm">
+                    <span>{g.name ?? t("cp.anon")}</span>
+                    {g.admin ? <small>{t("jn.founder")}</small> : null}
                   </span>
-                </button>
-              </>
-            ) : (
-              <>
-                {button}
-                <p>{t("jn.note")}</p>
-              </>
-            )}
-            {joinFailed ? (
-              <p role="alert">{t(joinFailed === "full" ? "crews.full" : "jn.joinFailed")}</p>
-            ) : null}
-          </div>
+                  {session ? <Answer rsvp={g.rsvp} /> : null}
+                </li>
+              ))}
+              {crew.member ? null : (
+                <li className="you">
+                  <Avatar name={null} index={1} empty="?" />
+                  <span className="gc-nm">
+                    <span>{t("ci.yourSeat")}</span>
+                    <small>{founder ? t("jn.saving", { name: founder }) : t("jn.savingAnon")}</small>
+                  </span>
+                  {session ? <Answer rsvp={null} /> : null}
+                </li>
+              )}
+            </ul>
+            <div className="ci-pc">
+              <PcIcon />
+              <p>
+                <b>{pcLine[0]}</b> <span>{pcLine[1]}</span>
+              </p>
+            </div>
+          </section>
         </div>
       </section>
 
-      {crew.member ? null : (
-        <div className="lb-wrap">
-          <section className="lb-last" aria-labelledby="jn-last-h">
-            <div>
-              <h2 id="jn-last-h">{name ? t("jn.waiting", { name }) : t("jn.waitingAnon")}</h2>
-              <span className="mark" aria-hidden="true" />
-            </div>
-            <div className="lb-join">{button}</div>
-          </section>
-        </div>
-      )}
+      <section className="ci-how" aria-labelledby="ci-how-h">
+        <h2 id="ci-how-h">{t("ci.how")}</h2>
+        <ol>
+          <li>
+            <p>
+              <b>{t(session ? "ci.how1" : "ci.how1Join")}</b>
+              <span>{t("ci.how1Line")}</span>
+            </p>
+          </li>
+          <li>
+            <p>
+              <b>
+                {session ? t("ci.how2", { day: sessionWeekday(lang, session.at, "long") }) : t("ci.how2Any")}
+              </b>
+              <span>{t("ci.how2Line")}</span>
+            </p>
+          </li>
+          <li>
+            <p>
+              <b>{t("ci.how3")}</b>
+              <span>{t("ci.how3Line")}</span>
+            </p>
+          </li>
+        </ol>
+      </section>
     </main>
+  );
+}
+
+/** Someone's answer to the Zockrunde as the ticket shows it: in, can't, or still open. */
+function Answer({ rsvp }: { rsvp: Rsvp | null }) {
+  const { t } = useCrewText();
+  return (
+    <span className={`gc-ans ${rsvp ?? ""}`}>
+      <span className="d" aria-hidden="true">
+        {rsvp === "yes" ? <Tick /> : null}
+      </span>
+      {t(rsvp === "yes" ? "g.ansYes" : rsvp === "no" ? "g.ansNo" : "g.ansOpen")}
+    </span>
   );
 }

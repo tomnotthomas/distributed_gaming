@@ -576,10 +576,9 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     setLost(null);
   }, [stopFollowing]);
 
-  /** Book `machineId` for the open game and launch on it; the claim follows by itself. */
-  const launchOn = useCallback(
-    (machineId: string) => {
-      if (!game) return;
+  /** Book `machineId` for `game` and launch on it; the claim follows by itself. */
+  const bookOn = useCallback(
+    (game: Game, machineId: string) => {
       // A booking already waiting (in the queue) gives way to this one.
       endCurrentBooking();
       const run = ++launchRun.current;
@@ -616,7 +615,14 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
         },
       );
     },
-    [game, session, follow, endCurrentBooking],
+    [session, follow, endCurrentBooking],
+  );
+  /** Book `machineId` for the open game and launch on it. */
+  const launchOn = useCallback(
+    (machineId: string) => {
+      if (game) bookOn(game, machineId);
+    },
+    [game, bookOn],
   );
 
   /** Queue for the open game: the server matches it, and the page claims the match by itself. */
@@ -1026,6 +1032,22 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     launchOn(picked.id);
   }, [demo, picked, gameId, signedIn, launchOn]);
 
+  /**
+   * Start `next` on the crew PC `machineId`, from the crew page: Ignition
+   * covers the page, and the crew page is still there once the session ends.
+   * Whoever starts first plays first; a PC taken a moment ago says so (`taken`).
+   */
+  const playOn = useCallback(
+    (next: Game, machineId: string) => {
+      if (!signedIn || demo) return;
+      track("launch_confirmed", { game: next.id, machine: machineId, from: "crew" });
+      setGameId(next.id);
+      setMachineId(machineId);
+      bookOn(next, machineId);
+    },
+    [signedIn, demo, bookOn],
+  );
+
   /** Launch on the machine the server offered in place of one that was taken. */
   const launchNextBest = useCallback(() => {
     const next = taken?.nextBest;
@@ -1354,6 +1376,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     setEstimateOpen,
     openGame,
     launch,
+    playOn,
     launchNextBest,
     joinQueue,
     leaveQueue,

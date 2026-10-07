@@ -2058,3 +2058,424 @@
     animation: none;
   }
 }
+
+/* The crew link's invite as the ticket (data/lanterel-design-round,
+   b-invite impeccable): who asks and when on the left with one button that
+   joins and says yes, the Zockrunde's ticket with who is coming on the right. */
+.gc.ci .lb-art {
+  height: clamp(300px, 34vw, 460px);
+}
+.ci .ci-wrap {
+  display: grid;
+  gap: 28px;
+  width: 100%;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: clamp(40px, 7vw, 96px) clamp(16px, 4.44vw, 56px) 56px;
+}
+.ci .ci-lead {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+  min-width: 0;
+}
+.ci .ci-h {
+  margin: 0;
+  font: 300 clamp(40px, 5.4vw, 76px) / 1.02 var(--f);
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+.ci .ci-h b {
+  font-weight: 600;
+}
+.ci .ci-lead .mark {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+}
+.ci .ci-when {
+  margin: 0;
+  max-width: 34ch;
+  font: 400 clamp(18px, 1.6vw, 21px) / 1.4 var(--f);
+}
+.ci .ci-acts {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+  margin-top: 4px;
+}
+.ci .ci-acts p {
+  margin: 0;
+}
+.ci .ci-main {
+  min-height: 64px;
+  text-align: left;
+}
+.ci .ci-pill-t {
+  display: grid;
+}
+.ci .ci-pill-t small {
+  margin-top: 3px;
+  font: 400 13px/1.2 var(--f);
+  opacity: 0.75;
+}
+.ci .ci-txt {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: 500 15px/1.3 var(--f);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--pline-2);
+  cursor: pointer;
+}
+.ci .ci-txt:hover {
+  text-decoration-color: currentColor;
+}
+.ci .ci-fine {
+  margin: 0;
+  font-size: 14.5px;
+  color: var(--on-paper-2);
+}
+.ci .ci-tk .gc-head {
+  grid-template-columns: 1fr;
+}
+.ci .ci-tk .gc-date {
+  font-size: clamp(30px, 3.6vw, 48px);
+}
+.ci .ci-people {
+  display: grid;
+  margin: 0;
+  padding: 6px clamp(18px, 2.6vw, 30px) 10px;
+  list-style: none;
+  border-top: 1.5px dashed var(--pline-2);
+}
+.ci .ci-people li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--pline);
+}
+.ci .ci-people li:last-child {
+  border-bottom: 0;
+}
+.ci .ci-people .av {
+  width: 40px;
+  height: 40px;
+  font-size: 16px;
+}
+.ci .ci-people .av,
+.gc .pl-queue .av {
+  background: var(--on-paper);
+  color: var(--paper);
+}
+.ci .ci-people .no .av {
+  background: transparent;
+  color: var(--on-paper);
+  border: 1.5px solid var(--pline-2);
+}
+.ci .ci-people .you .av {
+  background: transparent;
+  color: var(--on-paper);
+  border: 1.5px dashed var(--on-paper);
+}
+.ci .ci-pc {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 16px clamp(18px, 2.6vw, 30px);
+  border-top: 1.5px dashed var(--pline-2);
+  border-radius: 0 0 calc(var(--r) - 2px) calc(var(--r) - 2px);
+  background: var(--on-paper);
+  color: var(--paper);
+}
+.ci .ci-pc svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: var(--lime);
+  stroke-width: 1.6;
+}
+.ci .ci-pc p {
+  margin: 0;
+  line-height: 1.5;
+}
+.ci .ci-pc b {
+  font-weight: 500;
+}
+.ci .ci-pc span {
+  font-size: 14.5px;
+  color: rgb(232 233 232 / 0.75);
+}
+.ci .ci-how {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 8px clamp(16px, 4.44vw, 56px) 80px;
+}
+.ci .ci-how h2 {
+  margin: 0 0 18px;
+  font: 300 clamp(26px, 2.6vw, 34px) / 1.1 var(--f);
+}
+.ci .ci-how ol {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: how;
+}
+.ci .ci-how li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--pline-2);
+}
+.ci .ci-how li::before {
+  counter-increment: how;
+  content: counter(how);
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--on-paper);
+  color: var(--paper);
+  font: 500 14px/1 var(--f);
+}
+.ci .ci-how p {
+  margin: 0;
+}
+.ci .ci-how b {
+  display: block;
+  font: 500 17px/1.3 var(--f);
+}
+.ci .ci-how span {
+  color: var(--on-paper-2);
+}
+@media (min-width: 760px) {
+  .ci .ci-how ol {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+  }
+}
+@media (min-width: 1000px) {
+  .ci .ci-wrap {
+    grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
+    align-items: center;
+    gap: clamp(40px, 6vw, 96px);
+    padding-bottom: 72px;
+  }
+}
+@media (min-width: 1600px) {
+  .ci .ci-wrap,
+  .ci .ci-how {
+    max-width: 1400px;
+  }
+}
+@media (max-width: 699px) {
+  .ci .ci-acts {
+    justify-items: stretch;
+  }
+  .ci .ci-main {
+    justify-content: space-between;
+    white-space: normal;
+  }
+}
+
+/* The crew page's playing step (data/lanterel-design-round, e-start
+   impeccable): pick one of your games and start it on the crew's PC; while
+   someone plays, watch or get in line. */
+.gc .pl-live {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--on-paper);
+  color: var(--paper);
+  font: 500 12px/1 var(--mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.gc .pl-live::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--lime);
+}
+.gc .pl {
+  display: grid;
+  gap: 14px;
+}
+.gc .pl h2 {
+  margin: 0;
+}
+.gc .pl-k {
+  margin: 4px 0 0;
+  font: 500 15px/1.2 var(--f);
+}
+.gc .pl-games {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(150px, 44%), 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.gc .pl-game {
+  position: relative;
+  display: grid;
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--pline-2);
+  border-radius: 14px;
+  background: #fff;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.2s var(--ease),
+    box-shadow 0.2s var(--ease);
+}
+.gc .pl-game img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
+.gc .pl-gt {
+  padding: 10px 12px 12px;
+}
+.gc .pl-gt b {
+  font: 500 15.5px/1.2 var(--f);
+}
+.gc .pl-game:hover {
+  border-color: var(--on-paper);
+}
+.gc .pl-game[aria-pressed="true"] {
+  border: 2px solid var(--on-paper);
+  box-shadow: 0 10px 20px -16px rgb(19 19 19 / 0.5);
+}
+.gc .pl-sel {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--pline-2);
+  border-radius: 50%;
+  background: rgb(244 244 242 / 0.92);
+}
+.gc .pl-sel svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  opacity: 0;
+}
+.gc .pl-game[aria-pressed="true"] .pl-sel {
+  border-color: var(--lime-edge);
+  background: var(--lime);
+}
+.gc .pl-game[aria-pressed="true"] .pl-sel svg {
+  opacity: 1;
+}
+.gc .pl-now {
+  display: grid;
+  gap: 16px;
+}
+.gc .pl-now-b {
+  display: grid;
+  gap: 14px;
+  align-content: center;
+}
+.gc .pl-shot {
+  overflow: hidden;
+  aspect-ratio: 16 / 7;
+  border-radius: 14px;
+  background: var(--on-paper);
+}
+.gc .pl-shot img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 60% 30%;
+}
+.gc .pl-cap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 0;
+  font-size: 15px;
+  color: var(--on-paper-2);
+}
+.gc .pl-queue {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.gc .pl-queue li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 14px 0 4px;
+  border: 1px solid var(--pline-2);
+  border-radius: 999px;
+  background: #fff;
+  font: 500 14.5px/1 var(--f);
+}
+.gc .pl-queue li.me {
+  border-color: var(--on-paper);
+}
+.gc .pl-queue .av {
+  width: 30px;
+  height: 30px;
+  font-size: 13px;
+}
+.gc .pl-queue small {
+  font: 400 12.5px/1 var(--mono);
+  color: var(--on-paper-2);
+}
+.gc .pl [role="alert"] {
+  margin: 0;
+  font-weight: 500;
+}
+.gc .pl-pcline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 22px 0 0;
+  font-size: 15px;
+  color: var(--on-paper-2);
+}
+.gc .pl-pcline svg {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: var(--on-paper);
+  stroke-width: 1.6;
+}
+@media (min-width: 900px) {
+  .gc .pl-now {
+    grid-template-columns: 1.1fr 1fr;
+    align-items: center;
+  }
+}

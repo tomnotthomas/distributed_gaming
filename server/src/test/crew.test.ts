@@ -133,7 +133,7 @@ describe("crews", () => {
         },
       );
       assert.deepEqual(crew.members, [
-        { id: crew.memberId, name: "Alex", you: true, admin: true, pc: null, pcs: 0, rsvp: null },
+        { id: crew.memberId, name: "Alex", you: true, admin: true, pc: null, pcs: 0, rsvp: null, next: null },
       ]);
       assert.deepEqual(await platform.crews(ALEX), [
         {
@@ -205,6 +205,7 @@ describe("crews", () => {
     it("joins whoever opens it to that crew, whoever in it shared it, once", async () => {
       const { crewId, inviteId } = await hostJoinsAlex();
       // The host shares the same link on: Jo lands in Alex's crew, not in one of the host's.
+      now += 1000;
       assert.deepEqual(await platform.joinCrew(inviteId, JO, "Jo"), {
         ok: true,
         id: crewId,
@@ -223,6 +224,11 @@ describe("crews", () => {
         pcs: 0,
         session: null,
         member: true,
+        guests: [
+          { name: "Alex", admin: true, rsvp: null },
+          { name: "Sam", admin: false, rsvp: null },
+          { name: "Jo", admin: false, rsvp: null },
+        ],
       });
       assert.equal((await platform.invite(inviteId, STRANGER))?.member, false);
       assert.deepEqual(await platform.joinCrew("no-such-invite", STRANGER), {
@@ -290,7 +296,9 @@ describe("crews", () => {
       const crew = await platform.crew(crewId, ALEX);
       assert.equal(crew?.state, "ready");
       assert.equal(crew?.pcs, 1);
-      assert.deepEqual(crew?.machines, [{ name: "Nova-01", owner: "Sam", mine: false, state: "ready" }]);
+      assert.deepEqual(crew?.machines, [
+        { id: "pc-1", name: "Nova-01", owner: "Sam", mine: false, state: "ready", playing: null },
+      ]);
       assert.equal((await platform.crew(crewId, HOST))?.machines[0]?.mine, true);
 
       // Away and back: the crew knows, and nobody is told twice.
@@ -782,6 +790,7 @@ describe("crew API", () => {
         pcs: 0,
         session: null,
         member: false,
+        guests: [{ name: "Alex", admin: true, rsvp: null }],
       },
     });
     assert.equal((await call("GET", `/api/invites/${body.crew.token}`, ALEX)).body.crew.member, true);
@@ -805,6 +814,99 @@ describe("crew API", () => {
     assert.equal(own.body.joined, false);
   });
 
+  it("shows who is coming on the invite, and joins with the friend's answer to the Zockrunde", async () => {
+    const { body } = await call("POST", "/api/crews", ALEX, {});
+    const crew = body.crew as { id: string; token: string };
+    // With no Zockrunde set, an answer given on joining is left out: there is nothing to answer.
+    const early = await call("POST", `/api/invites/${crew.token}/join`, JO, { rsvp: "yes" });
+    assert.equal(early.status, 200);
+    assert.deepEqual((await call("GET", `/api/invites/${crew.token}`)).body.crew.guests, [
+      { name: "Alex", admin: true, rsvp: null },
+      { name: "Jo", admin: false, rsvp: null },
+    ]);
+
+    const at = now + 24 * 3600 * 1000;
+    await call("POST", `/api/crews/${crew.id}/session`, ALEX, { at });
+    now += 1000;
+    const joined = await call("POST", `/api/invites/${crew.token}/join`, HOST, { rsvp: "yes" });
+    assert.equal(joined.status, 200);
+    assert.deepEqual(joined.body.crew.session, { at, yes: 2, no: 0 });
+    // "Can't make it, but join anyway" from a friend already in changes only the answer.
+    const cant = await call("POST", `/api/invites/${crew.token}/join`, JO, { rsvp: "no" });
+    assert.equal(cant.body.joined, false);
+    assert.deepEqual((await call("GET", `/api/invites/${crew.token}`)).body.crew.guests, [
+      { name: "Alex", admin: true, rsvp: "yes" },
+      { name: "Jo", admin: false, rsvp: "no" },
+      { name: "Sam", admin: false, rsvp: "yes" },
+    ]);
+    // Anything but yes or no joins without an answer.
+    await call("POST", `/api/crews/${crew.id}/session`, ALEX, { at: at + 3600 * 1000 });
+    await call("POST", `/api/invites/${crew.token}/join`, HOST, { rsvp: "maybe" });
+    const members = (await call("GET", `/api/crews/${crew.id}`, HOST)).body.crew.members;
+    assert.deepEqual(
+      members.map((m: { name: string; rsvp: string | null }) => [m.name, m.rsvp]),
+      [
+        ["Alex", "yes"],
+        ["Jo", null],
+        ["Sam", null],
+      ],
+    );
+  });
+
+  it("lines up who plays next on the crew's PC, and takes them out of line once they start", async () => {
+    const crew = await joinByLink();
+    await call("POST", `/api/crews/${crew.id}/pc`, HOST, { pc: "yes" });
+    await offerPc("pc-1");
+    const read = await call("GET", `/api/crews/${crew.id}`, ALEX);
+    assert.deepEqual(
+      read.body.crew.machines.map((m: { id: string; playing: unknown }) => [m.id, m.playing]),
+      [["pc-1", null]],
+    );
+    assert.equal((await call("POST", `/api/crews/${crew.id}/next`, STRANGER, { gameId: 730 })).status, 404);
+    for (const bad of ["730", -1, 1.5, true])
+      assert.equal((await call("POST", `/api/crews/${crew.id}/next`, ALEX, { gameId: bad })).status, 400);
+
+    const host = await call("POST", `/api/crews/${crew.id}/next`, HOST, { gameId: 730 });
+    assert.equal(host.status, 200);
+    now += 1000;
+    await call("POST", `/api/crews/${crew.id}/next`, ALEX, { gameId: 570 });
+    now += 1000;
+    // Changing the game keeps the place in line.
+    const changed = await call("POST", `/api/crews/${crew.id}/next`, HOST, { gameId: 440 });
+    assert.deepEqual(
+      changed.body.crew.members.map((m: { name: string; next: unknown }) => [m.name, m.next]),
+      [
+        ["Alex", { gameId: 570, at: now - 1000 }],
+        ["Sam", { gameId: 440, at: now - 2000 }],
+      ],
+    );
+
+    // Alex starts first: he is out of line, and plays on the crew's PC for everyone to see.
+    const booked = await call("POST", "/api/bookings", ALEX, { gameId: 730, minutes: 30, machineId: "pc-1" });
+    assert.equal(booked.status, 202);
+    const claimed = await platform.claim(booked.body.bookingId, ALEX);
+    assert.ok(claimed.ok);
+    const seen = (await call("GET", `/api/crews/${crew.id}`, HOST)).body.crew;
+    assert.deepEqual(
+      seen.members.map((m: { name: string; next: unknown }) => [m.name, m.next]),
+      [
+        ["Alex", null],
+        ["Sam", { gameId: 440, at: now - 2000 }],
+      ],
+    );
+    const playing = seen.machines[0].playing;
+    assert.equal(playing.player, "Alex");
+    assert.equal(playing.you, false);
+    assert.equal(playing.gameId, 730);
+    assert.equal(playing.starting, true);
+    assert.equal(typeof playing.sessionId, "string");
+    assert.equal((await call("GET", `/api/crews/${crew.id}`, ALEX)).body.crew.machines[0].playing.you, true);
+
+    // Leaving the line.
+    const left = await call("POST", `/api/crews/${crew.id}/next`, HOST, { gameId: null });
+    assert.equal(left.body.crew.members[1].next, null);
+  });
+
   it("brings a member's PC to the crew, or takes it out; there is no putting it off", async () => {
     const crew = await joinByLink();
     await offerPc("pc-1");
@@ -813,7 +915,9 @@ describe("crew API", () => {
     assert.equal((await call("POST", `/api/crews/${crew.id}/pc`, HOST, { pc: "later" })).status, 400);
     const yes = await call("POST", `/api/crews/${crew.id}/pc`, HOST, { pc: "yes" });
     assert.equal(yes.body.crew.state, "ready");
-    assert.deepEqual(yes.body.crew.machines, [{ name: "Nova-01", owner: "Sam", mine: true, state: "ready" }]);
+    assert.deepEqual(yes.body.crew.machines, [
+      { id: "pc-1", name: "Nova-01", owner: "Sam", mine: true, state: "ready", playing: null },
+    ]);
     const off = await call("POST", `/api/crews/${crew.id}/pc`, HOST, { pc: "off" });
     assert.equal(off.body.crew.state, "no-pc");
   });

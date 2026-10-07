@@ -23,6 +23,7 @@ import {
   type MyCrew,
 } from "./crews";
 import { CrewReadyBanner, CrewStrip, CrewsCard } from "./CrewsCard";
+import { GAMES, type Spot } from "./data";
 import { inviteLink, inviteTokenAt, shareTarget, signInForInvite, withoutInviteTokens } from "./invite";
 import { pathOf, screenAt } from "./route";
 import { ScreenLang } from "./screenCopy";
@@ -66,6 +67,14 @@ function fakeSwiff(over: Record<string, unknown> = {}): Swiff {
     goStart: vi.fn(),
     foundCrew: vi.fn(),
     inviteShared: vi.fn(),
+    games: [],
+    spots: new Map(),
+    crewLive: [],
+    playOn: vi.fn(),
+    watch: vi.fn(),
+    phase: "idle",
+    taken: null,
+    bookingFailed: false,
     ...over,
   } as unknown as Swiff;
 }
@@ -73,9 +82,18 @@ function fakeSwiff(over: Record<string, unknown> = {}): Swiff {
 const atCrew = (id: string, over: Record<string, unknown> = {}) =>
   fakeSwiff({ crewRoute: { crew: id }, ...over });
 
-const LENA: CrewMember = { id: "m-lena", name: "Lena", you: true, admin: true, pc: null, pcs: 0, rsvp: null };
-const SAM: CrewMember = { id: "m-sam", name: "Sam", you: false, admin: false, pc: null, pcs: 0, rsvp: null };
-const MAX: CrewMember = { id: "m-max", name: "Max", you: false, admin: false, pc: "yes", pcs: 1, rsvp: null };
+const LENA: CrewMember = {
+  id: "m-lena",
+  name: "Lena",
+  you: true,
+  admin: true,
+  pc: null,
+  pcs: 0,
+  rsvp: null,
+  next: null,
+};
+const SAM: CrewMember = { ...LENA, id: "m-sam", name: "Sam", you: false, admin: false };
+const MAX: CrewMember = { ...LENA, id: "m-max", name: "Max", you: false, admin: false, pc: "yes", pcs: 1 };
 
 /** Lena's crew as she, its founder, sees it right after founding it. */
 function crewOf(over: Partial<CrewDetail> = {}): CrewDetail {
@@ -118,7 +136,7 @@ function readyCrew(over: Partial<CrewDetail> = {}): CrewDetail {
     state: "ready",
     pcs: 1,
     members: [LENA, MAX],
-    machines: [{ name: "DESKTOP-7Q", owner: "Max", mine: false, state: "ready" }],
+    machines: [{ id: "q-max", name: "DESKTOP-7Q", owner: "Max", mine: false, state: "ready", playing: null }],
     ...over,
   });
 }
@@ -651,15 +669,88 @@ describe("CrewPage: the guided crew page", () => {
     expect(screen.getByRole("button", { name: "I've got one after all" })).toBeInTheDocument();
   });
 
-  it("is ready to play once a PC is in, and Play now goes to the games", async () => {
+  // Two of the player's games, both runnable on a PC they may use.
+  const [ER, CS] = [GAMES[0]!, GAMES[1]!];
+  const free: Spot = { free: 1, ready: 1, busy: 0, best: null, back: null };
+  const library = {
+    games: [ER, CS, GAMES[2]!],
+    spots: new Map([
+      [ER.id, free],
+      [CS.id, { ...free, ready: 0 }],
+    ]),
+  };
+
+  it("starts the game the player picks on the crew's free PC: first come, first play", async () => {
     fetchFrom({ "GET /api/crews/c1": [200, { crew: readyCrew({ session: dated, shared: true }) }] });
-    const swiff = atCrew("c1");
+    const swiff = atCrew("c1", library);
     render(<CrewPage swiff={swiff} />);
-    expect(await screen.findByRole("heading", { name: "You're ready to play!" })).toBeInTheDocument();
-    expect(screen.getByText("Max's PC is in. Pick a game and start playing.")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "The gaming PC is free. Who goes first?" }),
+    ).toBeInTheDocument();
     expect(stubs()).toEqual(["Date:done", "Get your people:done", "Gaming PC:done", "Play:now"]);
-    fireEvent.click(screen.getByRole("button", { name: /Play now/ }));
-    expect(swiff.goHome).toHaveBeenCalled();
+    expect(screen.getByText("Your games that run on Max's PC")).toBeInTheDocument();
+    // Only games a PC can run are offered, the readiest first, and it is picked.
+    const tiles = screen
+      .getAllByRole("button", { pressed: false })
+      .concat(screen.getAllByRole("button", { pressed: true }));
+    expect(tiles.map((b) => b.textContent).sort()).toEqual([CS.title, ER.title].sort());
+    expect(screen.getByRole("button", { name: ER.title })).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getByText("You scan a QR code once with the Steam app. Max doesn't have to do anything."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Max's PC is on. It plays for this crew only.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: CS.title }));
+    fireEvent.click(screen.getByRole("button", { name: `Start ${CS.title}` }));
+    expect(swiff.playOn).toHaveBeenCalledWith(CS, "q-max");
+  });
+
+  it("says when someone was quicker to start", async () => {
+    fetchFrom({ "GET /api/crews/c1": [200, { crew: readyCrew({ session: dated, shared: true }) }] });
+    const swiff = atCrew("c1", library);
+    const { rerender } = render(<CrewPage swiff={swiff} />);
+    fireEvent.click(await screen.findByRole("button", { name: `Start ${ER.title}` }));
+    rerender(<CrewPage swiff={{ ...swiff, taken: { nextBest: null } } as Swiff} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("someone else just started");
+  });
+
+  it("lets the others watch whoever plays, or get in line to go next", async () => {
+    const playing = {
+      sessionId: "s1",
+      player: "Max",
+      you: false,
+      gameId: ER.appid,
+      startedAt: NOON.getTime() - 24 * 60_000,
+      starting: false,
+    };
+    const busy = readyCrew({
+      session: dated,
+      shared: true,
+      machines: [{ ...readyCrew().machines[0]!, state: "busy", playing }],
+    });
+    const queued = {
+      ...busy,
+      members: [{ ...LENA, next: { gameId: CS.appid, at: 5 } }, { ...MAX }],
+    };
+    const calls = fetchFrom({
+      "GET /api/crews/c1": [200, { crew: busy }],
+      "POST /api/crews/c1/next": [200, { crew: queued }],
+    });
+    const entry = { sessionId: "s1", starting: false, player: "Max", gameId: ER.appid, watching: 2 };
+    const swiff = atCrew("c1", { ...library, crewLive: [entry] });
+    render(<CrewPage swiff={swiff} />);
+    expect(await screen.findByRole("heading", { name: `Max is playing ${ER.title}` })).toBeInTheDocument();
+    expect(screen.getByText("On now")).toBeInTheDocument();
+    expect(screen.getByText("for 24 min")).toBeInTheDocument();
+    expect(screen.getByText("2 watching")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Watch/ }));
+    expect(swiff.watch).toHaveBeenCalledWith(entry);
+
+    fireEvent.click(screen.getByRole("button", { name: /I want to go next/ }));
+    await screen.findByText("Who's next");
+    expect(calls).toContainEqual(["POST", "/api/crews/c1/next", `{"gameId":${ER.appid}}`]);
+    expect(screen.getByText("When Max stops, whoever is first in line goes next.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Leave the line" })).toBeInTheDocument();
+    expect(screen.getByText("What do you want to play?")).toBeInTheDocument();
   });
 
   it("counts the PCs when more than one is in, and says when none is on", async () => {
@@ -668,16 +759,17 @@ describe("CrewPage: the guided crew page", () => {
       shared: true,
       pcs: 2,
       machines: [
-        { name: null, owner: "Max", mine: false, state: "ready" },
-        { name: null, owner: "Sam", mine: false, state: "busy" },
+        { id: "q-max", name: null, owner: "Max", mine: false, state: "ready", playing: null },
+        { id: "q-sam", name: null, owner: "Sam", mine: false, state: "busy", playing: null },
       ],
     });
     let crew = two;
     const { rerender } =
       (fetchFrom({ "GET /api/crews/c1": () => [200, { crew }] }), render(<CrewPage swiff={atCrew("c1")} />));
     expect(
-      await screen.findByText("2 gaming PCs are in. Pick a game and start playing."),
+      await screen.findByRole("heading", { name: "The gaming PC is free. Who goes first?" }),
     ).toBeInTheDocument();
+    expect(screen.getByText("Loading your games…")).toBeInTheDocument();
     crew = { ...two, state: "offline", pcs: 1, machines: [{ ...two.machines[0]!, state: "offline" }] };
     rerender(<CrewPage swiff={atCrew("c1", { crewChanges: 1 })} />);
     expect(await screen.findByRole("heading", { name: "No gaming PC is on right now" })).toBeInTheDocument();
@@ -787,6 +879,7 @@ describe("CrewInvite", () => {
     pcs: 0,
     session: null,
     member: false,
+    guests: [{ name: "Lena", admin: true, rsvp: null }],
   };
   const JOINED = { id: "c1", crew: { ...OPEN, member: undefined, size: 3 }, joined: true };
 
@@ -797,7 +890,9 @@ describe("CrewInvite", () => {
     const calls = fetchFrom({ [`/api/invites/${TOKEN}`]: [200, { crew: OPEN }] });
     render(<CrewInvite swiff={fakeSwiff({ signedIn: false, screen: "invite" })} />);
     expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("Lena wants you in the crew.");
-    expect(screen.getByText("Almost ready. A gaming PC is still missing.")).toBeInTheDocument();
+    expect(screen.getByText("Gaming PC: still missing.")).toBeInTheDocument();
+    expect(screen.getByText("No date yet. Join, and you'll plan a session together.")).toBeInTheDocument();
+    expect(screen.queryByText(/Can't make it/)).toBeNull();
     const links = screen.getAllByRole("link", { name: /Join with Steam/ });
     expect(links.length).toBeGreaterThan(0);
     for (const link of links) expect(link).toHaveAttribute("href", "/auth/steam/login?to=%2Finvite");
@@ -807,15 +902,77 @@ describe("CrewInvite", () => {
     expect(calls.some(([method]) => method === "POST")).toBe(false);
   });
 
-  it("says when the crew's session is and how many are in so far", async () => {
+  const when = Date.UTC(2026, 9, 9, 19); // 21:00 in Berlin
+  const DATED = {
+    ...OPEN,
+    size: 3,
+    session: { at: when, yes: 1, no: 1 },
+    guests: [
+      { name: "Lena", admin: true, rsvp: "yes" },
+      { name: "Tom", admin: false, rsvp: "no" },
+    ],
+  };
+
+  it("puts the session's date and who is coming on the ticket, with the friend's own spot open", async () => {
     at(`/invite/${TOKEN}`);
-    const when = Date.UTC(2026, 9, 9, 19); // 21:00 in Berlin
-    fetchFrom({
-      [`/api/invites/${TOKEN}`]: [200, { crew: { ...OPEN, session: { at: when, yes: 2, no: 1 } } }],
-    });
+    fetchFrom({ [`/api/invites/${TOKEN}`]: [200, { crew: DATED }] });
     render(<CrewInvite swiff={fakeSwiff({ signedIn: false })} />);
-    expect(await screen.findByText("Session on Friday 9 October, 9 pm.")).toBeInTheDocument();
-    expect(screen.getByText(/In so far: 2\. Join and say yes or no\./)).toBeInTheDocument();
+    expect(await screen.findByText("Session on Friday 9 October, at 9 pm. Are you in?")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 2, name: /Session\s*Fri 9 Oct\s*21:00/ }),
+    ).toBeInTheDocument();
+    const rows = screen.getByRole("list", { name: "Who's coming" }).querySelectorAll("li");
+    expect([...rows].map((li) => li.textContent)).toEqual([
+      "LLenastarted the crewIn",
+      "TTomCan't",
+      "?Your spotLena's saving it for you.No answer yet",
+    ]);
+    expect(screen.getByRole("link", { name: /I'm in\s*Join with Steam/ })).toBeInTheDocument();
+    expect(screen.getByText("On Friday, open the crew page")).toBeInTheDocument();
+  });
+
+  it("joins and says yes with the one button, or joins and says no", async () => {
+    at(`/invite/${TOKEN}`);
+    const calls = fetchFrom({
+      [`/api/invites/${TOKEN}`]: [200, { crew: DATED }],
+      [`POST /api/invites/${TOKEN}/join`]: [200, JOINED],
+    });
+    const swiff = fakeSwiff();
+    const { unmount } = render(<CrewInvite swiff={swiff} />);
+    fireEvent.click(await screen.findByRole("button", { name: "I'm in" }));
+    await waitFor(() => expect(swiff.openCrew).toHaveBeenCalledWith("c1"));
+    unmount();
+    at(`/invite/${TOKEN}`);
+    render(<CrewInvite swiff={swiff} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Can't make it, but join the crew anyway" }));
+    await waitFor(() => expect(swiff.openCrew).toHaveBeenCalledTimes(2));
+    expect(calls.filter(([method]) => method === "POST")).toEqual([
+      ["POST", `/api/invites/${TOKEN}/join`, '{"rsvp":"yes"}'],
+      ["POST", `/api/invites/${TOKEN}/join`, '{"rsvp":"no"}'],
+    ]);
+  });
+
+  it("keeps the answer a signed-out friend chose through Steam, and gives it on joining", async () => {
+    at(`/invite/${TOKEN}`);
+    fetchFrom({ [`/api/invites/${TOKEN}`]: [200, { crew: DATED }] });
+    const { unmount } = render(<CrewInvite swiff={fakeSwiff({ signedIn: false })} />);
+    const cant = await screen.findByRole("link", { name: "Can't make it, but join the crew anyway" });
+    cant.addEventListener("click", (event) => event.preventDefault());
+    fireEvent.click(cant);
+    expect(sessionStorage.getItem("swiff.inviteJoin")).toBe("no");
+    unmount();
+
+    at("/invite");
+    const calls = fetchFrom({
+      [`/api/invites/${TOKEN}`]: [200, { crew: DATED }],
+      [`POST /api/invites/${TOKEN}/join`]: [200, JOINED],
+    });
+    const swiff = fakeSwiff();
+    render(<CrewInvite swiff={swiff} />);
+    await waitFor(() => expect(swiff.openCrew).toHaveBeenCalledWith("c1"));
+    expect(calls.filter(([method]) => method === "POST")).toEqual([
+      ["POST", `/api/invites/${TOKEN}/join`, '{"rsvp":"no"}'],
+    ]);
   });
 
   it("names the crew by its own name", async () => {
@@ -830,12 +987,17 @@ describe("CrewInvite", () => {
     expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent(
       "Lena wants you in Friday Squad.",
     );
-    expect(screen.getByText("Ready to play. 2 gaming PCs are in.")).toBeInTheDocument();
+    expect(screen.getByText("2 gaming PCs: in.")).toBeInTheDocument();
   });
 
   it("speaks of the crew, never a blank name, when Steam gave the admin none", async () => {
     at(`/invite/${TOKEN}`);
-    fetchFrom({ [`/api/invites/${TOKEN}`]: [200, { crew: { ...OPEN, name: null } }] });
+    fetchFrom({
+      [`/api/invites/${TOKEN}`]: [
+        200,
+        { crew: { ...OPEN, name: null, guests: [{ name: null, admin: true, rsvp: null }] } },
+      ],
+    });
     render(<CrewInvite swiff={fakeSwiff({ signedIn: false })} />);
     expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("You're invited to the crew.");
     expect(screen.getByText("It's waiting for you.")).toBeInTheDocument();
@@ -942,7 +1104,7 @@ describe("CrewInvite", () => {
     const [link] = await screen.findAllByRole("link", { name: /Join with Steam/ });
     link!.addEventListener("click", (event) => event.preventDefault());
     fireEvent.click(link!);
-    expect(sessionStorage.getItem("swiff.inviteJoin")).toBe("1");
+    expect(sessionStorage.getItem("swiff.inviteJoin")).toBe("join");
   });
 
   it("tells someone already in the crew so, and takes them to it", async () => {
