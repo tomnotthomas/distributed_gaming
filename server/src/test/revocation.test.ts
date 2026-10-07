@@ -455,6 +455,9 @@ describe("ticket that runs out while its join waits on the database", () => {
     const joinsHeard = () => host.received.filter((m) => m.type === "peer-joined").length;
     const joinsBefore = joinsHeard();
 
+    // Hold only the last 3 s or so: the server gives up on a lock after 5 s
+    // (LIMITS.lockMs), and a join that gave up would be no late join at all.
+    await wait(Math.max(0, expiresAt - 3_000 - Date.now()));
     const release = await server.holdSessions();
     assert.ok(Date.now() < expiresAt - 500, "the ticket must still be valid when the late join arrives");
     const late = server.peer({ type: "join", ticket });
