@@ -75,6 +75,11 @@ export default defineConfig({
       PORT: String(PORT),
       ...E2E_ENV,
       MARKETING_PAGES: "on",
+      // The wall, the game page and the estimate are the paid marketplace's
+      // (server/src/features.ts): the specs drive them at "/" and "/share".
+      // The crews-only start page is tested on the real server in
+      // server/src/test/marketing.test.ts.
+      PAID_GAMING: "on",
       SITE_ORIGIN: `http://lanterel.localhost:${PORT}`,
     },
     reuseExistingServer: !process.env.CI,

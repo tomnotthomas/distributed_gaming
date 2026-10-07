@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DemoApp, Shell } from "./App";
+import { fetchPaidGaming, unpaid } from "./features";
 import { DEMO_SCREENS, evening, type DemoScreen } from "./demo";
 import {
   IDLE_RUN,
@@ -148,7 +149,7 @@ function actions(): HostActions {
 /** The app on a fixed view of this PC, at `step`. */
 function renderReal(step: Step, live: Live, more: Partial<HostView> = {}) {
   const host: Host = { view: realView(live, more), actions: actions() };
-  render(<Shell host={host} step={step} onStep={vi.fn()} setupDone finishSetup={vi.fn()} />);
+  render(<Shell host={host} step={step} onStep={vi.fn()} setupDone finishSetup={vi.fn()} paid />);
   return host.actions;
 }
 
@@ -222,6 +223,9 @@ function expectNoDemoData() {
 }
 
 describe("demo", () => {
+  // The design's every screen, paid gaming's too, as `--demo --paid` opens it.
+  beforeEach(() => history.replaceState(null, "", "/?demo=1&paid=1"));
+  afterEach(() => history.replaceState(null, "", "/"));
   const HEADINGS: Record<Exclude<DemoScreen, "tray">, string> = {
     pc: "Your PC",
     steam: "Steam is ready",
@@ -401,7 +405,7 @@ describe("going live", () => {
       }),
       actions: actions(),
     };
-    render(<Shell host={host} step="live" onStep={go} setupDone finishSetup={vi.fn()} />);
+    render(<Shell host={host} step="live" onStep={go} setupDone finishSetup={vi.fn()} paid />);
     // Never a screen that only sends the owner back: rental mode's own, at its next to-do.
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Install rental mode");
     expect(screen.queryByText(/Finish rental mode first/)).not.toBeInTheDocument();
@@ -496,7 +500,9 @@ describe("going live", () => {
     });
 
     it("builds the rate in the open", () => {
+      history.replaceState(null, "", "/?demo=1&paid=1");
       render(<DemoApp screen="golive" />);
+      history.replaceState(null, "", "/");
       const rate = screen.getByRole("heading", { name: "Your rate" }).closest("section")!;
       expect(rate).toHaveTextContent("Hardware, RTX 4080€1,00");
       expect(rate).toHaveTextContent("Reliability 96100%");
@@ -630,7 +636,7 @@ describe("this PC's screens", () => {
       actions: actions(),
     };
     const shell = (h: Host) => (
-      <Shell host={h} step="live" onStep={vi.fn()} setupDone finishSetup={vi.fn()} />
+      <Shell host={h} step="live" onStep={vi.fn()} setupDone finishSetup={vi.fn()} paid />
     );
     const { rerender } = render(shell(host));
     const pick = (name: string) =>
@@ -851,7 +857,7 @@ describe("getting Steam ready", () => {
       ),
       actions: actions(),
     };
-    render(<Shell host={host} step="steam" onStep={go} setupDone finishSetup={vi.fn()} />);
+    render(<Shell host={host} step="steam" onStep={go} setupDone finishSetup={vi.fn()} paid />);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Steam is ready");
     expect(screen.getByText("3 of 3")).toBeInTheDocument();
     expect(screen.getByText("Steam is installing 1 game.")).toBeInTheDocument();
@@ -935,7 +941,7 @@ describe("getting Steam ready", () => {
       }),
       actions: actions(),
     };
-    render(<Shell host={host} step="games" onStep={go} setupDone finishSetup={vi.fn()} />);
+    render(<Shell host={host} step="games" onStep={go} setupDone finishSetup={vi.fn()} paid />);
     expect(screen.queryByRole("link", { name: /Install in Steam/ })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Install any game you own")).not.toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: "Install Steam first" })[0]!);
@@ -1228,7 +1234,7 @@ describe("rental mode", () => {
   it("is ready once the key is confirmed: Go live, with removal one quiet link away", () => {
     const go = vi.fn();
     const host: Host = { view: realView(off, rental({ read: installed() })), actions: actions() };
-    render(<Shell host={host} step="rental" onStep={go} setupDone finishSetup={vi.fn()} />);
+    render(<Shell host={host} step="rental" onStep={go} setupDone finishSetup={vi.fn()} paid />);
     expect(h1()).toHaveTextContent("Rental mode is ready");
     expect(screen.getByText("Rental mode, installed")).toBeInTheDocument();
     fireEvent.click(within(screen.getByRole("main")).getByRole("button", { name: /^Go live/ }));
@@ -1590,7 +1596,7 @@ describe("rental mode", () => {
       view: realView(off, rental({ read: { ...installed(), lastLive } })),
       actions: actions(),
     };
-    render(<Shell host={host} step="rental" onStep={go} setupDone finishSetup={vi.fn()} />);
+    render(<Shell host={host} step="rental" onStep={go} setupDone finishSetup={vi.fn()} paid />);
     expect(h1()).toHaveTextContent("You were live 21:00 to 23:40");
     expect(screen.getByText(/2 sessions, both ran to their end/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Go live again/ }));
@@ -1629,6 +1635,7 @@ describe("the rail", () => {
         host={{ view, actions: actions() }}
         step="pc"
         onStep={vi.fn()}
+        paid
         setupDone={false}
         finishSetup={vi.fn()}
       />,
@@ -1704,7 +1711,7 @@ describe("settings", () => {
   it("saves the connection, with nothing in it that shares this Windows desktop", async () => {
     const onStep = vi.fn();
     const host: Host = { view: realView(off), actions: actions() };
-    render(<Shell host={host} step="settings" onStep={onStep} setupDone finishSetup={vi.fn()} />);
+    render(<Shell host={host} step="settings" onStep={onStep} setupDone finishSetup={vi.fn()} paid />);
     // The signaling server, the screen preview and going live from here are the development path only.
     expect(screen.queryByLabelText("Signaling server")).not.toBeInTheDocument();
     expect(screen.queryByText(/Capturing|Not capturing/)).not.toBeInTheDocument();
@@ -1732,7 +1739,7 @@ describe("settings", () => {
       view: realView(off),
       actions: { ...actions(), saveConnection: vi.fn(async () => Promise.reject(new Error("disk full"))) },
     };
-    render(<Shell host={host} step="settings" onStep={onStep} setupDone finishSetup={vi.fn()} />);
+    render(<Shell host={host} step="settings" onStep={onStep} setupDone finishSetup={vi.fn()} paid />);
     const save = screen.getByRole("button", { name: "Save" });
     await act(async () => {
       fireEvent.click(save);
@@ -1747,5 +1754,42 @@ describe("settings", () => {
     expect(screen.getByLabelText("Machine key")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     expect(screen.getByText("Pause to change these.")).toBeInTheDocument();
+  });
+});
+
+describe("paid gaming off", () => {
+  it("shows no Get paid step, no standing and no rate in the demo without --paid", () => {
+    render(<DemoApp screen="golive" />);
+    const rail = screen.getByRole("navigation", { name: "Steps" });
+    expect(within(rail).queryByText("Get paid")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Your standing")).not.toBeInTheDocument();
+    expect(screen.queryByText("Your rate")).not.toBeInTheDocument();
+    expect(screen.queryByText(/an hour/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/hardware rate/)).not.toBeInTheDocument();
+  });
+
+  it("asks the server, and counts anything but a clear yes as off", async () => {
+    const answer = (body: unknown, ok = true) =>
+      vi.fn(async () => ({ ok, json: async () => body }) as Response);
+    const on = answer({ paidGaming: true });
+    expect(await fetchPaidGaming("wss://app.lanterel.test", on)).toBe(true);
+    expect(on).toHaveBeenCalledWith("https://app.lanterel.test/api/features", expect.anything());
+    expect(await fetchPaidGaming("wss://app.lanterel.test", answer({ paidGaming: "on" }))).toBe(false);
+    expect(await fetchPaidGaming("wss://app.lanterel.test", answer({}, false))).toBe(false);
+    const down = vi.fn(async () => {
+      throw new Error("offline");
+    });
+    expect(await fetchPaidGaming("wss://app.lanterel.test", down)).toBe(false);
+  });
+
+  it("leaves every money figure out of the view", () => {
+    const view = unpaid(realView(off, { pc: { reading: false, hardware: null, hardwareRate: 1 } }));
+    expect([view.standing, view.rate, view.earnings, view.earlyEnd, view.pc.hardwareRate]).toEqual([
+      null,
+      null,
+      null,
+      null,
+      null,
+    ]);
   });
 });

@@ -97,7 +97,8 @@ import { createRenterEvents } from "./events.js";
 import { openDatabase } from "./db.js";
 import { everyGamePlayable, Playability, withAccounts } from "./playable.js";
 import { bearer, HttpError, readJson } from "./http.js";
-import { createMarketing, marketingFiles, pageRoutes, siteFromEnv } from "./marketing.js";
+import { createMarketing, createStartPages, marketingFiles, pageRoutes, siteFromEnv } from "./marketing.js";
+import { featuresFromEnv, withFeatures } from "./features.js";
 import { createSignups } from "./signups.js";
 import { Watches, type Watch, type WatchEnd } from "./watch.js";
 import { watchFrame } from "./watchIce.js";
@@ -263,6 +264,23 @@ const serveMarketing =
         routes: await pageRoutes(MARKETING_DIR),
       })
     : null;
+
+// PAID_GAMING (features.ts): off, "/" is the launch landing page and a
+// signed-in player goes on to their crew; on, "/" is the game wall as before.
+const features = featuresFromEnv(process.env);
+const appOrigin = publicOrigin ?? `http://localhost:${PORT}`;
+const serveStart = features.paidGaming
+  ? null
+  : createStartPages({
+      site,
+      files: marketingFiles(MARKETING_DIR, {
+        origin: appOrigin,
+        host: new URL(appOrigin).host,
+        app: appOrigin,
+      }),
+      routes: await pageRoutes(MARKETING_DIR),
+      signedIn: (req) => renterOf(req, sessionSecret) !== null,
+    });
 
 // Handshake frames are a few KB. The ws default is 100 MB, which lets any
 // unauthenticated socket make this process buffer that much per message.
@@ -900,9 +918,15 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<v
 
   if (signups && (await signups.serve(req, res, url))) return;
   if (serveMarketing && (await serveMarketing(req, res, url))) return;
+  if (serveStart && (await serveStart(req, res, url))) return;
   if (await serveSessions(req, res, urlPath)) return;
   if (await serveSteamAuth(req, res, urlPath, url.searchParams)) return;
   if (await serveCatalog(res, urlPath, url.searchParams)) return;
+  if (urlPath === "/api/features" && (req.method === "GET" || req.method === "HEAD")) {
+    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+    res.end(req.method === "HEAD" ? undefined : JSON.stringify(features));
+    return;
+  }
   if (await serveApi(req, res, urlPath)) return;
 
   // A link preview's card, on the app's own origin (invite-preview.ts).
@@ -944,11 +968,17 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<v
         "x-robots-tag": "noindex",
         "referrer-policy": "same-origin",
       });
-      res.end(invitePreview(body.toString("utf8"), previews[invite.type][lang], name, lang, card));
+      res.end(
+        withFeatures(
+          invitePreview(body.toString("utf8"), previews[invite.type][lang], name, lang, card),
+          features,
+        ),
+      );
       return;
     }
     res.writeHead(200, { "content-type": MIME[extname(filePath)] ?? "application/octet-stream" });
-    res.end(body);
+    // Every page of the app says which switches are on (features.ts).
+    res.end(candidate === "index.html" ? withFeatures(body.toString("utf8"), features) : body);
   } catch {
     if (candidate === "index.html") {
       res.writeHead(500).end("web app not built — run `npm run build`");

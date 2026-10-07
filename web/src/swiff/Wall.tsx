@@ -18,6 +18,7 @@ import { CrewLiveBand } from "./Crew";
 import { SignInWithSteam } from "./SignIn";
 import { gameArt, gameArtFallbacks, gamePreview, libraryState, type LibraryState } from "./steam";
 import type { Swiff } from "./useSwiff";
+import { paidGaming } from "./features";
 
 /** The hero and one ruled row of four under it; the rest wait behind "All games". */
 const LIMIT = 5;
@@ -128,6 +129,13 @@ const freedClass = (swiff: Swiff, game: Game) => (swiff.motion && swiff.freed.ha
 export function Wall({ swiff }: { swiff: Swiff }) {
   const { games, spots, signedIn, showAll } = swiff;
   const { t } = useScreenText();
+  const paid = paidGaming();
+  // Crews only (paid gaming off): the wall is where a crew picks a game, never
+  // a stranger's start page, which is the server's at "/".
+  const away = !paid && swiff.signInKnown && !signedIn && !swiff.demo;
+  useEffect(() => {
+    if (away) location.replace("/");
+  }, [away]);
 
   const ordered = useMemo(() => wallOrder(games, spots), [games, spots]);
   // Nothing is ready only once something is known: signed out, nothing ever is,
@@ -158,7 +166,8 @@ export function Wall({ swiff }: { swiff: Swiff }) {
         {note}
       </main>
     );
-  if (!anythingFree)
+  // Nothing free is said only on the paid marketplace: a crew sees its games either way.
+  if (!anythingFree && paid)
     return (
       <WallEmpty
         t={t}

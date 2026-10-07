@@ -1,3 +1,4 @@
+import { paidGaming } from "./features";
 import { Avatar, Button, Divider, IconButton, Kicker, Segment, SettingRow, StatusDot } from "@swiff/ui";
 import type { IconName } from "@swiff/ui";
 import { CrewsCard } from "./CrewsCard";
@@ -121,18 +122,21 @@ export function Profile({ swiff }: { swiff: Swiff }) {
         <p className="profile-fine">Changes save instantly. Name, avatar and library come from Steam.</p>
       </section>
 
-      <section className="profile-section">
-        <Kicker as="h2">Your gaming PC</Kicker>
-        <p className="profile-fine">Away most evenings? Share it while you&rsquo;re out and get paid.</p>
-        <div>
-          <button type="button" className="lpill lpill-sm" onClick={swiff.openShare}>
-            Share your PC
-            <span className="lpill-c">
-              <Glyph name="arrow" size={16} />
-            </span>
-          </button>
-        </div>
-      </section>
+      {/* Sharing a PC for money is part of paid gaming (features.ts). */}
+      {paidGaming() ? (
+        <section className="profile-section">
+          <Kicker as="h2">Your gaming PC</Kicker>
+          <p className="profile-fine">Away most evenings? Share it while you&rsquo;re out and get paid.</p>
+          <div>
+            <button type="button" className="lpill lpill-sm" onClick={swiff.openShare}>
+              Share your PC
+              <span className="lpill-c">
+                <Glyph name="arrow" size={16} />
+              </span>
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       <div>
         <Button variant="secondary" onClick={swiff.goHome}>

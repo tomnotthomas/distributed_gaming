@@ -32,7 +32,7 @@ export function CrewInvite({ swiff }: { swiff: Swiff }) {
   // Back from "Join with Steam": the tab noted it was going there to join, which counts once.
   const fromSignIn = useMemo(() => inviteTokenAt(location.pathname) === "" && cameBackToJoin(), []);
   const token = useMemo(() => inviteTokenAt(location.pathname) || rememberedInvite(), []);
-  const { signedIn, signInKnown, openCrew, goHome } = swiff;
+  const { signedIn, signInKnown, openCrew, goStart } = swiff;
   const [opened, setOpened] = useState<Opened>(token ? null : "invalid");
   const [joining, setJoining] = useState(false);
   const [joinFailed, setJoinFailed] = useState<"full" | boolean>(false);
@@ -107,7 +107,7 @@ export function CrewInvite({ swiff }: { swiff: Swiff }) {
                 {t("jn.retry")}
               </button>
             ) : null}
-            <button type="button" className="lpill" onClick={goHome}>
+            <button type="button" className="lpill" onClick={goStart}>
               {t("jn.back")}
             </button>
           </div>

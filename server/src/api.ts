@@ -750,8 +750,8 @@ export function createApi({
     if (resource === "crews" && id && action === "pc" && method === "POST") {
       const steamId = requireRenter(req, sessionSecret);
       const body = await readJson(req);
-      if (body.pc !== "yes" && body.pc !== "later" && body.pc !== "off") {
-        throw new HttpError(400, "pc must be yes, later or off");
+      if (body.pc !== "yes" && body.pc !== "off") {
+        throw new HttpError(400, "pc must be yes or off");
       }
       const crew = await platform.bringPc(id, steamId, body.pc);
       if (!crew) throw new HttpError(404, "no such crew");

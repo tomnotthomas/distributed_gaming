@@ -13,8 +13,9 @@
 //
 // Off, or on another host, every one of these paths does what it did before.
 //
-// The pages hold the product's name, the site's origin and the app's origin as
-// tokens, filled in here from brand.ts, SITE_ORIGIN and PUBLIC_ORIGIN. An
+// The pages hold the product's name, the site's origin, the app's origin and
+// the Impressum's contact address as tokens, filled in here from brand.ts,
+// SITE_ORIGIN, PUBLIC_ORIGIN and IMPRESSUM_EMAIL. An
 // invite page the site renders names nobody (invite-copy.ts).
 
 import { readFile, readdir } from "node:fs/promises";
@@ -57,9 +58,16 @@ export function siteFromEnv(env: NodeJS.ProcessEnv, app: string | null): Site | 
 /** The language a page path is in. */
 export const langOf = (path: string): Lang => (path === "/en" || path.startsWith("/en/") ? "en" : "de");
 
+/**
+ * The Impressum's contact address, IMPRESSUM_EMAIL; until it is set the page
+ * shows this placeholder, plainly marked as one.
+ */
+export const IMPRESSUM_EMAIL_UNSET = "[IMPRESSUM_EMAIL]";
+
 /** Fill a marketing file's tokens. */
-export function fillTokens(text: string, site: Site): string {
+export function fillTokens(text: string, site: Site, email = process.env.IMPRESSUM_EMAIL?.trim()): string {
   return text
+    .replaceAll("{{impressumEmail}}", email || IMPRESSUM_EMAIL_UNSET)
     .replaceAll("{{brand}}", BRAND)
     .replaceAll("{{wordmark}}", WORDMARK)
     .replaceAll("{{site}}", site.origin)
@@ -318,6 +326,63 @@ export function createMarketing({ site, files, routes }: MarketingOptions) {
       const body = await files.read(rel);
       if (!body) return false;
       send(res, req, extname(rel), body, { "cache-control": "public, max-age=3600" });
+      return true;
+    }
+    return false;
+  };
+}
+
+export type StartPagesOptions = {
+  /** The marketing site on a host of its own (siteFromEnv), when it is on: the start page lives there. */
+  site: Site | null;
+  /** The launch pages, their tokens filled for the app's own origin. */
+  files: MarketingFiles;
+  /** Page routes by path (pageRoutes). */
+  routes: Map<string, string>;
+  /** Whether a request comes from a signed-in player. */
+  signedIn: (req: IncomingMessage) => boolean;
+};
+
+/**
+ * The app's start page while paid gaming is off (features.ts): "/" (and
+ * "/en/") is the launch landing page instead of the game wall, and a signed-in
+ * player goes on to their crew. With the marketing site on a host of its own,
+ * a visitor is sent there; without one, the app's own origin serves the launch
+ * pages, with the assets and the pages they link to. Only pages: the site's
+ * invite routes and its /share/ are the app's own addresses here, and "/host"
+ * without its slash stays the app's browser host page. False for anything else.
+ */
+export function createStartPages({ site, files, routes, signedIn }: StartPagesOptions) {
+  return async function serveStart(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
+    if (req.method !== "GET" && req.method !== "HEAD") return false;
+    const path = url.pathname === "/en" ? "/en/" : url.pathname;
+    const start = path === "/" || path === "/en/";
+    const away = (location: string) => {
+      res.writeHead(302, { location, "cache-control": "no-store", vary: "cookie" });
+      res.end();
+      return true;
+    };
+    if (start && signedIn(req)) return away("/crews");
+    if (site) return start ? away(`${site.origin}${path}`) : false;
+
+    const page = routes.get(path);
+    if (page) {
+      const html = await files.text(page);
+      if (html === null) return false;
+      res.writeHead(200, { "content-type": MIME[".html"]!, "cache-control": "no-cache", vary: "cookie" });
+      res.end(req.method === "HEAD" ? undefined : html);
+      return true;
+    }
+    if (path.startsWith("/assets/")) {
+      const rel = assetPath(path);
+      // An app asset (the SPA's own /assets/) is not here: it falls through.
+      const body = rel === null ? null : await files.read(rel);
+      if (!body || rel === null) return false;
+      res.writeHead(200, {
+        "content-type": MIME[extname(rel)] ?? "application/octet-stream",
+        "cache-control": "public, max-age=3600",
+      });
+      res.end(req.method === "HEAD" ? undefined : body);
       return true;
     }
     return false;

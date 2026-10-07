@@ -24,6 +24,7 @@ import {
 import { migrate } from "../schema.js";
 import { CLIENT_BURST, clientOf, createSignups, RESEND_AFTER_MS, type Signups } from "../signups.js";
 import { startServer, stopServer } from "./child.js";
+import { mintRenterSession } from "../access.js";
 import { testDatabase } from "./db.js";
 
 const DIR = fileURLToPath(new URL("../../../web/marketing/", import.meta.url));
@@ -747,7 +748,8 @@ describe("MARKETING_PAGES on the real server", () => {
   after(stop);
 
   it("off: the site's routes and its sign-up endpoint behave as before", async () => {
-    await start({ SITE_ORIGIN: `http://${HOST}` });
+    // With paid gaming on, "/" is the app's own as it always was (the start page is the next describe's).
+    await start({ SITE_ORIGIN: `http://${HOST}`, PAID_GAMING: "on" });
     try {
       for (const path of ["/", "/host/", "/crew/AB12", "/robots.txt"]) {
         const page = await ask(HTTP, path, { host: HOST });
@@ -792,6 +794,108 @@ describe("MARKETING_PAGES on the real server", () => {
       // Reminders are the app's, for a signed-in player.
       assert.equal((await ask(HTTP, "/api/signups/reminders", { host: "app.lanterel.test" })).status, 401);
       assert.equal((await ask(HTTP, "/api/signups/reminders", { host: HOST })).status, 404);
+    } finally {
+      await stop();
+    }
+  });
+});
+
+describe("PAID_GAMING off on the real server: the start page", () => {
+  const SESSION_SECRET = "start-page-session-secret-that-is-long-enough";
+  let server: ChildProcess | null = null;
+  let HTTP = "";
+
+  async function start(env: Record<string, string>) {
+    await stop();
+    const started = await startServer(
+      { SWIFF_PLAYABILITY: "off", DATABASE_URL: "", SESSION_SECRET, ...env },
+      { from: 10_600, span: 300 },
+    );
+    server = started.child;
+    HTTP = `http://127.0.0.1:${started.port}`;
+  }
+
+  async function stop() {
+    if (server) await stopServer(server);
+    server = null;
+  }
+
+  after(stop);
+
+  /** A GET on the app's own host, signed in as `steamId` when given. */
+  function get(path: string, steamId?: string): Promise<Answer> {
+    const cookie = steamId ? `swiff_session=${mintRenterSession(SESSION_SECRET, steamId, 600)}` : "";
+    return new Promise((resolve, reject) => {
+      const req = request(new URL(path, HTTP), { headers: cookie ? { cookie } : {} }, (res) => {
+        let text = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => (text += chunk));
+        res.on("end", () => resolve({ status: res.statusCode!, headers: res.headers, body: text }));
+      });
+      req.on("error", reject);
+      req.end();
+    });
+  }
+
+  it("is the default: / is the launch landing page, a signed-in player goes on to their crew", async () => {
+    await start({ PUBLIC_ORIGIN: "https://app.lanterel.test" });
+    try {
+      assert.deepEqual(JSON.parse((await get("/api/features")).body), { paidGaming: false });
+      const landing = await get("/");
+      assert.equal(landing.status, 200);
+      assert.match(landing.body, /data-t="/);
+      assert.match(landing.body, /<link rel="canonical" href="https:\/\/app\.lanterel\.test\/">/);
+      assert.match(
+        landing.body,
+        /href="https:\/\/app\.lanterel\.test\/auth\/steam\/login\?to=%2Fcrews%3Ffound%3D1"/,
+      );
+      assert.equal((await get("/en/")).status, 200);
+      for (const path of ["/", "/en/"]) {
+        const signedIn = await get(path, "76561198000000001");
+        assert.equal(signedIn.status, 302, path);
+        assert.equal(signedIn.headers.location, "/crews", path);
+      }
+      // The pages the landing page links to, and its assets, on the app's own origin.
+      const impressum = await get("/impressum/");
+      assert.match(impressum.body, /Tom Schwabe<br>Kanzowstraße 8<br>10439 Berlin<br>Deutschland/);
+      assert.match(impressum.body, /E-Mail: \[IMPRESSUM_EMAIL\]/);
+      assert.doesNotMatch(impressum.body, /Telefon/);
+      assert.equal((await get("/datenschutz/")).status, 200);
+      assert.equal((await get("/assets/css/base.css")).status, 200);
+      // The app keeps its own pages: the browser host page, an invite, a crew.
+      for (const path of ["/host", "/crews", "/play", "/seat/AB12"]) {
+        assert.doesNotMatch((await get(path)).body, /data-t="/, path);
+      }
+    } finally {
+      await stop();
+    }
+  });
+
+  it("sends a visitor to the marketing site's own start page when it has a host of its own", async () => {
+    await start({
+      MARKETING_PAGES: "on",
+      SITE_ORIGIN: "http://lanterel.localhost",
+      PUBLIC_ORIGIN: "https://app.lanterel.test",
+      IMPRESSUM_EMAIL: "hallo@lanterel.test",
+    });
+    try {
+      const away = await get("/");
+      assert.equal(away.status, 302);
+      assert.equal(away.headers.location, "http://lanterel.localhost/");
+      assert.equal((await get("/en")).headers.location, "http://lanterel.localhost/en/");
+      assert.equal((await get("/", "76561198000000001")).headers.location, "/crews");
+      const legal = await ask(HTTP, "/en/legal-notice/", { host: "lanterel.localhost" });
+      assert.match(legal.body, /Email: hallo@lanterel\.test/);
+    } finally {
+      await stop();
+    }
+  });
+
+  it("on: / is the app's, and the switch says so", async () => {
+    await start({ PAID_GAMING: "on" });
+    try {
+      assert.deepEqual(JSON.parse((await get("/api/features")).body), { paidGaming: true });
+      assert.doesNotMatch((await get("/")).body, /data-t="/);
     } finally {
       await stop();
     }

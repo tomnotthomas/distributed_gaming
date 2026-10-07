@@ -44,7 +44,7 @@ test("found a crew, a friend joins without a PC, brings one later, and the crew 
   const founderErrors = failOnPageError(founder, "founder");
 
   // One tap: the crew exists at once, with its link, and asks nobody about a PC.
-  await founder.goto("/crews/new");
+  await founder.goto("/crews?found=1");
   await expect(founder).toHaveURL(/\/crews\/[\w-]{22}$/);
   const crewId = new URL(founder.url()).pathname.split("/").pop()!;
   await expect(founder.getByText("Almost ready.", { exact: true })).toBeVisible();
@@ -65,13 +65,11 @@ test("found a crew, a friend joins without a PC, brings one later, and the crew 
   await friend.getByRole("button", { name: "Join", exact: true }).first().click();
   await expect(friend).toHaveURL(new RegExp(`/crews/${crewId}$`));
 
-  // Joined, the friend is shown what the crew would see on a PC, and puts it off.
+  // Joined, the friend sees the same page as everyone in the crew: no card pushed on them, no "later".
   const card = friend.getByTestId("pc-card");
-  await expect(card.getByText("The crew doesn't see")).toBeVisible();
-  await card.getByRole("button", { name: "Later" }).click();
+  await expect(friend.getByRole("heading", { name: "Get your people into the crew" })).toBeVisible();
   await expect(card).toBeHidden();
-  const chip = friend.getByRole("button", { name: "Check my PC later" });
-  await expect(chip).toBeVisible();
+  await expect(friend.getByRole("button", { name: /later/i })).toHaveCount(0);
 
   // The founder's page shows the friend without a reload.
   await expect(founder.getByText("2 in").first()).toBeVisible();
@@ -80,9 +78,10 @@ test("found a crew, a friend joins without a PC, brings one later, and the crew 
   await offerCrewPc(request, true);
   await expect(friend.getByText("Almost ready.", { exact: true })).toBeVisible();
 
-  // They bring it from the chip, and the crew is ready, on both pages.
-  await chip.click();
-  await friend.getByRole("button", { name: "Check my PC (takes a minute)" }).click();
+  // They bring it with the one button on the PC card, and the crew is ready, on both pages.
+  await friend.getByRole("button", { name: "I've got a gaming PC" }).click();
+  await expect(card.getByText("The crew doesn't see")).toBeVisible();
+  await card.getByRole("button", { name: "Get the app on your PC" }).click();
   await expect(friend.getByText("Ready to play!", { exact: true })).toBeVisible();
   await expect(friend.getByText("Your PC plays for")).toBeVisible();
   await expect(founder.getByText("Ready to play!", { exact: true })).toBeVisible();

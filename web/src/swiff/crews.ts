@@ -50,14 +50,17 @@ export type CrewPc = {
 /** A crew in full, as its page shows it: `token` is its link's, null when it has none. */
 export type CrewDetail = MyCrew & { token: string | null; members: CrewMember[]; machines: CrewPc[] };
 
-/** Where crew pages live: /crews (your crews), /crews/new (found one), /crews/<id>. */
+/** Where crew pages live: /crews (your crews), /crews/<id>. */
 export const CREWS_PATH = "/crews";
 
-/** What a crews path asks for: the list, founding one, or one crew by id; null for any other path. */
-export function crewRouteAt(pathname: string): { crew: string | null; found: boolean } | null {
+/** The crew pages founding a crew for a player who has none yet (takeLanding). */
+export const FOUND_PATH = `${CREWS_PATH}?found=1`;
+
+/** What a crews path asks for: the list, or one crew by id; null for any other path. */
+export function crewRouteAt(pathname: string): { crew: string | null } | null {
   const match = /^\/crews(?:\/([\w-]+))?\/*$/.exec(pathname);
   if (!match) return null;
-  return match[1] === "new" ? { crew: null, found: true } : { crew: match[1] ?? null, found: false };
+  return { crew: match[1] ?? null };
 }
 
 /** The crew's own name, or whose crew it is. */
@@ -178,8 +181,8 @@ export const renameCrew = (id: string, name: string, get: typeof fetch = fetch) 
 /** A new link for the crew in place of the old one, as its admin. */
 export const renewCrewLink = (id: string, get: typeof fetch = fetch) => change(id, "link", null, get);
 
-/** Bring the signed-in member's PCs to the crew ("yes"), put it off ("later"), or take them out ("off"). */
-export const bringPc = (id: string, pc: "yes" | "later" | "off", get: typeof fetch = fetch) =>
+/** Bring the signed-in member's PCs to the crew ("yes"), or take them out ("off"). */
+export const bringPc = (id: string, pc: "yes" | "off", get: typeof fetch = fetch) =>
   change(id, "pc", { pc }, get);
 
 /** End a crew membership: leave a crew, or remove someone from one you are the admin of. One already gone counts as done. */

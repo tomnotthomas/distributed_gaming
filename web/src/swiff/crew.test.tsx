@@ -2,7 +2,7 @@
 // crew's lobby, the invite page a crew's link opens, and the ways into crews
 // from the rest of the app (the card, the wall's strip, the ready banner).
 
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CREW_COPY, crewText, langOf, possessive } from "./crewCopy";
@@ -51,20 +51,22 @@ function fakeSwiff(over: Record<string, unknown> = {}): Swiff {
     signedIn: true,
     signInKnown: true,
     screen: "crew",
-    crewRoute: { crew: null, found: false },
+    crewRoute: { crew: null },
     crewChanges: 0,
     crewReady: null,
     dismissCrewReady: vi.fn(),
     openCrew: vi.fn(),
     replaceCrew: vi.fn(),
     goHome: vi.fn(),
+    goStart: vi.fn(),
+    foundCrew: vi.fn(),
     inviteShared: vi.fn(),
     ...over,
   } as unknown as Swiff;
 }
 
 const atCrew = (id: string, over: Record<string, unknown> = {}) =>
-  fakeSwiff({ crewRoute: { crew: id, found: false }, ...over });
+  fakeSwiff({ crewRoute: { crew: id }, ...over });
 
 const LENA: CrewMember = { id: "m-lena", name: "Lena", you: true, admin: true, pc: null, pcs: 0 };
 const SAM: CrewMember = { id: "m-sam", name: "Sam", you: false, admin: false, pc: null, pcs: 0 };
@@ -170,15 +172,13 @@ describe("crew copy", () => {
 });
 
 describe("crew addresses and names", () => {
-  it("reads /crews, /crews/new and /crews/<id>, and opens the crew screen there", () => {
-    expect(crewRouteAt("/crews")).toEqual({ crew: null, found: false });
-    expect(crewRouteAt("/crews/")).toEqual({ crew: null, found: false });
-    expect(crewRouteAt("/crews/new")).toEqual({ crew: null, found: true });
-    expect(crewRouteAt("/crews/c-42")).toEqual({ crew: "c-42", found: false });
+  it("reads /crews and /crews/<id>, and opens the crew screen there", () => {
+    expect(crewRouteAt("/crews")).toEqual({ crew: null });
+    expect(crewRouteAt("/crews/")).toEqual({ crew: null });
+    expect(crewRouteAt("/crews/c-42")).toEqual({ crew: "c-42" });
     expect(crewRouteAt("/crewsy")).toBeNull();
     expect(crewRouteAt("/crews/a/b")).toBeNull();
     expect(screenAt("/crews")).toBe("crew");
-    expect(screenAt("/crews/new")).toBe("crew");
     expect(screenAt("/crews/c-42/")).toBe("crew");
     expect(screenAt("/crewsy")).toBe("home");
     expect(pathOf("crew")).toBe("/crews");
@@ -297,46 +297,52 @@ describe("CrewPage: signed out, founding and the list", () => {
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Start your crew");
     expect(screen.getByRole("link", { name: /Start a crew/ })).toHaveAttribute(
       "href",
-      "/auth/steam/login?to=%2Fcrews%2Fnew",
+      "/auth/steam/login?to=%2Fcrews%3Ffound%3D1",
     );
     expect(screen.getByText("Sign in with Steam first. No password, no new account.")).toBeInTheDocument();
     expect(calls).toEqual([]);
   });
 
-  it("founds the crew once at /crews/new and puts its id in the address", async () => {
-    const calls = fetchFrom({ "POST /api/crews": [201, { crew: crewOf({ id: "c-new" }) }] });
-    const swiff = fakeSwiff({ crewRoute: { crew: null, found: true } });
+  it("founds the crew once, right on the list, and puts its id in the address: no page of its own", async () => {
+    const calls = fetchFrom({
+      "GET /api/crews": [200, { crews: [] }],
+      "POST /api/crews": [201, { crew: crewOf({ id: "c-new" }) }],
+    });
+    const swiff = fakeSwiff();
     render(
       <StrictMode>
         <CrewPage swiff={swiff} />
       </StrictMode>,
     );
-    expect(screen.getByText("Starting your crew…")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: /Start a crew/ }));
     await waitFor(() => expect(swiff.replaceCrew).toHaveBeenCalledWith("c-new"));
-    expect(calls).toEqual([["POST", "/api/crews", "{}"]]);
+    expect(calls.filter(([method]) => method === "POST")).toEqual([["POST", "/api/crews", "{}"]]);
     expect(swiff.replaceCrew).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/Starting your crew/)).toBeNull();
   });
 
   it("says so when the crew could not be founded, and tries again", async () => {
     let answer: [number, unknown] = [500, {}];
-    const calls = fetchFrom({ "POST /api/crews": () => answer });
-    const swiff = fakeSwiff({ crewRoute: { crew: null, found: true } });
+    const calls = fetchFrom({ "GET /api/crews": [200, { crews: [] }], "POST /api/crews": () => answer });
+    const swiff = fakeSwiff();
     render(<CrewPage swiff={swiff} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Start a crew/ }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Your crew couldn't be started. Try again.");
     answer = [201, { crew: crewOf({ id: "c-new" }) }];
-    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    fireEvent.click(screen.getByRole("button", { name: /Start a crew/ }));
     await waitFor(() => expect(swiff.replaceCrew).toHaveBeenCalledWith("c-new"));
     expect(calls.filter(([method]) => method === "POST")).toHaveLength(2);
   });
 
-  it("says why when the player is in as many crews as anyone may be, and offers their crews", async () => {
-    const calls = fetchFrom({ "POST /api/crews": [409, { code: "too-many-crews" }] });
-    const swiff = fakeSwiff({ crewRoute: { crew: null, found: true } });
+  it("says why when the player is in as many crews as anyone may be", async () => {
+    const calls = fetchFrom({
+      "GET /api/crews": [200, { crews: [crewOf(), crewOf({ id: "c2" })] }],
+      "POST /api/crews": [409, { code: "too-many-crews" }],
+    });
+    const swiff = fakeSwiff();
     render(<CrewPage swiff={swiff} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Start a new crew/ }));
     expect(await screen.findByRole("alert")).toHaveTextContent("You're in 50 crews already");
-    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "To your crews" }));
-    expect(swiff.openCrew).toHaveBeenCalledWith();
     expect(calls.filter(([method]) => method === "POST")).toHaveLength(1);
   });
 
@@ -354,8 +360,7 @@ describe("CrewPage: signed out, founding and the list", () => {
     expect(screen.getByRole("button", { name: /Max's crew/ })).toHaveTextContent("3 people · Ready to play!");
     fireEvent.click(lena);
     expect(swiff.openCrew).toHaveBeenCalledWith("c1");
-    fireEvent.click(screen.getByRole("button", { name: /Start a new crew/ }));
-    expect(swiff.openCrew).toHaveBeenCalledWith("new");
+    expect(screen.getByRole("button", { name: /Start a new crew/ })).toBeEnabled();
     expect(swiff.replaceCrew).not.toHaveBeenCalled();
   });
 
@@ -374,8 +379,7 @@ describe("CrewPage: signed out, founding and the list", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Your crews couldn't be loaded.");
     answer = [200, { crews: [] }];
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    fireEvent.click(await screen.findByRole("button", { name: /Start a crew/ }));
-    expect(swiff.openCrew).toHaveBeenCalledWith("new");
+    expect(await screen.findByRole("button", { name: /Start a crew/ })).toBeEnabled();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Start your crew");
   });
 });
@@ -430,39 +434,37 @@ describe("CrewPage: a crew's lobby", () => {
     expect(screen.queryByRole("button", { name: "More" })).toBeNull();
   });
 
-  it("shows someone who joined what the crew sees on a PC and what it doesn't, and Later keeps a chip", async () => {
-    const calls = fetchFrom({
-      "GET /api/crews/c1": [200, { crew: joinedCrew() }],
-      "POST /api/crews/c1/pc": [200, { crew: joinedCrew({ pc: "later" }) }],
-    });
+  it("shows someone who joined the same page as everyone, and the PC card only when they ask", async () => {
+    fetchFrom({ "GET /api/crews/c1": [200, { crew: joinedCrew() }] });
     render(<CrewPage swiff={atCrew("c1")} />);
-    const card = await screen.findByTestId("pc-card");
+    expect(await screen.findByText("Almost ready.")).toBeInTheDocument();
+    // No "you're in" moment: the same next step as the founder, and no card pushed on them.
+    expect(screen.queryByTestId("pc-card")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Get your people into the crew" })).toBeInTheDocument();
+    expect(screen.queryByText("just joined")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "I've got a gaming PC" }));
+    const card = screen.getByTestId("pc-card");
     expect(card).toHaveTextContent("Got a gaming PC? Then your crew can get going.");
     expect(card).toHaveTextContent("The crew sees");
     expect(card).toHaveTextContent("Steam, each on their own account, with their own games");
     expect(card).toHaveTextContent("The crew doesn't see");
     expect(card).toHaveTextContent("your Windows, your files, your home network, your Steam account");
-    expect(screen.getByRole("heading", { name: "Got a gaming PC?" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Check my PC later" })).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "Later" }));
-    expect(await screen.findByRole("button", { name: "Check my PC later" })).toBeInTheDocument();
-    expect(calls).toContainEqual(["POST", "/api/crews/c1/pc", '{"pc":"later"}']);
-    expect(screen.queryByTestId("pc-card")).toBeNull();
-    expect(screen.getByText("Got it. You'll find it up top under “Check my PC later”.")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Check my PC later" }));
-    expect(screen.getByTestId("pc-card")).toBeInTheDocument();
+    // One way on: no Later, no "check my PC later".
+    expect(within(card).getAllByRole("button")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Later" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /later/i })).toBeNull();
   });
 
-  it("checks a PC with the crew and says the app is coming soon while there is no download", async () => {
+  it("gets the app on the PC in one click, and says the app is coming soon while there is no download", async () => {
     const calls = fetchFrom({
       "GET /api/crews/c1": [200, { crew: joinedCrew() }],
       "POST /api/crews/c1/pc": [200, { crew: joinedCrew({ pc: "yes" }) }],
     });
     const open = vi.spyOn(window, "open").mockImplementation(() => null);
     render(<CrewPage swiff={atCrew("c1")} />);
-    fireEvent.click(await screen.findByRole("button", { name: /Check my PC \(takes a minute\)/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "I've got a gaming PC" }));
+    expect(screen.getByText("The Lanterel app for your PC is coming soon.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Get the app on your PC/ }));
     const soon = "The Lanterel app for your PC is coming soon. Once it runs, your PC plays for Lena's crew.";
     expect((await screen.findAllByText(soon)).length).toBeGreaterThan(0);
     expect(calls).toContainEqual(["POST", "/api/crews/c1/pc", '{"pc":"yes"}']);
@@ -476,10 +478,10 @@ describe("CrewPage: a crew's lobby", () => {
       "POST /api/crews/c1/pc": [500, {}],
     });
     render(<CrewPage swiff={atCrew("c1")} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Later" }));
+    fireEvent.click(await screen.findByRole("button", { name: "I've got a gaming PC" }));
+    fireEvent.click(screen.getByRole("button", { name: /Get the app on your PC/ }));
     expect(await screen.findByText("That didn't work. Try again.")).toBeInTheDocument();
     expect(screen.getByTestId("pc-card")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Check my PC later" })).toBeNull();
   });
 
   it("is ready to play once a PC is in, and Play now goes to the games", async () => {
@@ -530,52 +532,24 @@ describe("CrewPage: a crew's lobby", () => {
     expect(screen.queryByRole("button", { name: /Play now/ })).toBeNull();
   });
 
-  it("lets someone who joined a ready crew add a second PC, without pushing the card on them", async () => {
+  it("offers no adding a PC later once the crew has one, in German either", async () => {
     const ready = readyCrew({
       memberId: "m-sam",
       own: false,
       size: 3,
       members: [{ ...LENA, you: false }, MAX, { ...SAM, you: true }],
     });
-    const withSam = {
-      ...ready,
-      pcs: 2,
-      members: [{ ...LENA, you: false }, MAX, { ...SAM, you: true, pc: "yes" as const, pcs: 1 }],
-      machines: [...ready.machines, { name: null, owner: "Sam", mine: true, state: "ready" as const }],
-    };
-    const calls = fetchFrom({
-      "GET /api/crews/c1": [200, { crew: ready }],
-      "POST /api/crews/c1/pc": [200, { crew: withSam }],
-    });
-    vi.spyOn(window, "open").mockImplementation(() => null);
-    render(<CrewPage swiff={atCrew("c1")} />);
-    expect(await screen.findByText("Ready to play!")).toBeInTheDocument();
-    expect(screen.queryByTestId("pc-card")).toBeNull();
-    expect(screen.getByRole("button", { name: /Add another gaming PC/ })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "I've got a gaming PC" }));
-    fireEvent.click(screen.getByRole("button", { name: /Check my PC \(takes a minute\)/ }));
-    expect(await screen.findByText("2 PCs in")).toBeInTheDocument();
-    expect(calls).toContainEqual(["POST", "/api/crews/c1/pc", '{"pc":"yes"}']);
-    expect(screen.getByTestId("pc-card")).toHaveTextContent("Your PC plays for Lena's crew.");
-    expect(screen.queryByRole("button", { name: /Add another gaming PC/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: "I've got a gaming PC" })).toBeNull();
-  });
-
-  it("offers another PC in German too, and from a crew whose PCs are all off", async () => {
-    const crew = readyCrew({
-      state: "offline",
-      machines: [{ name: "DESKTOP-7Q", owner: "Max", mine: false, state: "offline" }],
-    });
-    fetchFrom({ "GET /api/crews/c1": [200, { crew }] });
+    fetchFrom({ "GET /api/crews/c1": [200, { crew: ready }] });
     render(
       <ScreenLang.Provider value="de">
         <CrewPage swiff={atCrew("c1")} />
       </ScreenLang.Provider>,
     );
-    fireEvent.click(await screen.findByRole("button", { name: /Noch einen Gaming-PC hinzufügen/ }));
-    expect(screen.getByTestId("pc-card")).toHaveTextContent("Die Crew sieht");
-    expect(screen.getByRole("button", { name: "Ich hab einen Gaming-PC" })).toBeInTheDocument();
+    expect(await screen.findByText("Spielbereit!")).toBeInTheDocument();
+    expect(screen.queryByTestId("pc-card")).toBeNull();
+    expect(screen.queryByText(/Noch einen Gaming-PC hinzufügen/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Ich hab einen Gaming-PC" })).toBeNull();
+    expect(screen.queryByText(/PC später prüfen/)).toBeNull();
   });
 
   it("lets the admin rename the crew", async () => {
@@ -617,11 +591,10 @@ describe("CrewPage: a crew's lobby", () => {
   it("gives someone who is not the admin no rename, renew or remove", async () => {
     fetchFrom({ "GET /api/crews/c1": [200, { crew: joinedCrew() }] });
     render(<CrewPage swiff={atCrew("c1")} />);
-    await screen.findByTestId("pc-card");
+    await screen.findByText("Almost ready.");
     expect(screen.queryByRole("button", { name: "Rename" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Make a new link" })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Remove/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: "I've got a gaming PC" })).toBeNull();
   });
 
   it("asks before leaving, then leaves and goes back to the crews", async () => {
@@ -888,7 +861,7 @@ describe("CrewInvite", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Ask your group for the new link.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back to the start" }));
-    expect(swiff.goHome).toHaveBeenCalled();
+    expect(swiff.goStart).toHaveBeenCalled();
   });
 
   it("opens nothing at a bare /invite with no token remembered", () => {
@@ -925,7 +898,7 @@ describe("the ways into crews", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Open" })[1]!);
     expect(swiff.openCrew).toHaveBeenCalledWith("c2");
     fireEvent.click(screen.getByRole("button", { name: /Start a new crew/ }));
-    expect(swiff.openCrew).toHaveBeenCalledWith("new");
+    expect(swiff.foundCrew).toHaveBeenCalled();
   });
 
   it("offers founding on the card to a player in no crew", async () => {
@@ -934,7 +907,7 @@ describe("the ways into crews", () => {
     render(<CrewsCard swiff={swiff} />);
     await waitFor(() => expect(calls).toHaveLength(1));
     fireEvent.click(screen.getByRole("button", { name: /Start a crew/ }));
-    expect(swiff.openCrew).toHaveBeenCalledWith("new");
+    expect(swiff.foundCrew).toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "Open" })).toBeNull();
   });
 
@@ -944,7 +917,7 @@ describe("the ways into crews", () => {
     const { unmount } = render(<CrewStrip swiff={swiff} />);
     await waitFor(() => expect(calls).toHaveLength(1));
     fireEvent.click(screen.getByRole("button", { name: /Start a crew/ }));
-    expect(swiff.openCrew).toHaveBeenCalledWith("new");
+    expect(swiff.foundCrew).toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Not now" }));
     expect(screen.queryByTestId("crew-strip")).toBeNull();
     expect(localStorage.getItem("swiff.crewStripDismissed")).toBe("1");
@@ -975,16 +948,14 @@ describe("the ways into crews", () => {
 
   it("leaves the ready banner off on that crew's own page, but shows it on another crew's", async () => {
     const calls = fetchFrom({ "GET /api/crews": [200, { crews: [readyCrew()] }] });
-    const own = fakeSwiff({ crewReady: "c1", crewRoute: { crew: "c1", found: false } });
+    const own = fakeSwiff({ crewReady: "c1", crewRoute: { crew: "c1" } });
     const { unmount } = render(<CrewReadyBanner swiff={own} />);
     await waitFor(() => expect(calls).toHaveLength(1));
     await act(async () => {});
     expect(screen.queryByTestId("crew-ready")).toBeNull();
     unmount();
 
-    render(
-      <CrewReadyBanner swiff={fakeSwiff({ crewReady: "c1", crewRoute: { crew: "c2", found: false } })} />,
-    );
+    render(<CrewReadyBanner swiff={fakeSwiff({ crewReady: "c1", crewRoute: { crew: "c2" } })} />);
     expect(await screen.findByTestId("crew-ready")).toBeInTheDocument();
   });
 
@@ -1000,10 +971,14 @@ describe("the ways into crews", () => {
 describe("CrewPage: landing from the marketing site", () => {
   it("founds a crew at once for a player with none, and leaves one who has a crew in it", async () => {
     history.replaceState(null, "", "/crews?found=1&pc=1");
-    fetchFrom({ "GET /api/crews": [200, { crews: [] }] });
+    const calls = fetchFrom({
+      "GET /api/crews": [200, { crews: [] }],
+      "POST /api/crews": [201, { crew: crewOf({ id: "c-new" }) }],
+    });
     const swiff = fakeSwiff();
     const { unmount } = render(<CrewPage swiff={swiff} />);
-    await waitFor(() => expect(swiff.replaceCrew).toHaveBeenCalledWith("new"));
+    await waitFor(() => expect(swiff.replaceCrew).toHaveBeenCalledWith("c-new"));
+    expect(calls.filter(([method]) => method === "POST")).toHaveLength(1);
     expect(location.pathname + location.search).toBe("/crews");
     expect(sessionStorage.getItem("crew.pcFirst")).toBe("1");
     unmount();
@@ -1013,7 +988,7 @@ describe("CrewPage: landing from the marketing site", () => {
     const back = fakeSwiff();
     render(<CrewPage swiff={back} />);
     await waitFor(() => expect(back.replaceCrew).toHaveBeenCalledWith("c1"));
-    expect(back.replaceCrew).not.toHaveBeenCalledWith("new");
+    expect(back.replaceCrew).toHaveBeenCalledTimes(1);
   });
 
   it("does not found another crew on its own for a player with several", async () => {

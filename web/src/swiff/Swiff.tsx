@@ -15,6 +15,7 @@ import { Watch } from "./Watch";
 import { EstimateSheet, SharePC } from "./SharePC";
 import { Wall } from "./Wall";
 import { useDisplay } from "./display";
+import { paidGaming } from "./features";
 import { useSwiff } from "./useSwiff";
 
 /** Screen switch plus the shared chrome. Every screen reads one hook. */
@@ -50,9 +51,9 @@ export function Swiff() {
           <div className="sw-page" ref={behind}>
             <Chrome
               screen={screen}
-              onHome={swiff.goHome}
+              onHome={swiff.goStart}
               onProfile={() => swiff.setScreen("profile")}
-              onShare={swiff.openShare}
+              onShare={paidGaming() ? swiff.openShare : undefined}
               onBack={screen === "game" ? swiff.goHome : undefined}
               live={swiff.liveLine}
               freed={swiff.motion && swiff.freed.size > 0}
