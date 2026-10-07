@@ -1553,7 +1553,11 @@ export class Platform {
       if (!detail) return null;
       if (!detail.own) return "forbidden";
       const now = this.#now();
-      if (!Number.isSafeInteger(at) || (at as number) < now - SESSION_PAST_MS || (at as number) > now + SESSION_AHEAD_MS)
+      if (
+        !Number.isSafeInteger(at) ||
+        (at as number) < now - SESSION_PAST_MS ||
+        (at as number) > now + SESSION_AHEAD_MS
+      )
         return "invalid";
       await this.#run("UPDATE crews SET session_at = $1, shared_at = NULL WHERE id = $2", at, crewId);
       await this.#run(

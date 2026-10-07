@@ -708,7 +708,11 @@ describe("crew API", () => {
     assert.equal(shared.body.crew.shared, true);
     assert.equal((await call("POST", `/api/crews/${crew.id}/shared`, STRANGER)).status, 404);
     // Whoever opens the link sees the date and who is in.
-    assert.deepEqual((await call("GET", `/api/invites/${crew.token}`)).body.crew.session, { at, yes: 1, no: 1 });
+    assert.deepEqual((await call("GET", `/api/invites/${crew.token}`)).body.crew.session, {
+      at,
+      yes: 1,
+      no: 1,
+    });
 
     // Moved, everyone is asked again and the invite is to go out again with the new date.
     const moved = await call("POST", `/api/crews/${crew.id}/session`, ALEX, { at: at + 3600 * 1000 });

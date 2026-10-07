@@ -103,7 +103,10 @@ describe("a crew link's Zockrunde", () => {
     assert.equal(sessionWhen("en", at), "Friday 9 October, 9 pm");
     assert.equal(sessionWhen("de", at + 30 * 60_000), "Freitag, 9. Oktober, 21:30 Uhr");
     assert.equal(sessionWhen("en", Date.UTC(2026, 9, 10, 9, 15)), "Saturday 10 October, 11:15 am");
-    assert.equal(sessionPreview("de", at), "Zockrunde am Freitag, 9. Oktober, 21 Uhr. Tipp drauf und sag zu oder ab.");
+    assert.equal(
+      sessionPreview("de", at),
+      "Zockrunde am Freitag, 9. Oktober, 21 Uhr. Tipp drauf und sag zu oder ab.",
+    );
     assert.equal(sessionPreview("en", at), "Session on Friday 9 October, 9 pm. Tap to say yes or no.");
   });
 });
