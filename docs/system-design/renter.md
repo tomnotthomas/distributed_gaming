@@ -692,7 +692,8 @@ POST /invites/:token/join { rsvp? }
   Join the crew as the signed-in player, and with `rsvp` ("yes" or "no") answer its
   Zockrunde at once while it has one that is not over. `joined` is false for a crew they
   were in already, which changes nothing but the answer. → 409 { error, code: "too-many-crews" } for a player
-  in 50 crews already. → 404 as above. → 401 signed out.
+  in 50 crews already. → 404 as above, or for someone the admin removed, by the link of
+  then. → 401 signed out.
 
 POST /crew-members/:id/remove
   → 200 { removed: true }
@@ -1128,4 +1129,7 @@ On the wall, a band names each crewmate playing now with Ask to watch (Watch whe
 share; no button while they are still starting), read from GET /crew-live whenever the wall's event stream says something changed (a crewmate's session starting among it),
 or `event: crew` says a player shared or stopped sharing, or that a crewmate's game is on
 screen (so Ask to watch shows at once). The watch itself covers the
-page: Asked, the player's yes, the game, and plainly why it ended.
+page (`web/src/swiff/Viewer.tsx`): Asked, the player's yes, the game full screen with its
+controls floating over it (leave the stream, sound, mic, the crew menu with who is here,
+the crew page and leaving the crew, and "I want to play", the vote above), and plainly why
+it ended.

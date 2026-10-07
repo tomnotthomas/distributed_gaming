@@ -1,6 +1,6 @@
 // The crew's vote on who plays next, as a ticket over the stream (f-stream
 // impeccable, s=2): who wants to play what, the tally, the time left, and yes
-// or no; once decided, what the crew said. The viewer (Watch.tsx) and the
+// or no; once decided, what the crew said. The viewer (Viewer.tsx) and the
 // player's own screen (SwitchToast.tsx) both show it.
 
 import { useState } from "react";

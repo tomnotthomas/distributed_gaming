@@ -1,4 +1,4 @@
-// The words of the full-screen viewer (Watch.tsx) and of the player's own
+// The words of the full-screen viewer (Viewer.tsx) and of the player's own
 // screen once the crew votes on who plays next (SwitchToast), from the
 // approved design (data/lanterel-design-round, f-stream impeccable). German
 // pages are fully German and English ones fully English, in the crew pages'
