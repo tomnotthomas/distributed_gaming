@@ -690,8 +690,10 @@ move it), gets their people in with one WhatsApp message that says the date and 
 a gaming PC (through the phone's share sheet where there is one and `wa.me` otherwise, or
 by copying the link), brings a gaming PC (which starts the Lanterel app's download in place,
 `release.json`; until a release is published the step says the app is coming soon) or asks
-the group and waits for one, and plays; someone who joined
-says yes or no, gets a gaming PC in, and plays. Playing happens on the page itself: while
+the group and waits for one, picks games, and plays; someone who joined
+says yes or no, gets a gaming PC in, picks games, and plays. Picking games (`GET /crews/:id/games`)
+is only the current step while there is a date and a PC; it is done once the member marked
+a game or tapped done, or when the crew's PCs have none to pick (`offered` is 0). Playing happens on the page itself: while
 the crew's PC is free, the member picks one of their own games it can run and starts it
 there (first come, first play), and the owner does nothing; while someone plays on it, the
 others see who plays what, watch (`/crew-live`), or get in line to go next with the game
