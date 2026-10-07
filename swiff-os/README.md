@@ -338,8 +338,9 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   (`rsync --link-dest`), and the next boot lays that one out. swiff-hostd offers the PC only
   once that is done (at most 15 minutes, then without it), and closes it before it offers or
   serves anyone, so whatever a renter runs can change their own session's client, never the
-  next renter's. Only the session pulls in both units, so their wait holds no target and
-  nothing else in the boot. What is per-user or per-session (logs, config, userdata, caches, games,
+  next renter's. Only the session pulls in both units, so their wait holds the session and
+  graphical.target, which waits for it, never multi-user.target or what is ordered after it
+  (the VM selftest). What is per-user or per-session (logs, config, userdata, caches, games,
   Steam's machine auth files) is never kept. After Windows ran, the state is formatted anew
   (session-keys.md, "Continuity"), and that boot downloads Steam again.
 - **The keyboard reaches nothing but the session.** Ctrl+Alt+Del never reboots:
