@@ -59,8 +59,7 @@ function gift(lang: Lang): InviteCopy {
   return {
     title: "A friend just got you a seat",
     ogTitle: "A friend just got you a seat",
-    description:
-      "A friend just played on {{brand}} and got you a seat: your Steam games on your Mac.",
+    description: "A friend just played on {{brand}} and got you a seat: your Steam games on your Mac.",
     text: {
       "gift.h1": "A friend just got you <b>a seat.</b>",
       "gift.lead":
