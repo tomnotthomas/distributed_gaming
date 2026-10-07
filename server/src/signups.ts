@@ -7,7 +7,8 @@
 // and only on the app's host, where the crew page and the session are.
 //
 //   GET  /api/signups/reminders          the player's reminders: {email, confirmed}
-//   POST /api/signups/reminders          {email, lang}: send them there, once confirmed
+//   POST /api/signups/reminders          {email, lang}: send them there, once confirmed;
+//                                        answers as GET, plus retryAt if its mail was held back
 //   POST /api/signups/reminders/off      stop them
 //   GET  /api/signups/confirm?token=     the link in signup_confirm: a page with a button
 //   POST /api/signups/confirm?token=     that button: confirms, then back to the crew page
