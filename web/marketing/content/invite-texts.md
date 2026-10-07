@@ -95,8 +95,8 @@ See you in game!
 
 **WhatsApp**
 
-- DE: Hab grad auf meinem MacBook Counter-Strike gezockt, über {{brand}}, ganz ohne Windows. Und ich hab einen Platz für dich. Gilt 14 Tage: {link}
-- EN: Just played Counter-Strike on my MacBook through {{brand}}, no Windows needed. Got you a seat. Good for 14 days: {link}
+- DE: Hab grad auf meinem MacBook Counter-Strike gezockt, über {{brand}}, ganz ohne Windows. Und ich hab einen Platz für dich, damit sparst du dir die Warteliste. Gilt 14 Tage: {link}
+- EN: Just played Counter-Strike on my MacBook through {{brand}}, no Windows needed. Got you a seat so you can skip the waitlist. Good for 14 days: {link}
 
 **Discord**
 

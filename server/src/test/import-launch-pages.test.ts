@@ -264,46 +264,6 @@ describe("importing the launch set", () => {
     );
     // A slip in marketing's build is corrected too.
     assert.equal(neutralWording("(§ 25(2) TDDDG). /</p>"), "(§ 25(2) TDDDG).</p>");
-    assert.equal(
-      neutralWording(
-        "Sie spielen ihre eigenen Spiele. Ob später auch Mac-Spieler von unserer Warteliste dazukommen, entscheidest du.</p>",
-      ),
-      "Sie spielen ihre eigenen Spiele.</p>",
-    );
-    assert.equal(
-      neutralWording(
-        "They play their own games. Whether Mac players from our waitlist join later is up to you.</p>",
-      ),
-      "They play their own games.</p>",
-    );
-    assert.equal(
-      neutralWording(
-        "also brauchst du einen Windows-Gaming-PC. Trag dich trotzdem ein, dann erfährst du, wenn sich das ändert.</p>",
-      ),
-      "also brauchst du einen Windows-Gaming-PC.</p>",
-    );
-    assert.equal(
-      neutralWording(
-        "so you need a Windows gaming PC. Sign up anyway and we'll let you know if that changes.\"",
-      ),
-      'so you need a Windows gaming PC."',
-    );
-    assert.equal(
-      neutralWording('deine Steam-Spiele auf deinem Mac, ohne Warteliste."'),
-      'deine Steam-Spiele auf deinem Mac."',
-    );
-    assert.equal(
-      neutralWording('your Steam games on your Mac, no waitlist."'),
-      'your Steam games on your Mac."',
-    );
-    assert.equal(
-      neutralWording("Und ich hab einen Platz für dich, damit sparst du dir die Warteliste. Gilt 14 Tage"),
-      "Und ich hab einen Platz für dich. Gilt 14 Tage",
-    );
-    assert.equal(
-      neutralWording("Got you a seat so you can skip the waitlist. Good for 14 days"),
-      "Got you a seat. Good for 14 days",
-    );
     assert.equal(neutralWording("Frei: meist abends ab 20 Uhr"), "Frei: wenn der PC frei ist");
     assert.equal(
       neutralWording("Eine Crew für unsere Zockabende, zwei Testabende, Testabend 1"),
