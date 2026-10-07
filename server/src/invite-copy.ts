@@ -42,7 +42,7 @@ function gift(lang: Lang): InviteCopy {
       title: "Jemand schenkt dir einen Platz",
       ogTitle: "Jemand schenkt dir einen Platz",
       description:
-        "Jemand hat gerade über {{brand}} gezockt und dir einen Platz geschenkt: deine Steam-Spiele auf deinem Mac, ohne Warteliste.",
+        "Jemand hat gerade über {{brand}} gezockt und dir einen Platz geschenkt: deine Steam-Spiele auf deinem Mac.",
       text: {
         "gift.h1": "Jemand schenkt dir <b>einen Platz.</b>",
         "gift.lead":
@@ -58,7 +58,7 @@ function gift(lang: Lang): InviteCopy {
     title: "A friend just got you a seat",
     ogTitle: "A friend just got you a seat",
     description:
-      "A friend just played on {{brand}} and got you a seat: your Steam games on your Mac, no waitlist.",
+      "A friend just played on {{brand}} and got you a seat: your Steam games on your Mac.",
     text: {
       "gift.h1": "A friend just got you <b>a seat.</b>",
       "gift.lead":
