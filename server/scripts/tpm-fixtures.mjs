@@ -150,13 +150,19 @@ class Tpm {
     const tag = auths.length ? 0x8002 : 0x8001;
     if (process.env.DEBUG) console.error(`TPM command 0x${code.toString(16)}`);
     const command = Buffer.concat([u16(tag), u32(10 + body.length), u32(code), body]);
-    const response = await new Promise((resolve) => {
-      this.waiting = { resolve };
-      this.socket.write(command);
-    });
-    const rc = response.readUInt32BE(6);
-    if (rc !== 0) throw new Error(`TPM command 0x${code.toString(16)} failed: rc 0x${rc.toString(16)}`);
-    return new Response(response);
+    for (let tries = 1; ; tries++) {
+      const response = await new Promise((resolve) => {
+        this.waiting = { resolve };
+        this.socket.write(command);
+      });
+      const rc = response.readUInt32BE(6);
+      if (rc === 0) return new Response(response);
+      // TPM_RC_YIELDED, TPM_RC_TESTING, TPM_RC_RETRY: the TPM did not start the command, so send it again.
+      if (![0x908, 0x90a, 0x922].includes(rc) || tries >= 50) {
+        throw new Error(`TPM command 0x${code.toString(16)} failed: rc 0x${rc.toString(16)}`);
+      }
+      await sleep(20 * tries);
+    }
   }
 
   /** A policy session satisfying the EK templates' PolicySecret(TPM_RH_ENDORSEMENT). */
