@@ -43,12 +43,15 @@ const usedPorts = new Set<number>();
  * resolve once this child says it listens, not once the port answers: another
  * file's or another run's server on the same port answers too. A child that
  * exits first, as one does on a taken port, is retried on another port. Its
- * output is read to the end, so a full pipe never stalls it.
+ * output is read to the end, so a full pipe never stalls it, and the end of
+ * its stderr is kept: a child that never listens fails with why.
  */
 export async function startServer(
   env: Record<string, string>,
   { from, span }: { from: number; span: number },
 ): Promise<{ child: ChildProcess; port: number }> {
+  /** How the last attempt ended, for the failure message. */
+  let last = "";
   for (let attempt = 0; attempt < 5; attempt++) {
     let port: number;
     do port = from + Math.floor(Math.random() * span);
@@ -56,9 +59,12 @@ export async function startServer(
     usedPorts.add(port);
     const child = spawn(process.execPath, [SERVER], {
       env: { ...process.env, ...env, PORT: String(port) },
-      stdio: ["ignore", "pipe", "ignore"],
+      stdio: ["ignore", "pipe", "pipe"],
     });
     let heard = "";
+    let errors = "";
+    child.stderr!.setEncoding("utf8");
+    child.stderr!.on("data", (chunk: string) => (errors = (errors + chunk).slice(-2048)));
     const listening = new Promise<boolean>((resolve) => {
       child.stdout!.setEncoding("utf8");
       child.stdout!.on("data", (chunk: string) => {
@@ -69,9 +75,14 @@ export async function startServer(
     });
     // Up to 60 s: it opens its database before it listens, slow on a loaded machine.
     if (await within(listening, 60_000, false)) return { child, port };
+    const exited = child.exitCode !== null || child.signalCode !== null;
     await stopServer(child);
+    last = exited
+      ? `port ${port}: exited with code ${child.exitCode}, signal ${child.signalCode}`
+      : `port ${port}: not listening after 60 s`;
+    if (errors) last += `; stderr:\n${errors}`;
   }
-  assert.fail("the server did not listen on any of five ports");
+  assert.fail(`the server did not listen on any of five ports; last attempt ${last}`);
 }
 
 /** Stop a child server: SIGTERM, then SIGKILL if it has not gone within 5 s. */
