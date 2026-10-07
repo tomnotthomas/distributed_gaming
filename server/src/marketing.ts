@@ -4,18 +4,18 @@
 // requests for SITE_ORIGIN's host, so the app keeps "/", "/share" and "/host"
 // on its own origin while the site has them on its own domain.
 //
-//   /  /share/  /host/  /lanterel-os/  /impressum/  /datenschutz/   (a folder with index.html)
-//   /en/  /en/share/  /en/host/  /en/lanterel-os/  /en/legal-notice/  /en/privacy/
-//   /(en/)?(crew|seat|gift|night)/<code>   one template per type, rendered per invite
+//   /  /host/  /lanterel-os/  /impressum/  /datenschutz/   (a folder with index.html)
+//   /en/  /en/host/  /en/lanterel-os/  /en/legal-notice/  /en/privacy/
+//   /(en/)?share/   on to the app's crew pages
+//   /(en/)?(crew|seat)/<code>   on to the app's own invite page
+//   /(en/)?(gift|night)/<code>   one template per type, rendered per invite
 //   /assets/…  /robots.txt  /sitemap.xml
 //
 // Off, or on another host, every one of these paths does what it did before.
 //
 // The pages hold the product's name, the site's origin and the app's origin as
 // tokens, filled in here from brand.ts, SITE_ORIGIN and PUBLIC_ORIGIN. An
-// invite page names nobody (invite-copy.ts), and its buttons carry the
-// invite's code on to the sign-up form (?i=type:code), which posts it with the
-// email (signups.ts). The share page shows a confirmed sign-up's own crew link.
+// invite page the site renders names nobody (invite-copy.ts).
 
 import { readFile, readdir } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";

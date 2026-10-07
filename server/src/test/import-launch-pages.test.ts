@@ -233,6 +233,10 @@ describe("importing the launch set", () => {
     assert.equal(neutralWording("So läuft ein Crew-Abend"), "So läuft eine Zockrunde");
     assert.equal(neutralWording("Max lädt dich zum Crew-Abend ein"), "Max lädt dich zur Zockrunde ein");
     assert.equal(neutralWording("Frei: meist abends ab 20 Uhr"), "Frei: wenn der PC frei ist");
+    assert.equal(
+      neutralWording("Eine Crew für unsere Zockabende, zwei Testabende, Testabend 1"),
+      "Eine Crew für unsere Zockrunden, zwei Testrunden, Testrunde 1",
+    );
     assert.equal(neutralWording("How a crew night works"), "How a gaming session works");
     assert.equal(neutralWording("It&#x27;s on tonight"), "It&#x27;s on today");
     const code = '<span data-t="night.h1" class="fa-night"><a href="/night/AB">x</a></span>';

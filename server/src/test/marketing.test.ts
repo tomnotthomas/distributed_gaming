@@ -109,11 +109,9 @@ describe("marketing configuration", () => {
       "/en/lanterel-os/": "en/lanterel-os/index.html",
       "/en/legal-notice/": "en/legal-notice/index.html",
       "/en/privacy/": "en/privacy/index.html",
-      "/en/share/": "en/share/index.html",
       "/host/": "host/index.html",
       "/impressum/": "impressum/index.html",
       "/lanterel-os/": "lanterel-os/index.html",
-      "/share/": "share/index.html",
     });
   });
 
@@ -224,8 +222,6 @@ describe("marketing site", () => {
 
   it("serves every page with the brand and the site's origin filled in", async () => {
     for (const path of (await pageRoutes(DIR)).keys()) {
-      // The crew page is the app's (see below).
-      if (/^(\/en)?\/share\/$/.test(path)) continue;
       const page = await ask(origin, path);
       assert.equal(page.status, 200, path);
       assert.match(String(page.headers["content-type"]), /text\/html/);
@@ -368,7 +364,7 @@ describe("marketing site", () => {
   });
 
   it("never says when a crew plays: no evening or night in a page, a mail or a preview", async () => {
-    const TIME_OF_DAY = /\b(Abende?n?s?|abends|Nacht|nachts|[Nn]ights?|[Tt]onight|[Ee]venings?)\b/;
+    const TIME_OF_DAY = /(Abende?n?s?\b|abend|\b(?:Nacht|nachts|[Nn]ights?|[Tt]onight|[Ee]venings?)\b)/;
     const files: string[] = [];
     const walk = (dir: string) => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {

@@ -5,17 +5,17 @@ Placeholders: `{link}` (the personal invite link), `{name}` (recipient), `{sende
 
 **WhatsApp**
 
-- DE: Ich hab eine Crew für unsere Zockabende gegründet: {crew} 🎮 Komm rein! Zocken geht auch auf dem Mac, jeder mit seinen eigenen Steam-Spielen. {link}
+- DE: Ich hab eine Crew für unsere Zockrunden gegründet: {crew} 🎮 Komm rein! Zocken geht auch auf dem Mac, jeder mit seinen eigenen Steam-Spielen. {link}
 - EN: I started a crew: {crew} 🎮 Come play with us! Macs work too, everyone plays their own Steam games. {link}
 
 **Discord**
 
-- DE: Hab eine Crew für unsere Zockabende gegründet: {crew} 🎮 Wer mitzocken will, kommt hier rein, auch vom Mac aus: {link}
+- DE: Hab eine Crew für unsere Zockrunden gegründet: {crew} 🎮 Wer mitzocken will, kommt hier rein, auch vom Mac aus: {link}
 - EN: Started a crew: {crew} 🎮 Anyone who wants to play, join here, Macs included: {link}
 
 **Steam chat**
 
-- DE: Hab eine Crew für unsere Zockabende gegründet, komm rein: {link}
+- DE: Hab eine Crew für unsere Zockrunden gegründet, komm rein: {link}
 - EN: Started a crew, come play with us: {link}
 
 **Email**
@@ -25,7 +25,7 @@ Placeholders: `{link}` (the personal invite link), `{name}` (recipient), `{sende
 ```
 Hi {name},
 
-ich hab eine Crew für unsere Zockabende gegründet: {crew}. Mit {{brand}} zockt jeder seine eigenen Steam-Spiele, auch vom Mac aus, auf einem Gaming-PC aus der Crew. Hat noch keiner einen? Egal, der kann auch später dazukommen.
+ich hab eine Crew für unsere Zockrunden gegründet: {crew}. Mit {{brand}} zockt jeder seine eigenen Steam-Spiele, auch vom Mac aus, auf einem Gaming-PC aus der Crew. Hat noch keiner einen? Egal, der kann auch später dazukommen.
 
 Hier kommst du rein, mit Steam, ohne Passwort: {link}
 

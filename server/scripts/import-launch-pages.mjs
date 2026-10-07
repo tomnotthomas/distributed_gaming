@@ -41,7 +41,9 @@
 // The set's own _redirects, README.md, GLOSSARY.md and macOS ._ files are left
 // behind: the server routes the invite paths itself. So is stage2/, the
 // archived pages about renting a PC out for money: the launch is stage 1, and
-// nothing links or routes to them.
+// nothing links or routes to them. And so are the static crew pages (share/,
+// en/share/ and their crewpage.js and crewpage.css): the crew page is the
+// app's, and the server sends /share/ there.
 
 import {
   cpSync,
@@ -62,7 +64,16 @@ const TARGET = fileURLToPath(new URL("../../web/marketing", import.meta.url));
 /** The endpoint every form posts to (server/src/signups.ts). */
 const FORM_ENDPOINT = "/api/signups";
 const TEXT = new Set([".html", ".txt", ".css", ".js", ".json", ".md", ".xml", ".svg"]);
-const SKIPPED = new Set(["_redirects", "README.md", "GLOSSARY.md", "stage2"]);
+const SKIPPED = new Set([
+  "_redirects",
+  "README.md",
+  "GLOSSARY.md",
+  "stage2",
+  "share",
+  join("en", "share"),
+  join("assets", "js", "crewpage.js"),
+  join("assets", "css", "crewpage.css"),
+]);
 
 /** `s` with every character a regular expression gives a meaning escaped, to match it as it is. */
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -100,6 +111,10 @@ export const MEETUP_WORDING = [
   ["meist abends ab 20 Uhr", "wenn der PC frei ist"],
   [">Der Abend<", ">Die Zockrunde<"],
   ["Crew-Abend", "Zockrunde"],
+  ["Zockabende", "Zockrunden"],
+  ["Zockabend", "Zockrunde"],
+  ["Testabende", "Testrunden"],
+  ["Testabend", "Testrunde"],
   // English
   ["How a crew night works", "How a gaming session works"],
   ["Reminders before crew nights, by email?", "Reminders before gaming sessions, by email?"],

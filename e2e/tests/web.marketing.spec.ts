@@ -116,7 +116,7 @@ test.describe("marketing site", () => {
     expect(card.headers()["content-type"]).toBe("image/jpeg");
   });
 
-  test("a gift, the Zockrunde page, Lanterel OS and the legal pages load clean", async ({
+  test("a gift, the Zockrunde page, the host pages, Lanterel OS and the legal pages load clean", async ({
     page,
     baseURL,
   }) => {
@@ -125,6 +125,8 @@ test.describe("marketing site", () => {
     for (const path of [
       "/en/gift/G1ft",
       "/night/N1ght",
+      "/host/",
+      "/en/host/",
       "/lanterel-os/",
       "/en/lanterel-os/",
       "/impressum/",

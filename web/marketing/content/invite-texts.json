@@ -5,15 +5,15 @@
    "en": "Crew link (to everyone who should join)"
   },
   "whatsapp": {
-   "de": "Ich hab eine Crew für unsere Zockabende gegründet: {crew} 🎮 Komm rein! Zocken geht auch auf dem Mac, jeder mit seinen eigenen Steam-Spielen. {link}",
+   "de": "Ich hab eine Crew für unsere Zockrunden gegründet: {crew} 🎮 Komm rein! Zocken geht auch auf dem Mac, jeder mit seinen eigenen Steam-Spielen. {link}",
    "en": "I started a crew: {crew} 🎮 Come play with us! Macs work too, everyone plays their own Steam games. {link}"
   },
   "discord": {
-   "de": "Hab eine Crew für unsere Zockabende gegründet: {crew} 🎮 Wer mitzocken will, kommt hier rein, auch vom Mac aus: {link}",
+   "de": "Hab eine Crew für unsere Zockrunden gegründet: {crew} 🎮 Wer mitzocken will, kommt hier rein, auch vom Mac aus: {link}",
    "en": "Started a crew: {crew} 🎮 Anyone who wants to play, join here, Macs included: {link}"
   },
   "steam": {
-   "de": "Hab eine Crew für unsere Zockabende gegründet, komm rein: {link}",
+   "de": "Hab eine Crew für unsere Zockrunden gegründet, komm rein: {link}",
    "en": "Started a crew, come play with us: {link}"
   },
   "email_subject": {
@@ -21,7 +21,7 @@
    "en": "Join our crew: {crew}"
   },
   "email_body": {
-   "de": "Hi {name},\n\nich hab eine Crew für unsere Zockabende gegründet: {crew}. Mit {{brand}} zockt jeder seine eigenen Steam-Spiele, auch vom Mac aus, auf einem Gaming-PC aus der Crew. Hat noch keiner einen? Egal, der kann auch später dazukommen.\n\nHier kommst du rein, mit Steam, ohne Passwort: {link}\n\nWürde mich echt freuen!\n{sender}",
+   "de": "Hi {name},\n\nich hab eine Crew für unsere Zockrunden gegründet: {crew}. Mit {{brand}} zockt jeder seine eigenen Steam-Spiele, auch vom Mac aus, auf einem Gaming-PC aus der Crew. Hat noch keiner einen? Egal, der kann auch später dazukommen.\n\nHier kommst du rein, mit Steam, ohne Passwort: {link}\n\nWürde mich echt freuen!\n{sender}",
    "en": "Hi {name},\n\nI started a crew: {crew}. With {{brand}}, everyone plays their own Steam games on a gaming PC from the crew, Macs included. Nobody has one yet? No problem, someone can bring one later.\n\nJoin here with Steam, no password: {link}\n\nWould be great to have you!\n{sender}"
   }
  },
