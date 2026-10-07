@@ -1,0 +1,18 @@
+{
+  // Imported as TypeScript source by Node itself (the Lanterel OS services run
+  // with type stripping), so every import names its .ts file and only erasable
+  // syntax is used.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src", "vitest.config.ts"]
+}

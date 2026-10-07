@@ -6,6 +6,7 @@ import type { PcRead, SteamGame } from "../pc.cjs";
 import type { RunEvent, RunOutcome } from "../rental-exec.cjs";
 import type { RentalPlan, RentalRead } from "../rental.cjs";
 import type { SteamRead } from "../steam.cjs";
+import type { WindowError } from "./mainErrors";
 import type { Glance, TrayAction } from "./model";
 
 /** The app window's calls (preload.cjs). */
@@ -48,12 +49,16 @@ export type HostBridge = {
   secondsSinceInput(): Promise<number>;
   setGlance(glance: Glance): void;
   onTrayAction(listener: (action: TrayAction) => void): () => void;
+  /** An error nothing caught in this window, for main to report (mainErrors.ts). */
+  reportError?(report: WindowError): void;
 };
 
 /** The tray glance's calls (tray-preload.cjs): its snapshot, and one named action back. */
 export type TrayBridge = {
   onGlance(listener: (glance: Glance) => void): () => void;
   trayAction(action: TrayAction | "open"): void;
+  /** An error nothing caught in the glance, for main to report (mainErrors.ts). */
+  reportError?(report: WindowError): void;
 };
 
 /** The app window's preload calls, or undefined outside Electron. */

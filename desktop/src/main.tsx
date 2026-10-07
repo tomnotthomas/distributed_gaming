@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { DemoApp, RealApp } from "./App";
 import { isDemo, isDemoScreen } from "./demo";
+import { reportWindowErrors } from "./errorReports";
 import { TrayWindow } from "./screens/Tray";
 // The design's three faces, bundled: the window loads no remote content.
 import "@fontsource/michroma/400.css";
@@ -17,6 +18,7 @@ import "./host.css";
 // and either one with ?demo=1 when launched with --demo. `screen` opens the
 // demo on one of the design's screens.
 const params = new URLSearchParams(location.search);
+reportWindowErrors();
 const screen = params.get("screen");
 
 createRoot(document.getElementById("root")!).render(

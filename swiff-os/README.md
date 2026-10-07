@@ -798,7 +798,8 @@ mode; a socket on an attested host certificate is rental mode either way.
   and only root can read (mode 600); the agent refuses any other. For each renter
   session the agent gets a 5-minute session key (`POST /api/machines/:id/session`) and
   hands it to the streamer on stdin. The streamer runs as its own unprivileged user. Its
-  environment carries only `SWIFF_SERVER_URL`, `SWIFF_HOST_ID` and `SWIFF_APPID`.
+  environment carries only `SWIFF_SERVER_URL`, `SWIFF_HOST_ID` and `SWIFF_APPID`, and
+  the error-tracking variables when the agent has them ("Error reports" below).
 - **One renter at a time.** While the PC is offered, the agent holds the room with the
   machine-key socket and hears `session-claimed`. It then starts that session's host
   session and the streamer. It sends a heartbeat every 5 s, and learns the session is
@@ -886,6 +887,29 @@ config format is in `hostd/hostd.example.json`, with the image's streamer. `serv
 be `wss://`, since the machine key rides on it; plain `ws://` is accepted only for a server
 on this machine. `status` and `return-to-windows` talk to the running agent over its control
 socket, which only root can use.
+
+### Error reports
+
+The agent, the streamer and `swiff-steam-login` report their failures to PostHog's error
+tracking (`packages/error-tracking`): what nothing caught, which still ends the program
+as Node would have, the streamer's exit 1, and Steam that does not start. A report is an
+error's type, message and stack, the program's name, and nothing about who: a random id
+for the run, no person profile, no location, and every string scrubbed of Steam IDs,
+e-mail and IP addresses, user names in paths, invite links, keys and tokens, and the
+machine id and key by name. Each program sends the same failure once per run, and 50
+reports at most.
+
+Reports are off unless the program's environment names a project, and off whenever
+`DO_NOT_TRACK` is set (to anything but `0`):
+
+| Variable                | Value                                                      |
+| ----------------------- | ---------------------------------------------------------- |
+| `LANTEREL_POSTHOG_KEY`  | the project's public key (`phc_...`), never committed      |
+| `LANTEREL_POSTHOG_HOST` | its ingestion host, `https://eu.i.posthog.com`; https only |
+
+`swiff-hostd.service` reads them from `/etc/lanterel/error-tracking.env`, if it is there,
+and the agent hands the same three variables, and no others, to each streamer it starts.
+`swiff-steam-login` takes them from its session's environment.
 
 **Not yet here.** These come in later stages:
 

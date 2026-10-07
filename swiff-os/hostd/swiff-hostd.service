@@ -15,6 +15,10 @@ ConditionPathExists=/var/lib/swiff/hostd.json
 
 [Service]
 Environment=SWIFF_HOSTD_CONFIG=/var/lib/swiff/hostd.json
+# Error reports to PostHog: LANTEREL_POSTHOG_KEY and LANTEREL_POSTHOG_HOST, put
+# there at provisioning and never in the image source (README, "Error reports").
+# Without the file the agent reports nothing.
+EnvironmentFile=-/etc/lanterel/error-tracking.env
 ExecStart=/usr/bin/node /usr/lib/swiff/hostd/swiff-hostd.mjs
 Restart=on-failure
 RestartSec=5

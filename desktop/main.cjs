@@ -47,6 +47,33 @@ const { openSteamInstaller, readSteam } = require("./steam.cjs");
 const { TRAY_ICON_SIZE, trayIconPixels } = require("./tray-icon.cjs");
 const { windowsShareAllowed } = require("./share-gate.cjs");
 
+/** The signed-in user's name, never sent in an error report; "" where the OS will not say. */
+function userName() {
+  try {
+    return os.userInfo().username;
+  } catch {
+    return "";
+  }
+}
+
+// Error reports to PostHog (src/mainErrors.ts), built into dist/ beside the
+// window. A build without a project key, or a PC with DO_NOT_TRACK set, sends
+// none; and an unbuilt checkout has no dist/ to load, so it runs without them.
+try {
+  require("./dist/main-errors.cjs").startErrorTracking({
+    app,
+    ipcMain,
+    proc: process,
+    env: process.env,
+    fromWindow: (event) =>
+      (win !== null && event.sender === win.webContents) ||
+      (glance !== null && event.sender === glance.webContents),
+    secrets: [os.homedir(), userName()],
+  });
+} catch {
+  // No reports, then; the app is the same without them.
+}
+
 const INDEX = path.join(__dirname, "dist", "index.html");
 // Each window gets only its own calls: the app window its preload, the tray
 // glance one that can show a snapshot and send back a named action, nothing else.

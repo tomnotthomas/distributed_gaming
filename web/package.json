@@ -12,6 +12,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@swiff/error-tracking": "*",
     "@swiff/rank": "*",
     "@swiff/rtc": "*",
     "@swiff/ui": "*",

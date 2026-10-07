@@ -7,5 +7,5 @@ export default defineConfig({
   base: "./",
   build: { outDir: "dist", emptyOutDir: true },
   // Workspace packages ship TypeScript source; let Vite compile them.
-  optimizeDeps: { exclude: ["@swiff/rtc"] },
+  optimizeDeps: { exclude: ["@swiff/rtc", "@swiff/error-tracking"] },
 });

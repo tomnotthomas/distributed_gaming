@@ -19,6 +19,7 @@
 //   secondsSinceInput                 how long since the keyboard or mouse was used
 //   setGlance                         the tray glance's snapshot, to the tray
 //   onTrayAction                      a named action the tray glance sends back
+//   reportError                       an error nothing caught in the window, for main to report
 //
 // The tray glance has its own, smaller preload (tray-preload.cjs).
 
@@ -30,6 +31,14 @@ function subscribe(channel, listener) {
   ipcRenderer.on(channel, forward);
   return () => ipcRenderer.removeListener(channel, forward);
 }
+
+/** An error report as plain strings: nothing else crosses to main. */
+const windowError = (report) => ({
+  name: String(report?.name ?? ""),
+  message: String(report?.message ?? ""),
+  stack: String(report?.stack ?? ""),
+  mechanism: String(report?.mechanism ?? ""),
+});
 
 contextBridge.exposeInMainWorld("swiffHost", {
   loadMachineKey: () => ipcRenderer.invoke("machine-key:load"),
@@ -56,4 +65,5 @@ contextBridge.exposeInMainWorld("swiffHost", {
   secondsSinceInput: () => ipcRenderer.invoke("pc:idle"),
   setGlance: (glance) => ipcRenderer.send("glance:set", glance),
   onTrayAction: (listener) => subscribe("tray:action", listener),
+  reportError: (report) => ipcRenderer.send("errors:report", windowError(report)),
 });

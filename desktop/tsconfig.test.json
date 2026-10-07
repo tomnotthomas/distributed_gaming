@@ -9,6 +9,7 @@
   "include": [
     "src",
     "vite.config.ts",
+    "vite.main.config.ts",
     "vitest.config.ts",
     "pc.d.cts",
     "steam.d.cts",
