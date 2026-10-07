@@ -305,6 +305,7 @@ export function useRental({
         ?.ek;
       if (!ek) return ekFailed("none");
       if (ek.certificate !== known?.certificate) {
+        setRun((r) => ({ ...r, status: "running", stepStartedAt: Date.now() }));
         const registered = await registerEk(ek);
         if (n !== plans.current) return;
         if (!registered.ok) return ekFailed(registered.error);

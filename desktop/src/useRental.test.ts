@@ -296,6 +296,20 @@ describe("useRental", () => {
       expect((await goLive(null, A)).order).toEqual(["run", "register QUFB", "restart"]);
     });
 
+    it("keeps Go live running, with no restart offered, while the plan's read registers", async () => {
+      let answer: (r: EkResult) => void = () => {};
+      const pending = goLive(null, A, () => new Promise<EkResult>((resolve) => (answer = resolve)));
+      const { result, order } = await pending;
+      expect(order).toEqual(["run", "register QUFB"]);
+      expect(result.current.run.status).toBe("running");
+      await act(async () => answer({ ok: false, error: "unavailable" }));
+      expect(order).toEqual(["run", "register QUFB"]);
+      expect(result.current.run).toMatchObject({
+        status: "failed",
+        failed: { step: "ek", error: "unavailable" },
+      });
+    });
+
     it("stops before the restart, saying why, when there is no certificate or the server refused it", async () => {
       const none = await goLive(null, null);
       expect(none.order).toEqual(["run"]);
