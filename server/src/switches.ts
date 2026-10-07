@@ -244,8 +244,8 @@ export class Switches {
 
   /**
    * Decide an open vote once it can be: the player's yes, or a yes from more
-   * than half of the voters, says yes; no from at least half says no; when the
-   * time is up, more yes than no says yes.
+   * than half of the voters, says yes; no from at least half, or the time
+   * running out before that, says no.
    */
   #settle(vote: SwitchVote): void {
     if (vote.outcome !== "open") return;
@@ -256,8 +256,7 @@ export class Switches {
     const now = this.#now();
     let outcome: SwitchOutcome = "open";
     if (vote.votes.get(vote.playerId) === true || yes * 2 > n) outcome = "yes";
-    else if (no * 2 >= n) outcome = "no";
-    else if (now >= vote.endsAt) outcome = yes > no ? "yes" : "no";
+    else if (no * 2 >= n || now >= vote.endsAt) outcome = "no";
     if (outcome === "open") return;
     // Decided when it was: a vote whose time ran out unread closes at its end.
     vote.decidedAt = Math.min(now, vote.endsAt);

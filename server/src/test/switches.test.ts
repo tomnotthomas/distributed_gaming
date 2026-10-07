@@ -112,14 +112,24 @@ describe("switches", () => {
     assert.equal(switches.of("s1")?.outcome, "open");
   });
 
-  it("decides by more yes than no when the time is up", () => {
+  it("says no when the time is up with only half saying yes", () => {
     ask();
     switches.vote("s1", "lena", true);
     advance(VOTE_MS);
-    assert.equal(switches.of("s1")?.outcome, "yes");
+    assert.equal(switches.of("s1")?.outcome, "no");
+    assert.deepEqual(decided, []);
   });
 
-  it("says no when the time is up without more yes than no", () => {
+  it("says no and does not switch when only the one who asked says yes by the time it is up", () => {
+    ask(["kemal"]);
+    advance(VOTE_MS);
+    assert.equal(switches.of("s1")?.outcome, "no");
+    advance(SAVE_MS);
+    assert.deepEqual(decided, []);
+    assert.deepEqual(switched, []);
+  });
+
+  it("says no when the time is up with more no than yes", () => {
     ask(["kemal", "lena", "jonas", "sami"]);
     switches.vote("s1", "lena", false);
     advance(VOTE_MS);
