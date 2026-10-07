@@ -1,4 +1,4 @@
-import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import type { RenterSessionEvent, RenterSessionOptions } from "@swiff/rtc";
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,6 +8,7 @@ import { RECONNECT_GRACE_MS, WAKE_TIMEOUT_MS } from "./play";
 import { GameMenu } from "./GameMenu";
 import type { GameAvailability, GameMachines } from "./live";
 import { libraryState, type Renter } from "./steam";
+import { Swiff } from "./Swiff";
 import { SLOW_POLL_MS } from "./useLive";
 import { isDemo, useSwiff } from "./useSwiff";
 
@@ -1657,6 +1658,105 @@ describe("useSwiff", () => {
       act(() => stream.push(booked("matched", 1_000)));
       await waitFor(() => expect(result.current.claim).toEqual(TICKET));
       expect(result.current.queueBack).toBe(false);
+    });
+
+    describe("on the page, before its game list has loaded", () => {
+      beforeEach(() => {
+        vi.stubGlobal("matchMedia", (query: string) => ({
+          matches: false,
+          media: query,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+        }));
+        Element.prototype.scrollTo ??= () => {};
+        // jsdom plays no media: the stream's video, once live, plays at once.
+        vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+        keepPlaying();
+      });
+      afterEach(() => vi.restoreAllMocks());
+
+      /** The store's read of which games Swiff can run, held back until `answer` is called. */
+      function heldCatalog() {
+        let answer: (wall: { appid: number }[]) => void = () => {};
+        const read = new Promise<Response>((resolve) => {
+          answer = (wall) => resolve(new Response(JSON.stringify({ games: [], wall })));
+        });
+        return { read: (() => read) as unknown as () => Response, answer };
+      }
+
+      /** Press Reconnect on screen A, once the page has put it up. */
+      const pressReconnect = async () => {
+        const away = await screen.findByTestId("away");
+        act(() => within(away).getByRole("button", { name: "Reconnect" }).click());
+      };
+
+      it.each(["claimed", "playing"] as const)(
+        "streams a %s session Reconnect was pressed on, and names its game once the list is in",
+        async (status) => {
+          const catalog = heldCatalog();
+          serve(unnamed, LIVE, {
+            "GET /api/bookings/b-1": json(200, { ...playing(Date.now() + 100_000), status }),
+            "POST /api/bookings/b-1/rejoin": json(200, AGAIN),
+            "POST /api/sessions/s-1/start": json(200, { sessionId: "s-1", roomId: "pc-1" }),
+            "GET /api/games/popular": catalog.read,
+          });
+          render(createElement(Swiff));
+          await pressReconnect();
+
+          // The stream joins at once: nothing waits on the game list.
+          await waitFor(() => expect(rtc.sessions).toHaveLength(1));
+          expect(rtc.sessions[0]!.options).toMatchObject({ ticket: "t-again" });
+          expect(screen.getByTestId("session-video")).toBeInTheDocument();
+          act(() => rtc.sessions[0]!.emit({ type: "first-frame" }));
+          act(() => rtc.sessions[0]!.emit({ type: "game-started" }));
+          expect(screen.queryByTestId("ignition")).toBeNull();
+          expect(screen.getByTestId("session")).toHaveTextContent("Your game");
+
+          act(() => catalog.answer([{ appid: cs2.appid }]));
+          await waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(cs2.title));
+        },
+      );
+
+      it("plays a session whose game the list never shows, and ends on the wall", async () => {
+        serve(unnamed, LIVE, {
+          "GET /api/bookings/b-1": json(200, playing()),
+          "POST /api/bookings/b-1/rejoin": json(200, AGAIN),
+          "POST /api/sessions/s-1/start": json(200, { sessionId: "s-1", roomId: "pc-1" }),
+          "POST /api/bookings/b-1/end": json(200, booked("ended")),
+          "GET /api/games/popular": json(200, { games: [], wall: [] }),
+        });
+        render(createElement(Swiff));
+        await pressReconnect();
+        await waitFor(() => expect(rtc.sessions).toHaveLength(1));
+        act(() => rtc.sessions[0]!.emit({ type: "first-frame" }));
+        act(() => rtc.sessions[0]!.emit({ type: "game-started" }));
+        expect(screen.getByTestId("session")).toHaveTextContent("Your game");
+
+        act(() => screen.getByRole("button", { name: "End session" }).click());
+        expect(screen.queryByTestId("session")).toBeNull();
+        // Not a game's page with no game on it: the wall, where another can be picked.
+        expect(document.querySelector(".sw")).toHaveAttribute("data-screen", "home");
+      });
+
+      it("says in one line when the session cannot be reached, and Reconnect tries again", async () => {
+        let rejoins = 0;
+        serve(unnamed, LIVE, {
+          "GET /api/bookings/b-1": json(200, playing(Date.now() + 100_000)),
+          "POST /api/bookings/b-1/rejoin": () =>
+            ++rejoins === 1 ? new Response(null, { status: 503 }) : json(200, AGAIN)(),
+          "POST /api/sessions/s-1/start": json(200, { sessionId: "s-1", roomId: "pc-1" }),
+        });
+        render(createElement(Swiff));
+        await pressReconnect();
+
+        const away = screen.getByTestId("away");
+        await waitFor(() => expect(away).toHaveTextContent("We couldn't reach Glasshouse."));
+        const again = within(away).getByRole("button", { name: "Reconnect" });
+        expect(again).toBeEnabled();
+        act(() => again.click());
+        await waitFor(() => expect(rtc.sessions).toHaveLength(1));
+        expect(screen.queryByTestId("away")).toBeNull();
+      });
     });
 
     it("puts the reconnect up when the connection drops mid-session, and retries on the renter's word", async () => {

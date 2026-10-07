@@ -144,6 +144,10 @@ const track = (event: string, props?: Record<string, unknown>) => {
 /** No machines at all: what the wall is outside the demo before any host is read. */
 const NO_MACHINES: Record<string, SeedMachine> = {};
 
+/**
+ * The player app's one source of state: the wall, the open game, the booking
+ * and its claim, the session and coming back to it. Every screen reads it.
+ */
 export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   const [screen, setScreen] = useState<Screen>(() => screenAt(location.pathname));
   const [phase, setPhase] = useState<Phase>("idle");
@@ -191,6 +195,8 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   const [away, setAway] = useState<Away | null>(null);
   const [queueBack, setQueueBack] = useState(false);
   const [rejoining, setRejoining] = useState(false);
+  // The last Reconnect could not reach the session (the call failed): screen A says so.
+  const [rejoinFailed, setRejoinFailed] = useState(false);
   // A session whose machine was lost, being carried on elsewhere.
   const [lost, setLost] = useState<Lost | null>(null);
 
@@ -697,6 +703,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     if (!current || rejoining) return;
     const { booking: was, heldUntil } = current;
     setRejoining(true);
+    setRejoinFailed(false);
     track("session_rejoined", { game: was.gameId });
     // Another page that took the session up meanwhile keeps it.
     const seat = async () =>
@@ -721,9 +728,26 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
         setLaunchedAt(Date.now());
         setPhase(resumed ? "live" : "connecting");
       },
-      () => setRejoining(false),
+      () => {
+        setRejoining(false);
+        setRejoinFailed(true);
+      },
     );
   }, [away, rejoining]);
+
+  // A session come back to before the wall's games were read takes its game
+  // once they are: the stream never waits for it (Session), only its name and art.
+  useEffect(() => {
+    if (phase === "idle" || !claim || !booking || game?.appid === booking.gameId) return;
+    const found = games.find((g) => g.appid === booking.gameId);
+    if (found) setGameId(found.id);
+  }, [phase, claim, booking, game, games]);
+
+  // A game's page with no game to show, as after a session whose game the wall
+  // never listed, is the wall instead: never a blank page.
+  useEffect(() => {
+    if (screen === "game" && phase === "idle" && !game) setScreen("home");
+  }, [screen, phase, game]);
 
   /** Let the session the page left go (screen A): it ends now, rather than when the PC stops holding it. */
   const endAway = useCallback(() => {
@@ -731,6 +755,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     if (!current) return;
     track("session_ended", { away: true });
     setAway(null);
+    setRejoinFailed(false);
     void endBooking(current.booking.bookingId).catch(() => {});
   }, [away]);
 
@@ -1265,6 +1290,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     refusal,
     away,
     rejoining,
+    rejoinFailed,
     queueBack,
     games,
     game,

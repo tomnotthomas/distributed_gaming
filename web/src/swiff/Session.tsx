@@ -105,9 +105,12 @@ export function Session({ swiff }: { swiff: Swiff }) {
       return video.play().catch(() => {});
     });
   }, [root, behindIgnition, wake]);
-  if (!game) return null;
-
   const real = !demo;
+  // A real session streams whether or not the wall has its game yet: a page
+  // reconnected before its game list loaded, or to a game the list does not
+  // show, still joins, and names the game once it knows it.
+  if (demo && !game) return null;
+  const title = game?.title ?? "Your game";
   // A session come back to may be on a machine the open game's list no longer shows.
   const host = picked?.name ?? swiff.booking?.machine?.name ?? "your machine";
   // The demo has no connection to read, so it shows what its machine would.
@@ -138,7 +141,11 @@ export function Session({ swiff }: { swiff: Swiff }) {
       onPointerDown={wake}
       onFocus={wake}
     >
-      {real ? (
+      {demo && game ? (
+        // The stream stand-in always moves: the wall's motion setting is about
+        // the wall, not about the game you are playing.
+        <Backdrop image={gameArt(game)} fallback={gameArtFallbacks(game)} video={gameTrailer(game)} motion />
+      ) : (
         <video
           className="session-video"
           data-testid="session-video"
@@ -146,10 +153,6 @@ export function Session({ swiff }: { swiff: Swiff }) {
           autoPlay
           playsInline
         />
-      ) : (
-        // The stream stand-in always moves: the wall's motion setting is about
-        // the wall, not about the game you are playing.
-        <Backdrop image={gameArt(game)} fallback={gameArtFallbacks(game)} video={gameTrailer(game)} motion />
       )}
 
       <TopBar
@@ -158,7 +161,7 @@ export function Session({ swiff }: { swiff: Swiff }) {
         start={
           <>
             <StatusDot />
-            <strong className="hud-title">{game.title}</strong>
+            <strong className="hud-title">{title}</strong>
             <span className="hud-on">on {host}</span>
           </>
         }
