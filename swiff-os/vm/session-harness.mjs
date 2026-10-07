@@ -440,6 +440,9 @@ async function startServer() {
       DATABASE_URL: "",
       // Every game playable, unchecked: there is no internet here to ask Steam.
       SWIFF_PLAYABILITY: "off",
+      // The session test drives the paid marketplace (server/src/features.ts):
+      // the wall at "/" and a stranger's PC.
+      PAID_GAMING: "on",
       TURN_URLS: `turn:${TURN_IP}:3478`,
       TURN_SECRET,
       // The production verifier: a TPM quote of a signed release's boot.

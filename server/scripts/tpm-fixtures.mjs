@@ -464,7 +464,11 @@ const QUOTED = [0, 1, 2, 3, 4, 5, 6, 7, 11, 12, 13];
 const NOW = Date.now() + 5 * 60 * 1000;
 const roots = {
   root: () => readFileSync(join(ca, "swtpm-localca-rootca-cert.pem"), "utf8"),
-  intermediate: () => readFileSync(join(ca, "issuercert.pem"), "utf8"),
+  // Some swtpm_localca builds write a text dump of the certificate before its PEM block.
+  intermediate: () =>
+    readFileSync(join(ca, "issuercert.pem"), "utf8").match(
+      /-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----\n?/,
+    )[0],
 };
 
 /** One quote as swiff-hostd makes it: challenge, activation, ActivateCredential, Quote. */
