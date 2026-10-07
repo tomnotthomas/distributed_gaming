@@ -1,0 +1,21 @@
+# The renter session's error-tracking project. swiff-steam-login runs in the
+# renter's session, which cannot read the ESP (swiff-esp.service mounts it
+# root's alone), so this checks LANTEREL.ENV as swiff-hostd does and writes
+# the project, and nothing else, to /run/swiff/error-tracking/session.env,
+# root's alone; swiff-session.service reads it as an EnvironmentFile, which
+# systemd opens as root. Without a project the file is empty and the session
+# reports nothing.
+[Unit]
+Description=Lanterel renter session's error-reports project
+Wants=swiff-esp.service
+After=swiff-esp.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=LANTEREL_ERROR_TRACKING_FILE=/run/swiff/esp/LANTEREL.ENV
+RuntimeDirectory=swiff/error-tracking
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+ExecStart=/usr/bin/node /usr/lib/swiff/hostd/swiff-hostd.mjs session-env /run/swiff/error-tracking/session.env
+NoNewPrivileges=yes

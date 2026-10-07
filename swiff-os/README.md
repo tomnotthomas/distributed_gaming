@@ -926,7 +926,10 @@ reports off. Each streamer it starts gets the error-tracking variables the agent
 (`LANTEREL_POSTHOG_KEY`, `LANTEREL_POSTHOG_HOST` and `DO_NOT_TRACK`, each only when set),
 beside its own `SWIFF_SERVER_URL`, `SWIFF_HOST_ID` and `SWIFF_APPID`, and none of the agent's
 other settings. `swiff-steam-login` runs in the renter's session, not under the agent, and the file
-is root's alone: it reports only when its session's environment names a project.
+is root's alone, so `swiff-error-tracking.service` checks it the same way at boot
+(`swiff-hostd session-env`) and writes the project alone to `/run/swiff/error-tracking/session.env`,
+root's alone too; `swiff-session.service` reads that as an `EnvironmentFile`, which systemd opens as
+root. Without a project the file is empty and the session reports nothing.
 
 **Not yet here.** These come in later stages:
 

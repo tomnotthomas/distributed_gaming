@@ -1,8 +1,8 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { errorTrackingEnv, errorTrackingFile, hostdTracker } from "./errors.ts";
+import { errorTrackingEnv, errorTrackingFile, hostdTracker, sessionEnv, writeSessionEnv } from "./errors.ts";
 
 const project = { LANTEREL_POSTHOG_KEY: "phc_public", LANTEREL_POSTHOG_HOST: "https://eu.i.posthog.com" };
 
@@ -112,5 +112,41 @@ describe("the error-tracking file Lanterel Host writes onto the ESP", () => {
   it("is nothing when there is no file", async () => {
     expect(await errorTrackingFile(join(dir, "missing"))).toEqual({});
     expect(await errorTrackingFile(undefined)).toEqual({});
+  });
+});
+
+describe("the renter session's error-tracking environment", () => {
+  const ON = { LANTEREL_POSTHOG_KEY: "phc_abc", LANTEREL_POSTHOG_HOST: "https://eu.i.posthog.com" };
+
+  it("is the project alone, as NAME=value lines the session reads as an EnvironmentFile", () => {
+    expect(sessionEnv({ ...ON, PATH: "/bin", SWIFF_HOSTD_CONFIG: "/x" })).toBe(
+      "LANTEREL_POSTHOG_KEY=phc_abc\nLANTEREL_POSTHOG_HOST=https://eu.i.posthog.com\n",
+    );
+  });
+
+  it("is empty without a project, with one that is not PostHog's, or with DO_NOT_TRACK", () => {
+    expect(sessionEnv({})).toBe("");
+    expect(sessionEnv({ ...ON, LANTEREL_POSTHOG_HOST: "https://collector.evil.example" })).toBe("");
+    expect(sessionEnv({ ...ON, LANTEREL_POSTHOG_KEY: "phx_personal" })).toBe("");
+    expect(sessionEnv({ ...ON, DO_NOT_TRACK: "1" })).toBe("");
+  });
+
+  it("is written from the ESP's file, never carrying another line from it, and readable by root alone", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "swiff-hostd-session-"));
+    try {
+      const esp = join(dir, "LANTEREL.ENV");
+      await writeFile(
+        esp,
+        `${Object.entries(ON)
+          .map(([k, v]) => `${k}=${v}`)
+          .join("\n")}\nLD_PRELOAD=/tmp/x.so\n`,
+      );
+      const out = join(dir, "session.env");
+      await writeSessionEnv(out, { ...(await errorTrackingFile(esp)) });
+      expect(await readFile(out, "utf8")).toBe(sessionEnv(ON));
+      expect((await stat(out)).mode & 0o777).toBe(0o600);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
