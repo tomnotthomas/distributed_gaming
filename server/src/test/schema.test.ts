@@ -58,6 +58,7 @@ describe("migrations", () => {
         "machine_state_keys",
         "machine_uptime",
         "machines",
+        "marketing_confirm_sends",
         "marketing_outbox",
         "marketing_signups",
         "reservations",

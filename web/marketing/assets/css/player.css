@@ -372,3 +372,10 @@
 .crew-cue a { color: var(--on-paper); text-decoration: underline; text-decoration-color: var(--lime); text-underline-offset: 4px; }
 @media (max-width: 860px) { .crewband { grid-template-columns: 1fr; } .crew-steps { grid-template-columns: 1fr; } .crew-steps li + li { border-left: 0; border-top: 1px solid rgb(19 19 19 / 0.16); padding-left: 0; } }
 .crewband + .proof { padding-top: clamp(64px, 8vw, 120px); }
+.crewband .crew-more { grid-column: 1 / -1; margin-top: 4px; font-size: 16px; max-width: 70ch; }
+
+/* Hero and closing call to action: "Crew gründen" goes straight to the Steam sign-in. */
+.start { display: grid; gap: 10px; justify-items: start; }
+.start-cta { text-decoration: none; }
+.start p { margin: 0; font-size: 14px; line-height: 1.45; color: var(--ink-2); max-width: 44ch; }
+.start .start-steam { margin-top: 4px; color: var(--ink); }

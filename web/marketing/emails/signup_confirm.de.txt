@@ -1,13 +1,13 @@
-Subject: Bitte bestätige deine Anmeldung
+Subject: Erinnerungen an Zockrunden: kurz bestätigen
 
-Noch ein Klick
+Kurz bestätigen
 
-Danke für deine Anmeldung bei {{brand}}. Bestätige kurz deine E-Mail-Adresse, dann stehst du auf der Liste.
+Du willst an Zockrunden erinnert werden? Bestätig kurz deine E-Mail-Adresse, dann sagen wir dir vorher Bescheid. Für nichts anderes schreiben wir dir.
 
-Mit einem Freund, der einen Gaming-PC hat, geht's schneller: Nach dem Bestätigen bekommst du deinen eigenen Link, den du ihm schicken kannst.
+Ohne Bestätigung schicken wir dir nichts mehr.
 
 E-Mail bestätigen: {confirm_url}
 
 --
-Du bekommst diese Mail, weil sich jemand mit dieser Adresse bei {{brand}} angemeldet hat. Warst du das nicht, ignorier sie einfach.
+Du bekommst diese Mail, weil jemand diese Adresse auf einer Crew-Seite bei {{brand}} eingetragen hat. Warst du das nicht, ignorier sie einfach.
 {{brand}} · [VOR- UND NACHNAME] · [ANSCHRIFT] · Abmelden: {unsubscribe_url}

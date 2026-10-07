@@ -14,6 +14,8 @@
 <meta property="og:title" content="So funktioniert {{brand}} OS: Dual Boot, Secure Boot, BitLocker">
 <meta property="og:description" content="Was {{brand}} OS auf deinem Gaming-PC macht: Dual Boot neben Windows, signierter Start mit Secure Boot, was Gäste erreichen und was nicht, BitLocker-Check vor der Installation und Entfernen mit einem Klick.">
 <meta property="og:image" content="{{site}}/assets/img/wide-730.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
 <meta property="og:locale" content="de_DE">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="canonical" href="{{site}}/lanterel-os/">
@@ -33,7 +35,7 @@
     <button type="button" data-lang="de" aria-pressed="true" lang="de">DE</button>
     <button type="button" data-lang="en" aria-pressed="false" lang="en">EN</button>
   </div>
-  <a class="lpill lpill-sm solid nav-cta" href="/host/#bewerben"><span data-t="os.navcta">Bewerben</span></a>
+  <a class="lpill lpill-sm solid nav-cta" href="{{app}}/auth/steam/login?to=%2Fcrews%3Ffound%3D1%26pc%3D1" data-signin><span data-t="os.navcta">Loslegen</span></a>
 </header>
 <main>
   <section class="d-hero" aria-labelledby="h1">
@@ -43,7 +45,7 @@
         <p class="kicker" data-t="os.kick">Für Hosts</p>
         <h1 data-t="os.h1" id="h1">So funktioniert <b>{{brand}} OS</b></h1>
         <p class="lead" data-t="os.lead">Ein kleines, eigenes System neben deinem Windows. Gäste zocken nur dort. An dein Windows kommt keiner ran.</p>
-        <div class="actions"><a class="lpill solid" href="/host/#bewerben"><span data-t="os.cta">Als Founding Host bewerben</span><span class="lpill-c"><svg class="glyph" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span></a><a class="ghost" href="#bitlocker"><span data-t="os.bit">Zum BitLocker-Check</span></a></div>
+        <div class="actions"><a class="lpill solid" href="{{app}}/auth/steam/login?to=%2Fcrews%3Ffound%3D1%26pc%3D1" data-signin><span data-t="os.cta">Crew gründen</span><span class="lpill-c"><svg class="glyph" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span></a><a class="ghost" href="#bitlocker"><span data-t="os.bit">Zum BitLocker-Check</span></a></div>
       </div>
       <figure class="pc" aria-labelledby="pc-h" style="margin:0">
         <p class="pc-head"><span class="wm" id="pc-h" data-t="os.dgt">Dein Gaming-PC</span><span data-t="os.dgs">Wer wo ran darf</span></p>
@@ -138,7 +140,7 @@
     <div class="wrap">
       <h2 data-t="os.rmh" id="rm-h">Mit einem Klick wieder weg</h2>
       <p class="body" data-t="os.rmp" style="margin-top:14px">In der {{brand}}-App klickst du auf „{{brand}} OS entfernen“. Das löscht die 24 GB und den Boot-Eintrag, danach startet dein PC nur noch Windows, so wie vorher.</p>
-      <div class="actions"><a class="lpill solid" href="/host/#bewerben"><span data-t="os.cta2">Als Founding Host bewerben</span><span class="lpill-c"><svg class="glyph" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span></a></div>
+      <div class="actions"><a class="lpill solid" href="{{app}}/auth/steam/login?to=%2Fcrews%3Ffound%3D1%26pc%3D1" data-signin><span data-t="os.cta2">Crew gründen</span><span class="lpill-c"><svg class="glyph" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span></a></div>
     </div>
   </section>
 </main>

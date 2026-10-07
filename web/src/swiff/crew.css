@@ -681,6 +681,45 @@
 .crew-lobby .lb-last .lpill {
   text-decoration: none;
 }
+/* optional reminders by email (signups.ts): the launch set's .lb-remind */
+.crew-lobby .lb-remind {
+  margin-top: clamp(48px, 6vw, 88px);
+  border-top: 1px solid var(--pline);
+  padding: clamp(40px, 5vw, 64px) 0;
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  gap: 20px clamp(28px, 5vw, 72px);
+  align-items: start;
+}
+.crew-lobby .lb-remind h2 {
+  margin: 0;
+  font: 300 clamp(22px, 2.4vw, 30px) / 1.15 var(--f);
+}
+.crew-lobby .lb-remind .sub {
+  margin: 10px 0 0;
+  color: var(--on-paper-2);
+}
+.crew-lobby .lb-remind .fa-acts p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.crew-lobby .rem-form {
+  display: grid;
+  gap: 8px;
+}
+.crew-lobby .rem-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.crew-lobby .rem-row .name-in {
+  max-width: none;
+}
+.crew-lobby .lb-remind .cp-toast {
+  grid-column: 1 / -1;
+  margin: 0;
+}
 .crew-lobby .lb-last {
   margin-top: clamp(48px, 6vw, 88px);
   padding: clamp(40px, 5vw, 72px) 0;
@@ -697,6 +736,9 @@
   text-transform: uppercase;
 }
 @media (max-width: 960px) {
+  .crew-lobby .lb-remind {
+    grid-template-columns: 1fr;
+  }
   .crew-lobby .lb-slots {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

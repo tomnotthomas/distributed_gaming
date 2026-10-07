@@ -4,24 +4,24 @@
 // requests for SITE_ORIGIN's host, so the app keeps "/", "/share" and "/host"
 // on its own origin while the site has them on its own domain.
 //
-//   /  /share/  /host/  /lanterel-os/  /impressum/  /datenschutz/   (a folder with index.html)
-//   /en/  /en/share/  /en/host/  /en/lanterel-os/  /en/legal-notice/  /en/privacy/
-//   /(en/)?(crew|seat|gift|night)/<code>   one template per type, rendered per invite
+//   /  /host/  /lanterel-os/  /impressum/  /datenschutz/   (a folder with index.html)
+//   /en/  /en/host/  /en/lanterel-os/  /en/legal-notice/  /en/privacy/
+//   /(en/)?share/   on to the app's crew pages
+//   /(en/)?(crew|seat)/<code>   on to the app's own invite page
+//   /(en/)?(gift|night)/<code>   one template per type, rendered per invite
 //   /assets/…  /robots.txt  /sitemap.xml
 //
 // Off, or on another host, every one of these paths does what it did before.
 //
 // The pages hold the product's name, the site's origin and the app's origin as
 // tokens, filled in here from brand.ts, SITE_ORIGIN and PUBLIC_ORIGIN. An
-// invite page names nobody (invite-copy.ts), and its buttons carry the
-// invite's code on to the sign-up form (?i=type:code), which posts it with the
-// email (signups.ts). The share page shows a confirmed sign-up's own crew link.
+// invite page the site renders names nobody (invite-copy.ts).
 
 import { readFile, readdir } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname, isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import { BRAND, WORDMARK } from "./brand.js";
-import { inviteCopy, type InviteType, type Lang } from "./invite-copy.js";
+import { inviteCopy, type InviteType, type Lang, type SiteInviteType } from "./invite-copy.js";
 
 export const INVITE_TYPES: readonly InviteType[] = ["crew", "seat", "gift", "night"];
 
@@ -170,7 +170,7 @@ const setMeta = (html: string, attr: string, name: string, value: string) =>
  * An invite template rendered for one invite: its copy (invite-copy.ts), and
  * its buttons to the sign-up forms carrying `type:code` on as ?i=.
  */
-export function renderInvite(template: string, type: InviteType, lang: Lang, code: string | null): string {
+export function renderInvite(template: string, type: SiteInviteType, lang: Lang): string {
   const copy = inviteCopy(type, lang);
   let html = template.replace(/<title>[^<]*<\/title>/, () => `<title>${copy.title} | {{brand}}</title>`);
   html = setMeta(html, "name", "description", copy.description);
@@ -178,19 +178,21 @@ export function renderInvite(template: string, type: InviteType, lang: Lang, cod
   html = setMeta(html, "property", "og:description", copy.description);
   for (const [key, inner] of Object.entries(copy.text)) html = setText(html, key, inner);
   for (const [from, to] of copy.literal) html = html.replaceAll(from, () => to);
-  if (code) {
-    // To the host application (#bewerben) or the waitlist (#beta), with the invite.
-    html = html.replace(
-      /href="((?:\/en)?\/(?:host\/)?)#(bewerben|beta)"/g,
-      (_, path: string, anchor: string) => `href="${path}?i=${type}:${code}#${anchor}"`,
-    );
-  }
   return html;
 }
 
-/** The share page with a sign-up's crew link, or with the bare crew page when `code` is null. */
-export function renderShare(template: string, code: string | null): string {
-  return template.replace(/\/crew\/(DEINCODE|YOURCODE)/g, code ? `/crew/${code}` : "/crew/");
+/**
+ * Where the app shows an invite the site was asked for: a crew link at the
+ * app's /invite/<token> and a friend seat at /seat/<token>, the pages that
+ * name who asks from the product's own data; the bare template path, with no
+ * code, at the app's crews. Null for the types the product has no invites of
+ * yet (gift seats, Nights: TODO once they exist), which the site renders
+ * naming nobody.
+ */
+export function appInvitePath(type: InviteType, code: string | null): string | null {
+  if (type !== "crew" && type !== "seat") return null;
+  if (code === null) return "/crews";
+  return type === "crew" ? `/invite/${code}` : `/seat/${code}`;
 }
 
 /**
@@ -231,12 +233,10 @@ export type MarketingOptions = {
   files: MarketingFiles;
   /** Page routes by path (pageRoutes). */
   routes: Map<string, string>;
-  /** Whether `code` is a confirmed sign-up's crew link code (signups.ts). */
-  isShareCode: (code: string) => Promise<boolean>;
 };
 
 /** Serve a marketing page or file on the site's host; false for anything else. */
-export function createMarketing({ site, files, routes, isShareCode }: MarketingOptions) {
+export function createMarketing({ site, files, routes }: MarketingOptions) {
   /** Answer 200 with `body` as `type` (by extension), and no body to a HEAD. */
   function send(
     res: ServerResponse,
@@ -247,6 +247,17 @@ export function createMarketing({ site, files, routes, isShareCode }: MarketingO
   ) {
     res.writeHead(200, { "content-type": MIME[type] ?? "application/octet-stream", ...headers });
     res.end(req.method === "HEAD" ? undefined : body);
+  }
+
+  /** Send the visitor on to `location`, keeping nothing: an invite's code is in it. */
+  function redirect(res: ServerResponse, location: string) {
+    res.writeHead(302, {
+      location,
+      "cache-control": "no-store",
+      "x-robots-tag": "noindex",
+      "referrer-policy": "no-referrer",
+    });
+    res.end();
   }
 
   return async function serveMarketing(
@@ -264,26 +275,32 @@ export function createMarketing({ site, files, routes, isShareCode }: MarketingO
       return true;
     }
 
+    // The crew page lives in the app now, behind its Steam sign-in.
+    if (/^(\/en)?\/share\/$/.test(path)) {
+      redirect(res, `${site.app}/crews`);
+      return true;
+    }
+
     const page = routes.get(path);
     if (page) {
-      let html = await files.text(page);
+      const html = await files.text(page);
       if (html === null) return false;
-      const share = /^(\/en)?\/share\/$/.test(path);
-      if (share) {
-        const code = url.searchParams.get("code");
-        const known = code !== null && INVITE_CODE.test(code) && (await isShareCode(code));
-        html = renderShare(html, known ? code : null);
-      }
-      // A share page is one person's: never kept by a cache.
-      send(res, req, ".html", html, { "cache-control": share ? "private, no-store" : "no-cache" });
+      send(res, req, ".html", html, { "cache-control": "no-cache" });
       return true;
     }
 
     const invite = inviteRoute(path);
+    // An invite the product has is the app's to show, with who asks.
+    const inApp = invite ? appInvitePath(invite.type, invite.code) : null;
+    if (inApp) {
+      redirect(res, `${site.app}${inApp}`);
+      return true;
+    }
     if (invite) {
       const template = await files.text(`${invite.lang === "en" ? "en/" : ""}${invite.type}/index.html`);
       if (template === null) return false;
-      const html = renderInvite(template, invite.type, invite.lang, invite.code);
+      // Only gift and Night invites get here: appInvitePath took the rest.
+      const html = renderInvite(template, invite.type as SiteInviteType, invite.lang);
       // The copy brings its own {{brand}} tokens.
       send(res, req, ".html", fillTokens(html, site), {
         "cache-control": "private, no-store",

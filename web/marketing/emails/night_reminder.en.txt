@@ -1,12 +1,12 @@
-Subject: Tonight at 9: Crew Night with Max and Lena
+Subject: Today at 9: gaming session with Max and Lena
 
-It's on tonight
+It's on today
 
-Your Crew Night starts at 9 pm, and your seat at Tom's rig is reserved.
+Your gaming session starts at 9 pm, and your seat at Tom's PC is reserved.
 
 Getting in is quick: open {{brand}} in Chrome, sign in with Steam, start a game and scan the QR code once with the Steam app. A wired connection or a spot close to the router works best.
 
-Tonight's Discord link: {discord}
+Voice chat is right there in {{brand}} once you're in.
 
 Open {{brand}}: {app_url}
 

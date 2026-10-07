@@ -11,9 +11,11 @@
 <link rel="stylesheet" href="/assets/css/base.css">
 <link rel="stylesheet" href="/assets/css/imp1.css">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Jonas schenkt dir einen Platz">
-<meta property="og:description" content="Jonas hat gerade über {{brand}} gezockt und dir einen Platz geschenkt: deine Steam-Spiele auf deinem Mac, ohne Warteliste.">
-<meta property="og:image" content="{{site}}/assets/img/wide-730.jpg">
+<meta property="og:title" content="Ein Platz zum Zocken, geschenkt">
+<meta property="og:description" content="Deine Steam-Spiele auf dem Mac, direkt in Chrome. Der Platz ist 14 Tage für dich reserviert.">
+<meta property="og:image" content="{{site}}/assets/img/og-gift-de.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
 <meta property="og:locale" content="de_DE">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="canonical" href="{{site}}/gift/">
@@ -34,7 +36,7 @@
     <button type="button" data-lang="de" aria-pressed="true" lang="de">DE</button>
     <button type="button" data-lang="en" aria-pressed="false" lang="en">EN</button>
   </div>
-  <a class="lpill lpill-sm solid nav-cta" href="/#beta"><span data-t="gift.navcta">Platz einlösen</span></a>
+  <a class="lpill lpill-sm solid nav-cta" href="{{app}}/auth/steam/login?to=%2Fcrews" data-signin><span data-t="gift.navcta">Platz einlösen</span></a>
 </header>
 <main>
 
@@ -43,7 +45,8 @@
   <div class="side">
     <p class="ed-lead" data-t="gift.lead">Jonas hat gerade Counter-Strike 2 auf seinem MacBook gezockt, gestreamt von einem Gaming-PC in Deutschland. Jetzt bist du dran: deine eigenen Steam-Spiele, auf deinem Mac, direkt in Chrome.</p>
     <p class="ed-lead" data-t="gift.lead2">In der Beta kostet {{brand}} eh nichts. Mit dem Platz von Jonas musst du aber nicht auf die nächste Einladungswelle warten.</p>
-    <div class="ed-actions"><a class="lpill solid" href="/#beta"><span data-t="gift.take">Platz einlösen</span><span class="lpill-c"><svg class="glyph" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span></a></div>
+    <div class="ed-actions"><a class="lpill solid" href="{{app}}/auth/steam/login?to=%2Fcrews" data-signin><span data-t="gift.take">Platz einlösen</span><span class="lpill-c"><svg class="glyph" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span></a></div>
+    <p class="steam-note" style="margin:12px 0 0;font-size:14px;line-height:1.45;opacity:.8" data-t="gift.steam">Du meldest dich mit Steam an. Kein Passwort, kein neues Konto.</p>
     <p class="ed-sig" data-t="gift.sig">Geschenkt von Jonas · gültig 14 Tage</p>
   </div>
 </section>

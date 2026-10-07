@@ -2,5 +2,6 @@ User-agent: *
 Allow: /
 Disallow: /emails/
 Disallow: /content/
+Disallow: /stage2/
 
 Sitemap: {{site}}/sitemap.xml
