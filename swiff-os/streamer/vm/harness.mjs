@@ -164,10 +164,9 @@ const server = spawn(process.execPath, [resolve(REPO, "server/dist/index.js")], 
     DATABASE_URL: "",
     // Every game playable, unchecked: the friend's wall must not wait on Steam's verdicts.
     SWIFF_PLAYABILITY: "off",
-    // Watching is relay-only: the relay below, with e2e/scripts/turn.sh's test-only credential.
+    // Watching is relay-only: the relay below, minting with e2e/scripts/turn.sh's test-only secret.
     TURN_URLS: `turn:127.0.0.1:${TURN_PORT}`,
-    TURN_USERNAME: "swiff-e2e",
-    TURN_CREDENTIAL: "e2e-only-turn-credential",
+    TURN_SECRET: "e2e-only-turn-secret-that-is-long-enough-to-pass",
   },
   // Its own log beside the results, in this user's build directory, for when it fails.
   stdio: ["ignore", "ignore", openSync(resolve(dirname(values.out), "server.log"), "w")],

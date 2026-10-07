@@ -37,8 +37,8 @@ export function blankRelated(candidate: string): string {
 
 /**
  * `sdp` with every candidate that is not a relay one taken out, the relay
- * ones' related addresses and the connection addresses blanked: what a
- * relay-only peer would have sent anyway, whatever this one sent.
+ * ones' related addresses and the origin and connection addresses blanked:
+ * what a relay-only peer would have sent anyway, whatever this one sent.
  */
 export function relaySdp(sdp: string): string {
   return sdp
@@ -46,6 +46,8 @@ export function relaySdp(sdp: string): string {
     .filter((line) => !line.startsWith("a=candidate:") || isRelayCandidate(line))
     .map((line) => {
       if (line.startsWith("a=candidate:")) return blankRelated(line);
+      if (/^o=.* IN IP4 \S+$/.test(line)) return line.replace(/ IN IP4 \S+$/, " IN IP4 0.0.0.0");
+      if (/^o=.* IN IP6 \S+$/.test(line)) return line.replace(/ IN IP6 \S+$/, " IN IP6 ::");
       if (/^c=IN IP4 /.test(line)) return "c=IN IP4 0.0.0.0";
       if (/^c=IN IP6 /.test(line)) return "c=IN IP6 ::";
       if (/^a=rtcp:\d+ IN IP4 /.test(line)) return line.replace(/ IN IP4 .*$/, " IN IP4 0.0.0.0");

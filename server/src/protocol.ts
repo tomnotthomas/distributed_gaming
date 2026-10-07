@@ -84,7 +84,9 @@ export type WatchMessage = { type: "watch"; ticket: string };
 /**
  * The viewer's seat, as it stands: `asking` until the player says yes, then
  * `watching`. Sent on every change. `player` is the player's name when known;
- * `playerHere` whether their page is in the room to stream. `iceServers` as `joined`.
+ * `playerHere` whether their page is in the room to stream. `iceServers`, once
+ * `watching`: the TURN relay alone, with a credential minted for this watch
+ * that expires with its ticket (ice.ts), never the player's or another viewer's.
  */
 export type WatchingMessage = {
   type: "watching";

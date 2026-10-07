@@ -230,7 +230,8 @@ const serveApi = createApi({
   onRenterStarted: pushLaunch,
   heldUntil: (machineId) => grace.until(machineId),
   watches,
-  watchRelay: () => relayServers(ice.servers()).length > 0,
+  // A viewer's own, TURN alone: their connection is relay-only (watchIce.ts).
+  watchRelay: async (seat) => relayServers(await turn.relay.credentials(seat)),
   onCrewLeft: () => void checkWatches(),
   checkCrew: (sessionId) => currentCrews(sessionId),
 });
@@ -473,7 +474,10 @@ async function tellPlayer(room: string, sessionId: string): Promise<void> {
   send(playerOf(rooms.get(room), sessionId), message);
 }
 
-/** Tell a viewer where their watch stands, with the TURN relays their relay-only connection uses. */
+/**
+ * Tell a viewer where their watch stands. Once let in, with their watch's own
+ * TURN credential, all their relay-only connection uses.
+ */
 function tellViewer(watch: Watch): void {
   const room = rooms.get(watch.room);
   send(room?.viewers.get(watch.id) ?? null, {
@@ -482,7 +486,7 @@ function tellViewer(watch: Watch): void {
     state: watch.state,
     player: watch.playerName,
     playerHere: playerOf(room, watch.sessionId) !== null,
-    iceServers: relayServers(ice.servers()),
+    ...iceServers(watch.state === "watching" ? watch.relay : []),
   });
 }
 

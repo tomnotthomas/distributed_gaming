@@ -128,6 +128,7 @@ import type { QosReport } from "./stability.js";
 import { bearer, discardBody, HttpError, readJson } from "./http.js";
 import { createStateKeys, memoryStateKeyStore, type StateKeys } from "./state-key.js";
 import type { Watches } from "./watch.js";
+import type { RelaySeat } from "./ice.js";
 import { clearedCookie, renterSessionOf } from "./signin.js";
 import {
   emptyProfile,
@@ -200,10 +201,11 @@ export type ApiOptions = {
   /** Who asked to watch which session (watch.ts). Without it the crew-live routes are not served. */
   watches?: Watches;
   /**
-   * Whether a TURN relay is configured now: a watch connection is relay-only
-   * (watchIce.ts), so without one nobody can ask to watch. Unset: none.
+   * A TURN credential of the viewer's own for a watch (ice.ts): a watch
+   * connection is relay-only (watchIce.ts), so where none is minted nobody can
+   * ask to watch. Unset: none.
    */
-  watchRelay?: () => boolean;
+  watchRelay?: (seat: RelaySeat) => Promise<RTCIceServer[]>;
   /** Someone left a crew or was removed from one: whoever watches across it stops. */
   onCrewLeft?: () => void;
   /** Before an ask: drop the crew picked for the session when it may watch it no more (index.ts currentCrews). */
@@ -858,14 +860,6 @@ export function createApi({
       if (live === "ended" || live === "not-crew" || !watches.onScreen(live.sessionId)) {
         throw new HttpError(404, "no crewmate of yours is playing that session");
       }
-      // Relay-only, so neither side learns the other's address: no relay, no watching.
-      if (!watchRelay?.()) {
-        reply(res, 503, {
-          error: "watching needs Swiff's relay, which is not set up here",
-          code: "no-relay",
-        });
-        return true;
-      }
       // The player sees them by their Steam persona, when Steam answers.
       const read = await profile(steamId).catch(() => null);
       // Rounded up: a ticket must not lapse before the session it is for.
@@ -889,6 +883,21 @@ export function createApi({
         return true;
       }
       const { watch } = asked;
+      // Relay-only, so neither side learns the other's address: no relay, no
+      // watching. The viewer's credential is this watch's alone, minted once
+      // (asked again, the watch keeps it) and good until its ticket expires.
+      if (!watch.relay.length) {
+        const minted = (await watchRelay?.({ id: watch.id, side: "viewer", expiresAt: exp })) ?? [];
+        if (!watch.relay.length) watch.relay = minted;
+      }
+      if (!watch.relay.length) {
+        watches.end(watch.id, "watch-left");
+        reply(res, 503, {
+          error: "watching needs Swiff's relay, which is not set up here",
+          code: "no-relay",
+        });
+        return true;
+      }
       reply(res, 200, {
         watchId: watch.id,
         state: watch.state,

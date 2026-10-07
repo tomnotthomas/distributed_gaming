@@ -12,6 +12,12 @@
 // relay's own secret or a credential that outlives the ticket it was minted
 // for, and a peer that is in no session gets none.
 //
+// A crewmate watching a session (watch.ts) gets one of their own the same way:
+// minted for their watch when they ask (api.ts), handed to them in `watching`
+// once the player lets them in, and good until their watch ticket expires. It
+// is never shared with the player or another viewer, and, like a seat's, it
+// cannot be taken back when the watch ends sooner.
+//
 //   TURN_URLS             The relay's URLs, comma-separated.
 //
 // and one way to mint, so the relay can be self-run or bought:
@@ -46,10 +52,10 @@ const MINT_TIMEOUT_MS = 5_000;
 
 /** Who a credential is for. */
 export type RelaySeat = {
-  /** The platform session, or the ticket for one minted by hand, which has none. */
+  /** The platform session, the ticket for one minted by hand, which has none, or a viewer's watch. */
   id: string;
-  side: "renter" | "host";
-  /** Unix seconds: when the seat's ticket expires. */
+  side: "renter" | "host" | "viewer";
+  /** Unix seconds: when the seat's ticket (a viewer's: their watch ticket) expires. */
   expiresAt: number;
 };
 

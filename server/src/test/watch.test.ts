@@ -7,7 +7,7 @@
 
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
@@ -218,7 +218,10 @@ describe("crew live sessions", () => {
         discovery: new RequestBudget({ now: () => now }),
         isFree: async () => true,
         watches,
-        watchRelay: () => relay,
+        watchRelay: async (seat) =>
+          relay
+            ? [{ urls: "turn:turn.test:3478", username: `${seat.id}-${seat.side}`, credential: "c" }]
+            : [],
         onCrewLeft: () => crewLeft++,
       });
       const path = new URL(req.url ?? "/", "http://localhost").pathname;
@@ -536,11 +539,10 @@ const SERVER = fileURLToPath(new URL("../index.js", import.meta.url));
 const PORT = 8500 + Math.floor(Math.random() * 400);
 /** A relay candidate, its related address already blank: the only kind that passes between player and viewer. */
 const RELAY_CANDIDATE = "candidate:1 1 udp 41885439 203.0.113.9 50000 typ relay raddr 0.0.0.0 rport 0";
-/** A fake TURN relay the signaling server hands out; nothing here connects to it. */
+/** A fake TURN relay the signaling server mints credentials for; nothing here connects to it. */
 const TURN = {
   urls: "turn:turn.test:3478?transport=udp",
-  username: "test-user",
-  credential: "test-credential",
+  secret: "test-turn-secret-that-is-long-enough-to-pass",
 };
 const WS_ORIGIN = `ws://localhost:${PORT}`;
 const HTTP = `http://localhost:${PORT}`;
@@ -622,8 +624,7 @@ describe("watching through the signaling server", () => {
         SWIFF_TICKET_RECONCILE_MS: "200",
         // A relay to hand out (none is reached here): watching is relay-only.
         TURN_URLS: TURN.urls,
-        TURN_USERNAME: TURN.username,
-        TURN_CREDENTIAL: TURN.credential,
+        TURN_SECRET: TURN.secret,
       },
       stdio: "ignore",
     });
@@ -823,11 +824,14 @@ describe("watching through the signaling server", () => {
     const { player, viewer, watchId } = await scene();
     const crewId = await crew();
     const watching = await heard(viewer, isWatching, "watching");
-    assert.deepEqual(
-      { ...watching, iceServers: undefined },
-      // No Steam here, so nobody has a name.
-      { type: "watching", watchId, state: "asking", player: null, playerHere: true, iceServers: undefined },
-    );
+    // No Steam here, so nobody has a name; and no relay credential until the player's yes.
+    assert.deepEqual(watching, {
+      type: "watching",
+      watchId,
+      state: "asking",
+      player: null,
+      playerHere: true,
+    });
     const watchers = await heard(player, isWatchers, "watchers");
     // The crew that may watch, by its own name or its admin's: no Steam here, so neither.
     const mine = { id: crewId, name: null, admin: null };
@@ -896,7 +900,10 @@ describe("watching through the signaling server", () => {
     const { player, viewer, watchId } = await accepted();
     const watching = await heard(viewer, isWatching, "watching");
     // The viewer's connection is relay-only: it is handed the TURN relay and nothing else.
-    assert.deepEqual(watching.iceServers, [{ ...TURN, urls: [TURN.urls] }]);
+    assert.deepEqual(
+      watching.iceServers?.map((server) => server.urls),
+      [[TURN.urls]],
+    );
 
     const sdp = [
       "v=0",
@@ -931,7 +938,7 @@ describe("watching through the signaling server", () => {
         type: "offer",
         sdp: [
           "v=0",
-          "o=- 1 2 IN IP4 192.168.1.20",
+          "o=- 1 2 IN IP4 0.0.0.0",
           "m=video 9 UDP/TLS/RTP/SAVPF 96",
           "c=IN IP4 0.0.0.0",
           "a=rtcp:9 IN IP4 0.0.0.0",
@@ -950,7 +957,7 @@ describe("watching through the signaling server", () => {
     ]);
     // Nothing a viewer receives names a host or srflx address.
     const heardText = JSON.stringify(viewer.received);
-    for (const address of ["192.168.1.20 54321 typ host", "typ srflx", "198.51.100.7"]) {
+    for (const address of ["192.168.1.20", "typ srflx", "198.51.100.7"]) {
       assert.ok(!heardText.includes(address), `a viewer heard ${address}`);
     }
 
@@ -1017,6 +1024,52 @@ describe("watching through the signaling server", () => {
     await handled(player);
     assert.equal((await heard(viewer, isWatching, "watching")).state, "watching");
     assert.equal((await heard(player, isWatchers, "watchers")).sharing, true);
+  });
+
+  it("hands each viewer a relay credential minted for their own watch, never the player's or the relay's secret", async () => {
+    const lea = await scene();
+    const asked = await call("POST", `/api/crew-live/${lea.sessionId}/watch`, JON);
+    assert.equal(asked.status, 200);
+    const jon = { viewer: await tracked(), watchId: asked.body.watchId as string };
+    send(jon.viewer, { type: "watch", ticket: asked.body.ticket });
+    await handled(jon.viewer);
+    send(lea.player, { type: "watch-share", open: true });
+    await handled(lea.player);
+
+    const turnOf = async (viewer: RecordingSocket) => {
+      const watching = await heard(viewer, isWatching, "watching");
+      assert.equal(watching.state, "watching");
+      assert.equal(watching.iceServers?.length, 1);
+      return watching.iceServers![0]!;
+    };
+    const leas = await turnOf(lea.viewer);
+    const jons = await turnOf(jon.viewer);
+    const joined = lea.player.received.find(
+      (m): m is Extract<SignalMessage, { type: "joined" }> => m.type === "joined",
+    );
+    const players = joined?.iceServers?.[0];
+    assert.ok(players, "the player is handed a relay credential of their own");
+
+    // Each names its own watch, in the TURN REST form the relay checks: `<expiry>:<who>`, signed with its secret.
+    for (const [mine, watchId] of [
+      [leas, lea.watchId],
+      [jons, jon.watchId],
+    ] as const) {
+      assert.match(String(mine.username), new RegExp(`^\\d+:${watchId}-viewer$`));
+      assert.equal(
+        mine.credential,
+        createHmac("sha1", TURN.secret).update(String(mine.username)).digest("base64"),
+      );
+    }
+    // Shared with nobody: not with the other viewer, nor the player.
+    const usernames = new Set([leas.username, jons.username, players.username]);
+    const credentials = new Set([leas.credential, jons.credential, players.credential]);
+    assert.equal(usernames.size, 3);
+    assert.equal(credentials.size, 3);
+    // And nobody is ever handed the relay's own secret.
+    for (const ws of [lea.viewer, jon.viewer, lea.player]) {
+      assert.ok(!JSON.stringify(ws.received).includes(TURN.secret));
+    }
   });
 
   it("tells the crew's walls when the player's sharing changes, not each time they say it again", async () => {

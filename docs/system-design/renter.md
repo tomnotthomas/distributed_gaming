@@ -930,8 +930,9 @@ POST /crew-live/:sessionId/watch
   → 404 when they are not in the crew of that session, it is not running now, or it is still starting. → 409 { code: "full" } when
   4 crewmates ask or watch already (`MAX_WATCHERS`). → 429 { code: "cooldown" } with
   Retry-After for 60 s after the player said no, did not answer, or stopped them.
-  → 503 when ROOM_SECRET is not set; 503 { code: "no-relay" } when no TURN server is
-  configured, since watching is relay-only (the viewer is told plainly). → 401 signed out.
+  → 503 when ROOM_SECRET is not set; 503 { code: "no-relay" } when no TURN relay that
+  mints credentials is configured, or it minted none for this watch, since watching is
+  relay-only (the viewer is told plainly). → 401 signed out.
 ```
 
 The watch state (`server/src/watch.ts`) lives in the signaling process beside the rooms:
@@ -975,9 +976,9 @@ alone. A viewer's connection has no data channel, made or taken, so there is no 
 viewer to send input. The viewer sees the game only while the player does: behind
 Ignition, and while reconnecting, nothing is sent on. If the player's page drops, viewers
 wait for it; it connects them again when it is back. The player's page and a
-viewer's connect directly once the player says yes, so each can see the other's network
-address, as on any call between two people; before the yes, the server carries nothing
-between them. Viewers see the names of the others watching in the voice chat.
+viewer's connect only once the player says yes, and only through the TURN relay, so
+neither sees the other's network address (below); before the yes, the server carries
+nothing between them. Viewers see the names of the others watching in the voice chat.
 
 The voice chat is on the same connections. Joining asks for the microphone, and only
 then. Each person talks on an open mic or push to talk (the player's button; a viewer's
@@ -989,7 +990,12 @@ the pages through the TURN relay, never through the server, and nothing is recor
 watch connection is relay-only (`iceTransportPolicy: "relay"`, TURN servers only), and the
 server passes on only relay candidates and an SDP stripped of every other address
 (`server/src/watchIce.ts`): a crewmate never learns the player's IP address, nor the player
-theirs. Without a TURN server, there is no watching.
+theirs. The player's page uses its own seat's TURN credential, from `joined`. A viewer gets
+one of their own, minted for their watch when they ask and handed to them in `watching`
+once the player lets them in, never shared with the player or another viewer
+(`server/src/ice.ts`). It expires with the watch ticket and, like a seat's, cannot be
+revoked: a watch that ends sooner leaves it good until then. Without a TURN relay that
+mints credentials, there is no watching.
 The player hears the game and the crew; viewers hear the game and the crew.
 
 On the wall, a band names each crewmate playing now with Ask to watch (Watch when they

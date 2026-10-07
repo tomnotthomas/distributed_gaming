@@ -33,11 +33,12 @@ describe("watch connections are relay-only", () => {
 
   it("blanks IPv6 addresses in an SDP as well", () => {
     const sdp = [
+      "o=- 1 2 IN IP6 2001:db8::7",
       "c=IN IP6 2001:db8::7",
       "a=rtcp:9 IN IP6 2001:db8::7",
       "a=candidate:1 1 udp 1 2001:db8::7 9 typ host",
     ].join("\r\n");
-    assert.equal(relaySdp(sdp), ["c=IN IP6 ::", "a=rtcp:9 IN IP6 ::"].join("\r\n"));
+    assert.equal(relaySdp(sdp), ["o=- 1 2 IN IP6 ::", "c=IN IP6 ::", "a=rtcp:9 IN IP6 ::"].join("\r\n"));
   });
 
   it("rebuilds the voice chat's talk field by field, and drops what is not it", () => {

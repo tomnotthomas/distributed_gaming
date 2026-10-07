@@ -50,6 +50,12 @@ export type Watch = {
   awaySince: number | null;
   /** The ticket's expiry, Unix s: how long an end must be remembered to refuse it. */
   exp: number;
+  /**
+   * The viewer's own TURN credential, minted for this watch when they asked
+   * (api.ts) and good until its ticket expires: what their relay-only
+   * connection uses once they are let in. Empty until minted.
+   */
+  relay: RTCIceServer[];
 };
 
 export type AskResult =
@@ -128,6 +134,7 @@ export class Watches {
       // Not here until the viewer's page takes its seat with the ticket.
       awaySince: now,
       exp,
+      relay: [],
     };
     session.watches.set(watch.id, watch);
     this.#byId.set(watch.id, watch);
