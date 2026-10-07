@@ -391,6 +391,7 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
   const times = sessionTimes(lang);
   const nightMessage = t("msg.night", { day: days[day]!, time: times[time]!, crew: title, link });
 
+  /** What a member's row says under their name: founder, bringing a PC, setting one up, or just joined. */
   const memberMeta = (m: CrewMember) =>
     m.admin
       ? t("cp.founder")
@@ -889,6 +890,7 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
   );
 }
 
+/** The link glyph on the copy-link button. */
 function LinkIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
