@@ -7,6 +7,10 @@
 # under OVMF with Microsoft's Secure Boot keys and a software TPM (swtpm), as
 # a PC boots it:
 #
+#   0. the image set, packed as a release packs it (its root in several parts)
+#      and served from a local HTTP server, then downloaded, checked and
+#      unpacked as the host app does (image-download.cjs): the install is made
+#      from that download
 #   1. a "Windows" disk: ESP with a Windows Boot Manager stand-in (Ubuntu's
 #      Microsoft-signed shim, starting the image's systemd-boot on its own
 #      screen once Swiff's key is trusted), the reserved partition, C: (NTFS)
@@ -86,7 +90,8 @@ chmod +x "$BOOT_VARS"
 
 disk=$run/disk.raw
 vars=$run/vars.fd
-rm -rf "$run/tpm" "$run"/*.log "$disk" "$vars" "$run"/*.json "$run"/*.efi "$run"/*.auth "$run"/*.cer "$run"/*.bin
+rm -rf "$run/tpm" "$run"/*.log "$disk" "$vars" "$run"/*.json "$run"/*.efi "$run"/*.auth "$run"/*.cer "$run"/*.bin \
+	"$run/served" "$run/downloaded"
 mkdir -p "$run/tpm"
 
 # Runs an NTFS tool on C: through a loop device; {} in the arguments is the device.
@@ -107,8 +112,23 @@ for p in json.load(sys.stdin)["partitiontable"]["partitions"]:
 
 # --- 1. a disk like a Windows PC's ---------------------------------------------------
 log "The image set"
-set=$run/image-set
-"$here/../../swiff-os/image-set.sh" "$out" swiffos-selftest "$set"
+release=$run/image-set
+# Parts of 256 MiB, so the root comes in several, as a bigger image's would at 1.9 GiB.
+SWIFF_OS_PART_BYTES=$((256 * 1024 * 1024)) "$here/../../swiff-os/image-set.sh" "$out" swiffos-selftest "$release"
+log "The download"
+# The release as GitHub serves it: the parts, the manifest and its signature side by side.
+mkdir "$run/served"
+ln -s "$release"/download/* "$release/swiffos.json" "$release/swiffos.json.sig" "$run/served/"
+port=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
+python3 -m http.server "$port" --bind 127.0.0.1 --directory "$run/served" > "$run/http.log" 2>&1 &
+http_pid=$!
+trap 'kill "$http_pid" 2> /dev/null || true' EXIT
+for _ in $(seq 50); do curl -fs "http://127.0.0.1:$port/swiffos.json" > /dev/null && break; sleep 0.1; done
+set=$run/downloaded
+downloaded=0
+node "$here/apply-plan.cjs" download "http://127.0.0.1:$port/" "$set" | tee "$run/download.log" && downloaded=1
+kill "$http_pid" 2> /dev/null || true
+[ "$downloaded" = 1 ] || die "the download failed (logs in $run)"
 log "A Windows-like disk in $run"
 parts=$(node "$here/apply-plan.cjs" windows "$disk" "$disk_bytes")
 read -r esp_offset esp_bytes < <(python3 -c 'import json,sys; p = json.loads(sys.argv[1])[0]; print(p["offset"], p["bytes"])' "$parts")
@@ -223,6 +243,15 @@ expect() { # name detail command...
 
 # A boot entry's number: the firmware's template has entries of its own (UiApp, network boot).
 B="Boot[0-9A-F]\{4\}"
+root_parts=$(python3 -c 'import json,sys; m = json.load(open(sys.argv[1])); print(len(m["download"]["files"][sys.argv[2]]["parts"]))' \
+	"$release/swiffos.json" "$(basename "$(ls "$release"/swiffos_*.root-x86-64.raw)")")
+expect download-split "the release's root comes in $root_parts compressed parts" test "$root_parts" -gt 1
+expect download-checked "the app's download fetched, checked and unpacked the signed set" test "$downloaded" = 1
+expect download-same-files "every downloaded file is the release's, byte for byte" bash -c "
+	for f in '$release'/swiffos_*.raw '$release/swiffos-key.cer' '$release/swiffos.json' '$release/swiffos.json.sig'; do
+		cmp -s \"\$f\" '$set'/\"\$(basename \"\$f\")\" || exit 1
+	done"
+expect download-no-leftovers "no parts left beside the downloaded set" test ! -e "$set/.download"
 expect gpt-valid "the disk's GPT passes sgdisk's checks" bash -c "sgdisk -v '$disk' | grep -q 'No problems found'"
 # Swiff OS's partitions on the disk carry the image's ids, names, types and attributes.
 compare=$(python3 - "$image" "$disk" << 'EOF'

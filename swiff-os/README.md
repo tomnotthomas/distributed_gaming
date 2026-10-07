@@ -222,7 +222,8 @@ app's check of the start after it: Windows back, its space and BitLocker as befo
 entry or request for shim left), a reinstall, a second app instance, Secure Boot off, and the packaged test build
 driven through its own screens. `desktop/rental-cli.cjs`
 drives the same installer from a console, one step at a
-time. `desktop/vm/rental-install-test.sh` carries the plans out on a disk image with
+time. `desktop/vm/rental-install-test.sh` downloads the image set as a host does (packed in
+several parts, served from a local HTTP server), carries the plans out with it on a disk image with
 `apply-plan.cjs` standing in for Windows, and boots the shim chain under OVMF with
 Microsoft's keys; `desktop/vm/mok-enroll-test.sh` confirms the app's MOK request at MokManager,
 after a miss and then with the code.

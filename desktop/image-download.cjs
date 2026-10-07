@@ -450,11 +450,12 @@ async function downloadSet({
 
 module.exports = { PART_BYTES, PARTS_DIR, packFile, packSet, sourceOf, downloadSet, DownloadError };
 
-//   node image-download.cjs pack <dir>       compress and cut the set in <dir> into <dir>/download, listed in its manifest
+//   node image-download.cjs pack <dir> [part-bytes]   compress and cut the set in <dir> into <dir>/download, listed in its manifest
 if (require.main === module) {
-  const [cmd, dir] = process.argv.slice(2);
-  if (cmd === "pack" && dir)
-    packSet(dir).then(
+  const [cmd, dir, partBytes = String(PART_BYTES)] = process.argv.slice(2);
+  const bytes = Number(partBytes);
+  if (cmd === "pack" && dir && Number.isSafeInteger(bytes) && bytes > 0 && bytes <= PART_BYTES)
+    packSet(dir, bytes).then(
       (download) => {
         for (const [name, { parts }] of Object.entries(download.files))
           console.log(`${name}: ${parts.length} part(s), ${parts.reduce((n, p) => n + p.bytes, 0)} bytes`);
@@ -465,7 +466,7 @@ if (require.main === module) {
       },
     );
   else {
-    console.error("usage: image-download.cjs pack <dir>");
+    console.error("usage: image-download.cjs pack <dir> [part-bytes]");
     process.exit(2);
   }
 }

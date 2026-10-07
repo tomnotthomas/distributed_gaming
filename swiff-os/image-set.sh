@@ -28,7 +28,9 @@
 #                                and SHA-256 in swiffos.json before it is signed: what
 #                                the host app downloads (desktop/image-download.cjs).
 #                                The release swiffos-<version> on GitHub carries these
-#                                parts, swiffos.json and swiffos.json.sig
+#                                parts, swiffos.json and swiffos.json.sig.
+#                                $SWIFF_OS_PART_BYTES makes the parts smaller (the
+#                                VM test, so the root comes in several)
 #
 # The release signs with the private key in the file $SWIFF_OS_SIGNING_KEY:
 # Lanterel's release image signing key, made and kept on the machine that signs
@@ -134,7 +136,7 @@ for split in root-x86-64 root-x86-64-verity; do
 	cp --sparse=always "$build/$name.$split.raw" "$out/swiffos_$version.$split.raw"
 done
 node "$desktop/image-set.cjs" manifest "$out" "$build/$name.raw" "$version"
-node "$desktop/image-download.cjs" pack "$out"
+node "$desktop/image-download.cjs" pack "$out" ${SWIFF_OS_PART_BYTES:+"$SWIFF_OS_PART_BYTES"}
 if [ -z "${SWIFF_OS_SIGNING_KEY:-}" ]; then
 	# Into place only when it succeeds: a failed run keeps the trusted entry there was.
 	node "$desktop/image-set.cjs" trust "$key" "$out/swiffos-key.cer" > "$work/image-trust.dev.json"
