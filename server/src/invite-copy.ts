@@ -90,8 +90,7 @@ function night(lang: Lang): InviteCopy {
         "night.p1": "Crew · Mac oder Deck",
         "night.p2": "Crew · Gaming-PC",
         "night.p4": "Platz für bis zu 4",
-        "night.fn":
-          "Hast du eine Mail-Adresse hinterlegt, erinnern wir dich am Tag selbst. Sagst du ab, geht dein Platz an den Nächsten in der Crew.",
+        "night.fn": "Sagst du ab, geht dein Platz an den Nächsten in der Crew.",
         "night.f1v": "kommt per Mail",
         "night.f2v": "höchstens 4",
         "night.f3v": "kommt per Mail",
@@ -111,8 +110,7 @@ function night(lang: Lang): InviteCopy {
       "night.p1": "crew · Mac or Deck",
       "night.p2": "crew · gaming PC",
       "night.p4": "room for up to 4",
-      "night.fn":
-        "If you've added your email, we'll remind you on the day. If you drop out, your seat goes to the next person in the crew.",
+      "night.fn": "If you drop out, your seat goes to the next person in the crew.",
       "night.f1v": "sent by email",
       "night.f2v": "4 max",
       "night.f3v": "sent by email",

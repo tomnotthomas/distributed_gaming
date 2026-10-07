@@ -104,13 +104,13 @@ export type MarketingFiles = ReturnType<typeof marketingFiles>;
 
 /**
  * The page routes: every folder holding an index.html, at "/<folder>/", but
- * not the assets, the emails, the invite texts or the invite templates, which
+ * not the assets, the invite texts or the invite templates, which
  * have routes of their own.
  */
 export async function pageRoutes(dir: string): Promise<Map<string, string>> {
   const routes = new Map<string, string>();
   // The host page waits for stage 2: hostPage sends it to the start page's PC block.
-  const hidden = new Set(["assets", "emails", "content", "host", ...INVITE_TYPES]);
+  const hidden = new Set(["assets", "content", "host", ...INVITE_TYPES]);
   /** Add the routes of every page folder under `rel`, skipping the folders served some other way. */
   async function walk(rel: string): Promise<void> {
     for (const entry of await readdir(join(dir, rel), { withFileTypes: true })) {

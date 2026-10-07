@@ -24,6 +24,8 @@
 //   and PUBLIC_ORIGIN as it serves each file. Routes and file names keep what the
 //   build made of them (/lanterel-os/).
 // - Every form posts to the server's sign-up endpoint (the form-endpoint meta).
+// - The privacy pages say nothing about reminders by email: the product sends
+//   none (withoutReminders).
 // - A crew's time together is a "Zockrunde" / "gaming session", as the app
 //   says it, never an evening or a night: people play whenever suits them.
 //   The set still says Crew-Abend / crew night and "meist abends"; MEETUP_WORDING
@@ -43,7 +45,8 @@
 // archived pages about renting a PC out for money: the launch is stage 1, and
 // nothing links or routes to them. And so are the static crew pages (share/,
 // en/share/ and their crewpage.js and crewpage.css): the crew page is the
-// app's, and the server sends /share/ there.
+// app's, and the server sends /share/ there. And the mails (emails/): the
+// product sends none.
 
 import {
   cpSync,
@@ -61,7 +64,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 const TARGET = fileURLToPath(new URL("../../web/marketing", import.meta.url));
-/** The endpoint every form posts to (server/src/signups.ts). */
+/** The endpoint every form posts to. */
 const FORM_ENDPOINT = "/api/signups";
 const TEXT = new Set([".html", ".txt", ".css", ".js", ".json", ".md", ".xml", ".svg"]);
 const SKIPPED = new Set([
@@ -73,6 +76,7 @@ const SKIPPED = new Set([
   join("en", "share"),
   join("assets", "js", "crewpage.js"),
   join("assets", "css", "crewpage.css"),
+  "emails",
   // A crew link and a friend seat are the app's to show (marketing.ts appInvitePath): their templates are never served.
   "crew",
   join("en", "crew"),
@@ -175,6 +179,14 @@ export const CORRECTIONS = [
 /** `text` with the set's meetup and time-of-day wording put the app's way (MEETUP_WORDING), and its slips corrected. */
 export function neutralWording(text) {
   return [...MEETUP_WORDING, ...CORRECTIONS].reduce((out, [from, to]) => out.replaceAll(from, to), text);
+}
+
+/** `html` without the privacy page's section on reminders by email, German or English. */
+export function withoutReminders(html) {
+  return html.replace(
+    /<h2>(?:Wenn du dich erinnern lässt|When you ask for reminders)<\/h2>[\s\S]*?(?=<h2>)/g,
+    "",
+  );
 }
 
 /**
@@ -302,7 +314,7 @@ function importSet(source, target, name, site, app) {
           throw new Error(`${rel} already holds a {{ token: refusing to guess what it means`);
         const page = extname(rel) === ".html";
         const tokens = neutralWording(tokenize(text, name, site, app));
-        const wired = page ? wireSignIn(tokens) : tokens;
+        const wired = page ? withoutReminders(wireSignIn(tokens)) : tokens;
         writeFileSync(out, page && rel.startsWith(`en${sep}`) ? faqJsonLd(wired, "en") : wired);
       } else cpSync(path, out);
       count++;
