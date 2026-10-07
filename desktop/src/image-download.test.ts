@@ -11,7 +11,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { downloadSet, packSet, PARTS_DIR, sourceOf, type ImageProgress } from "../image-download.cjs";
 import { MANIFEST, readImageSet, SIGNATURE, type Trust } from "../image-set.cjs";
 import { splitFile, SWIFF_OS } from "../rental.cjs";
@@ -201,6 +201,36 @@ describe("Lanterel OS's download", () => {
     expect(fs.existsSync(path.join(dir, splitFile("esp")))).toBe(false);
   });
 
+  it("keeps the checked parts when the drive won't take a file, and carries on from them", async () => {
+    const esp = splitFile("esp");
+    const parts = packed.manifest.download.files[esp].parts as { name: string }[];
+    const open = fs.promises.open;
+    const full = vi.spyOn(fs.promises, "open").mockImplementation(async (...args) => {
+      const handle = await open(...args);
+      if (String(args[0]).endsWith(`${esp}.part`))
+        handle.write = (() =>
+          Promise.reject(
+            Object.assign(new Error("no space left on device"), { code: "ENOSPC", syscall: "write" }),
+          )) as typeof handle.write;
+      return handle;
+    });
+    try {
+      await expect(downloadSet({ url: server.url, dir, trust })).rejects.toThrow(
+        /couldn't be written to this PC's drive \(ENOSPC\)\. Free up space/,
+      );
+    } finally {
+      full.mockRestore();
+    }
+    for (const p of parts) expect(fs.existsSync(path.join(dir, PARTS_DIR, p.name))).toBe(true);
+    expect(fs.existsSync(path.join(dir, `${esp}.part`))).toBe(false);
+
+    server.state.asked = [];
+    expect(await downloadSet({ url: server.url, dir, trust })).toBe(SWIFF_OS.version);
+    const asked = server.state.asked.map((a) => a.name);
+    for (const p of parts) expect(asked).not.toContain(p.name);
+    expect(await fileSha(path.join(dir, esp))).toBe(packed.files[esp].sha256);
+  }, 240_000);
+
   it("refuses to start without room on the disk", async () => {
     await expect(downloadSet({ url: server.url, dir, trust, free: () => 1024 ** 3 })).rejects.toThrow(
       /needs [\d.]+ GB free .* and it has 1\.0 GB\. Free up space/,
@@ -239,14 +269,13 @@ describe("Lanterel OS's download", () => {
     expect(fs.existsSync(path.join(dir, MANIFEST))).toBe(false);
   }, 120_000);
 
-  it("downloads from the release the build names, for its own version, over https or from this PC only", () => {
-    const none = { readFileSync: () => "{}" } as unknown as typeof fs;
-    expect(sourceOf({}, none)).toBeNull();
-    expect(sourceOf({ SWIFF_OS_IMAGE_URL: "http://example.com/x/" }, none)).toBeNull();
-    expect(sourceOf({ SWIFF_OS_IMAGE_URL: "http://127.0.0.1:8080/x" }, none)).toBe(
-      "http://127.0.0.1:8080/x/",
-    );
-    expect(sourceOf({})).toBe(
+  it("downloads from the release the build names, for its own version, over https only", () => {
+    const named = (url: string) => ({ readFileSync: () => JSON.stringify({ url }) }) as unknown as typeof fs;
+    expect(sourceOf({ readFileSync: () => "{}" } as unknown as typeof fs)).toBeNull();
+    expect(sourceOf(named("http://example.com/x/"))).toBeNull();
+    expect(sourceOf(named("http://127.0.0.1:8080/x"))).toBeNull();
+    expect(sourceOf(named("https://example.com/{version}"))).toBe(`https://example.com/${SWIFF_OS.version}/`);
+    expect(sourceOf()).toBe(
       `https://github.com/tomnotthomas/distributed_gaming/releases/download/swiffos-${SWIFF_OS.version}/`,
     );
   });

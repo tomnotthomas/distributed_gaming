@@ -20,10 +20,7 @@ export function packSet(
   partBytes?: number,
   level?: number,
 ): Promise<{ compression: "gzip"; files: Record<string, { parts: Part[] }> }>;
-export function sourceOf(
-  env?: Record<string, string | undefined>,
-  files?: typeof import("node:fs"),
-): string | null;
+export function sourceOf(files?: typeof import("node:fs")): string | null;
 export function downloadSet(options: {
   url: string | null;
   dir: string;

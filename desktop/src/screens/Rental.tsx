@@ -317,10 +317,10 @@ const ReadyPlate = ({ small }: { small: string }) => (
 
 // --- the install, as it runs ----------------------------------------------------------------
 
-/** Seconds since `from`, ticking once a second while shown. */
 /** 1,273,547,479 bytes → "1.2 GB": a download's size, with a tenth so it is seen to move. */
 const gbOf = (bytes: number): string => `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 
+/** Seconds since `from`, ticking once a second while shown. */
 function useSince(from: number | null): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {

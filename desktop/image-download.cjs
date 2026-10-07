@@ -112,25 +112,21 @@ async function packSet(dir, partBytes = PART_BYTES, level = 9) {
 // --- the host ---------------------------------------------------------------------------------
 
 /**
- * Where the release's image set is downloaded from: $SWIFF_OS_IMAGE_URL, or
- * image-download.json's `url` beside this file, with `{version}` for Lanterel
- * OS's version. Only https, or http to this PC (the tests' own server).
+ * Where the release's image set is downloaded from: image-download.json's
+ * `url` beside this file, with `{version}` for Lanterel OS's version. Only https.
  */
-function sourceOf(env = process.env, files = fs) {
-  let url = env.SWIFF_OS_IMAGE_URL || null;
-  if (!url)
-    try {
-      url = JSON.parse(files.readFileSync(path.join(__dirname, "image-download.json"), "utf8")).url ?? null;
-    } catch {
-      url = null;
-    }
+function sourceOf(files = fs) {
+  let url;
+  try {
+    url = JSON.parse(files.readFileSync(path.join(__dirname, "image-download.json"), "utf8")).url ?? null;
+  } catch {
+    url = null;
+  }
   if (typeof url !== "string" || !url) return null;
   url = url.replaceAll("{version}", SWIFF_OS.version);
   if (!url.endsWith("/")) url += "/";
   try {
-    const u = new URL(url);
-    const local = u.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(u.hostname);
-    if (u.protocol !== "https:" && !local) return null;
+    if (new URL(url).protocol !== "https:") return null;
   } catch {
     return null;
   }
@@ -257,6 +253,12 @@ async function getAll(fetchFn, url, signal) {
   return Buffer.from(await res.arrayBuffer());
 }
 
+/** A file this PC's drive wouldn't take or give back, such as when it is full. */
+const diskError = (name, error) =>
+  new DownloadError(
+    `${name} couldn't be written to this PC's drive (${error.code ?? error.message}). Free up space, then try again: the download carries on where it stopped.`,
+  );
+
 /**
  * Fetch `part` from `url` into `file`, carrying on from what `file` already
  * holds; `onBytes(n)` hears each new chunk. Throws, and removes the part,
@@ -286,6 +288,7 @@ async function fetchPart(fetchFn, url, file, part, onBytes, signal) {
         throw error;
       }
       if (signal?.aborted) throw error;
+      if (error.syscall) throw diskError(part.name, error);
       throw new DownloadError(
         "The download stopped part way. Check this PC is online, then try again: it carries on where it stopped.",
       );
@@ -309,13 +312,15 @@ const zeros = (buf) => buf.length <= ZERO.length && buf.equals(ZERO.subarray(0, 
 /**
  * Unpack `file`'s checked parts, in order, from `partsDir` into `to`: throws,
  * and leaves nothing at `to`, unless it comes out with the size and SHA-256 the
- * manifest lists.
+ * manifest lists. Only parts that don't unpack to that file go; a file it
+ * couldn't write keeps them for the next try.
  */
 async function unpack(file, partsDir, to, onBytes) {
   const tmp = `${to}.part`;
-  const fd = fs.openSync(tmp, "w");
+  const handle = await fs.promises.open(tmp, "w");
   const hash = crypto.createHash("sha256");
   let at = 0;
+  let failed = null;
   try {
     await pipeline(
       async function* () {
@@ -330,17 +335,22 @@ async function unpack(file, partsDir, to, onBytes) {
         for await (const chunk of source) {
           if (at + chunk.length > file.bytes) throw new Error("too long");
           hash.update(chunk);
-          if (!zeros(chunk)) fs.writeSync(fd, chunk, 0, chunk.length, at);
+          if (!zeros(chunk)) await handle.write(chunk, 0, chunk.length, at);
           at += chunk.length;
           onBytes(chunk.length);
         }
       },
     );
-    fs.ftruncateSync(fd, at);
-  } catch {
+    await handle.truncate(at);
+  } catch (error) {
+    if (error.syscall) failed = error;
     at = -1;
   } finally {
-    fs.closeSync(fd);
+    await handle.close();
+  }
+  if (failed) {
+    fs.rmSync(tmp, { force: true });
+    throw diskError(file.name, failed);
   }
   if (at !== file.bytes || hash.digest("hex") !== file.sha256) {
     fs.rmSync(tmp, { force: true });
