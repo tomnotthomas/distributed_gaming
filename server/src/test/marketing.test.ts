@@ -106,11 +106,9 @@ describe("marketing configuration", () => {
       "/": "index.html",
       "/datenschutz/": "datenschutz/index.html",
       "/en/": "en/index.html",
-      "/en/host/": "en/host/index.html",
       "/en/lanterel-os/": "en/lanterel-os/index.html",
       "/en/legal-notice/": "en/legal-notice/index.html",
       "/en/privacy/": "en/privacy/index.html",
-      "/host/": "host/index.html",
       "/impressum/": "impressum/index.html",
       "/lanterel-os/": "lanterel-os/index.html",
     });
@@ -246,9 +244,9 @@ describe("marketing site", () => {
   });
 
   it("sends a page path without its slash to the page", async () => {
-    const moved = await ask(origin, "/host?x=1");
+    const moved = await ask(origin, "/lanterel-os?x=1");
     assert.equal(moved.status, 308);
-    assert.equal(moved.headers.location, "/host/?x=1");
+    assert.equal(moved.headers.location, "/lanterel-os/?x=1");
     assert.equal((await ask(origin, "/en/legal-notice")).headers.location, "/en/legal-notice/");
   });
 
@@ -408,6 +406,22 @@ describe("marketing site", () => {
       assert.doesNotMatch(text, WRONG, rel);
     }
     assert.ok(swapped > 20, "the German pages say Zockrunde");
+  });
+
+  it("sends the host page, which waits for stage 2, to the start page's PC block", async () => {
+    for (const [path, to] of [
+      ["/host/", "/#pc"],
+      ["/host", "/#pc"],
+      ["/en/host/", "/en/#pc"],
+    ]) {
+      const moved = await ask(origin, path!);
+      assert.equal(moved.status, 302, path);
+      assert.equal(moved.headers.location, to, path);
+    }
+    const start = (await ask(origin, "/")).body;
+    assert.match(start, /<div class="cn-row" id="pc">/);
+    assert.match(start, /<a href="#pc" data-t="foot.hostLink">So geht's<\/a>/);
+    assert.doesNotMatch(start, /2(&nbsp;|\u00a0| )€|ersten Stunde/);
   });
 
   it("leaves every other host to the app", async () => {
@@ -862,6 +876,7 @@ describe("PAID_GAMING off on the real server: the start page", () => {
       assert.doesNotMatch(impressum.body, /Telefon/);
       assert.equal((await get("/datenschutz/")).status, 200);
       assert.equal((await get("/assets/css/base.css")).status, 200);
+      assert.equal((await get("/host/")).headers.location, "/#pc");
       // The app keeps its own pages: the browser host page, an invite, a crew.
       for (const path of ["/host", "/crews", "/play", "/seat/AB12"]) {
         assert.doesNotMatch((await get(path)).body, /data-t="/, path);

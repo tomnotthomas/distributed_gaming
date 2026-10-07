@@ -88,7 +88,10 @@ page whose button does it, so a mail scanner opening a link changes nothing. See
 
 Settings (server environment):
 
-- `PAID_GAMING=on` turns on the paid marketplace: the game wall as the app's start page, PCs of
+- Paid gaming is the PostHog feature flag `paid-gaming`, which the server asks with the project's
+  public key (`POSTHOG_KEY`/`POSTHOG_HOST`, else the web build's `VITE_POSTHOG_KEY`/`VITE_POSTHOG_HOST`)
+  and keeps for a minute; it is off without a key or while PostHog can't be reached, and
+  `PAID_GAMING=on` or `off` overrides it. On, it turns on the paid marketplace: the game wall as the app's start page, PCs of
   people you don't know, Share your PC (`/share`) and everything about earning, in the host app
   too (its "Get paid" step, levels, reliability and the rate; the app asks `GET /api/features`).
   Off, the default, Lanterel is crews only: `/` is the launch landing page (on `SITE_ORIGIN` when

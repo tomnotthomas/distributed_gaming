@@ -112,7 +112,8 @@ export type MarketingFiles = ReturnType<typeof marketingFiles>;
  */
 export async function pageRoutes(dir: string): Promise<Map<string, string>> {
   const routes = new Map<string, string>();
-  const hidden = new Set(["assets", "emails", "content", ...INVITE_TYPES]);
+  // The host page waits for stage 2: hostPage sends it to the start page's PC block.
+  const hidden = new Set(["assets", "emails", "content", "host", ...INVITE_TYPES]);
   /** Add the routes of every page folder under `rel`, skipping the folders served some other way. */
   async function walk(rel: string): Promise<void> {
     for (const entry of await readdir(join(dir, rel), { withFileTypes: true })) {
@@ -127,6 +128,16 @@ export async function pageRoutes(dir: string): Promise<Map<string, string>> {
   }
   await walk("");
   return routes;
+}
+
+/**
+ * Where the host page (/host/, /en/host/) sends a visitor: the start page's
+ * "Du hast den Gaming-PC?" block, which says everything a PC owner needs for
+ * stage 1. Null for any other path.
+ */
+export function hostPage(path: string): string | null {
+  const match = /^(\/en)?\/host\/?$/.exec(path);
+  return match ? `${match[1] ?? ""}/#pc` : null;
 }
 
 /** A path's invite route: its type, language and code (null for the bare template path). */
@@ -283,6 +294,12 @@ export function createMarketing({ site, files, routes }: MarketingOptions) {
       return true;
     }
 
+    const host = hostPage(path);
+    if (host) {
+      redirect(res, host);
+      return true;
+    }
+
     // The crew page lives in the app now, behind its Steam sign-in.
     if (/^(\/en)?\/share\/$/.test(path)) {
       redirect(res, `${site.app}/crews`);
@@ -364,6 +381,9 @@ export function createStartPages({ site, files, routes, signedIn }: StartPagesOp
     };
     if (start && signedIn(req)) return away("/crews");
     if (site) return start ? away(`${site.origin}${path}`) : false;
+    // "/host" without its slash stays the app's browser host page.
+    const host = path === "/host" ? null : hostPage(path);
+    if (host) return away(host);
 
     const page = routes.get(path);
     if (page) {

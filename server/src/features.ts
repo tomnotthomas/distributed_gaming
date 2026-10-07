@@ -1,20 +1,118 @@
-// Product switches the server reads from its environment once, at start, and
-// tells the web app and the host app about (GET /api/features, and a meta tag
-// in every page of the web app).
+// Product switches, decided here and told to the web app and the host app
+// (GET /api/features, and a meta tag in every page of the web app). Neither
+// app asks PostHog itself: they read the server's decision.
 //
-// PAID_GAMING=on turns on the paid marketplace: the game wall as the app's
-// start page, PCs of people you don't know, and everything about earning
-// money with your PC. Off, which is the default, Lanterel is crews only: "/"
-// is the start page (marketing.ts, createStartPages), signed-in players land
-// on their crew, and the host app shows nothing about money.
+// Paid gaming turns on the paid marketplace: the game wall as the app's start
+// page, PCs of people you don't know, and everything about earning money with
+// your PC. Off, Lanterel is crews only: "/" is the start page (marketing.ts,
+// createStartPages), signed-in players land on their crew, and the host app
+// shows nothing about money.
+//
+// It is the PostHog feature flag "paid-gaming", evaluated here with the
+// project's public key (POSTHOG_KEY, or the web build's VITE_POSTHOG_KEY; the
+// host from POSTHOG_HOST or VITE_POSTHOG_HOST, EU by default) and kept for
+// FLAG_TTL_MS. PAID_GAMING=on or off in the environment overrides PostHog.
+// Without a key, or while PostHog cannot be reached, it is off.
 
 /** The switches, as GET /api/features answers them. */
 export type Features = { paidGaming: boolean };
 
-/** The switches from the environment: each is on only when set to "on". */
-export function featuresFromEnv(env: NodeJS.ProcessEnv): Features {
-  return { paidGaming: env.PAID_GAMING?.trim().toLowerCase() === "on" };
+/** The PostHog flag that is paid gaming. */
+export const PAID_GAMING_FLAG = "paid-gaming";
+
+/** How long a PostHog answer is used before it is asked again. */
+export const FLAG_TTL_MS = 60_000;
+
+/** How long one PostHog call may take before the switch counts as off. */
+export const FLAG_TIMEOUT_MS = 2_000;
+
+/** Who the server asks PostHog as: the switch is the same for everyone. */
+const DISTINCT_ID = "lanterel-server";
+
+export type FeaturesOptions = {
+  /** PAID_GAMING from the environment: true or false overrides PostHog, null leaves it to PostHog. */
+  override: boolean | null;
+  /** The project's public key; null: no PostHog, so off. */
+  key: string | null;
+  /** PostHog's ingestion host, e.g. https://eu.i.posthog.com. */
+  host: string;
+  fetch?: typeof globalThis.fetch;
+  now?: () => number;
+};
+
+/** The options from the environment. */
+export function featuresOptionsFromEnv(env: NodeJS.ProcessEnv): FeaturesOptions {
+  const set = env.PAID_GAMING?.trim().toLowerCase();
+  const key = (env.POSTHOG_KEY ?? env.VITE_POSTHOG_KEY)?.trim() || null;
+  const host = (env.POSTHOG_HOST ?? env.VITE_POSTHOG_HOST)?.trim() || "https://eu.i.posthog.com";
+  return { override: set === "on" ? true : set === "off" ? false : null, key, host };
 }
+
+/** Whether PostHog's flags answer has the flag on: its v2 shape ({ flags }) or the older one ({ featureFlags }). */
+function flagOn(body: unknown, flag: string): boolean {
+  if (typeof body !== "object" || body === null) return false;
+  const { flags, featureFlags } = body as { flags?: unknown; featureFlags?: unknown };
+  if (typeof flags === "object" && flags !== null) {
+    const entry = (flags as Record<string, unknown>)[flag];
+    return typeof entry === "object" && entry !== null && (entry as { enabled?: unknown }).enabled === true;
+  }
+  if (typeof featureFlags === "object" && featureFlags !== null) {
+    return (featureFlags as Record<string, unknown>)[flag] === true;
+  }
+  return false;
+}
+
+/**
+ * The switches, as they are now. The first ask waits for PostHog (at most
+ * FLAG_TIMEOUT_MS); after that an answer up to FLAG_TTL_MS old is used at
+ * once, and an older one is used while a fresh one is asked for, so no page
+ * waits on PostHog twice.
+ */
+export function createFeatures({
+  override,
+  key,
+  host,
+  fetch = (...args) => globalThis.fetch(...args),
+  now = Date.now,
+}: FeaturesOptions) {
+  let known: { value: Features; at: number } | null = null;
+  let asking: Promise<Features> | null = null;
+
+  async function ask(): Promise<Features> {
+    let paidGaming = false;
+    try {
+      const res = await fetch(`${host.replace(/\/+$/, "")}/flags/?v=2`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ api_key: key, distinct_id: DISTINCT_ID }),
+        signal: AbortSignal.timeout(FLAG_TIMEOUT_MS),
+      });
+      paidGaming = res.ok && flagOn(await res.json(), PAID_GAMING_FLAG);
+    } catch {
+      // Unreachable, too slow or not JSON: off.
+    }
+    const value = { paidGaming };
+    known = { value, at: now() };
+    return value;
+  }
+
+  function refresh(): Promise<Features> {
+    asking ??= ask().finally(() => (asking = null));
+    return asking;
+  }
+
+  return {
+    async current(): Promise<Features> {
+      if (override !== null) return { paidGaming: override };
+      if (!key) return { paidGaming: false };
+      if (!known) return refresh();
+      if (now() - known.at >= FLAG_TTL_MS) void refresh();
+      return known.value;
+    },
+  };
+}
+
+export type FeatureSwitches = ReturnType<typeof createFeatures>;
 
 /** The meta tag the web app reads its switches from (web/src/swiff/features.ts). */
 export const featuresMeta = (features: Features): string =>
