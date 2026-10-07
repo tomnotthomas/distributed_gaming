@@ -171,9 +171,10 @@ export function CrewOverlay({ hub, crew }: { hub: CrewHub; crew: CrewHubState | 
   const asking = watchers.filter((w) => w.state === "asking" && w.here);
   const watching = watchers.filter((w) => w.state === "watching");
   const crews = crew?.crews ?? [];
-  const named = crew?.crew
-    ? crewTitle("en", { crewName: crew.crew.name, name: crew.crew.admin, own: false })
-    : null;
+  const current = crew?.crew ?? crews[0] ?? null;
+  const named = current ? crewTitle("en", { crewName: current.name, name: current.admin, own: false }) : null;
+  const sharing = Boolean(crew?.sharing && crew.crew);
+  const repin = crew?.crew ? undefined : current?.id;
   const voice = crew?.voice ?? {
     inVoice: false,
     muted: false,
@@ -220,7 +221,7 @@ export function CrewOverlay({ hub, crew }: { hub: CrewHub; crew: CrewHubState | 
           <p className="crew-empty">
             {!named
               ? "Nobody can watch this session: this PC doesn't play for a crew of yours."
-              : crew?.sharing
+              : sharing
                 ? `Anyone in ${named} can watch now.`
                 : `Friends in ${named} can ask to watch. Or share and let them in.`}
           </p>
@@ -229,22 +230,22 @@ export function CrewOverlay({ hub, crew }: { hub: CrewHub; crew: CrewHubState | 
           <Segment<string>
             name="watch-crew"
             aria-label="Which crew may watch"
-            value={crew?.crew?.id ?? ""}
-            onChange={(id) => hub.share(crew?.sharing ?? false, id)}
+            value={current?.id ?? ""}
+            onChange={(id) => hub.share(sharing, id)}
             options={crews.map((c) => ({
               value: c.id,
               label: crewTitle("en", { crewName: c.name, name: c.admin, own: false }),
             }))}
           />
         ) : null}
-        {named || crew?.sharing ? (
+        {named ? (
           <Button
             variant="secondary"
             size="sm"
-            aria-pressed={crew?.sharing ?? false}
-            onClick={() => hub.share(!crew?.sharing)}
+            aria-pressed={sharing}
+            onClick={() => (repin ? hub.share(!sharing, repin) : hub.share(!sharing))}
           >
-            {crew?.sharing ? "Stop sharing with crew" : "Share with my crew"}
+            {sharing ? "Stop sharing with crew" : "Share with my crew"}
           </Button>
         ) : null}
         <VoiceBar
