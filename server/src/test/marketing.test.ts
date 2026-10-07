@@ -374,7 +374,7 @@ describe("marketing site", () => {
       }
     };
     walk(DIR);
-    assert.ok(files.length > 30);
+    assert.ok(files.length > 20);
     for (const path of files) {
       const text = readFileSync(path, "utf8")
         // What a reader sees: no tags, styles or scripts, no URLs (/night/ is a route), no data-t keys.
@@ -384,6 +384,29 @@ describe("marketing site", () => {
         .replace(/"[\w.]*night[\w.]*"\s*:/g, " ");
       assert.doesNotMatch(text, TIME_OF_DAY, relative(DIR, path));
     }
+  });
+
+  it("writes German with articles agreeing with the feminine Zockrunde and Testrunde everywhere it swapped them", () => {
+    const WRONG =
+      /\b(der|den|dem|des|ein|einen|einem|eines|kein|keinen|keinem|jeden|jedem|jedes|euer|eurem|euren|dein|deinen|deinem|unser|unseren|unserem|zum|vom|beim|im)\s+(Zock|Test)runde\b/i;
+    const german: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) walk(path);
+        else if (/\.(html|txt|json|md)$/.test(entry.name)) german.push(path);
+      }
+    };
+    walk(DIR);
+    let swapped = 0;
+    for (const path of german) {
+      const rel = relative(DIR, path);
+      if (rel.startsWith("en/") || rel.includes(".en.")) continue;
+      const text = readFileSync(path, "utf8").replace(/<[^>]*>/g, " ");
+      swapped += (text.match(/(Zock|Test)runden?/g) ?? []).length;
+      assert.doesNotMatch(text, WRONG, rel);
+    }
+    assert.ok(swapped > 20, "the German pages say Zockrunde");
   });
 
   it("leaves every other host to the app", async () => {
@@ -424,6 +447,12 @@ describe("marketing site", () => {
       assert.equal(bare.status, 200, type);
       assert.doesNotMatch(bare.body, EXAMPLES, type);
     }
+  });
+
+  it("asks no email on a gift page: its first step is Steam sign-in", async () => {
+    assert.match((await ask(origin, "/gift/G1ft")).body, /data-t="gift.s1p">Mit Steam anmelden\./);
+    assert.match((await ask(origin, "/en/gift/G1ft")).body, /data-t="gift.s1p">Sign in with Steam\./);
+    assert.doesNotMatch((await ask(origin, "/en/privacy/")).body, /\)\. \//);
   });
 
   it("sends the crew page on to the app, behind its Steam sign-in", async () => {
@@ -652,7 +681,8 @@ describe("MARKETING_PAGES on the real server", () => {
     try {
       for (const path of ["/", "/host/", "/crew/AB12", "/robots.txt"]) {
         const page = await ask(HTTP, path, { host: HOST });
-        assert.doesNotMatch(page.body, /form-endpoint|Lanterel/, path);
+        // Nothing of the site (the app's own page is called Lanterel too, so its markup is what tells).
+        assert.doesNotMatch(page.body, /form-endpoint|class="wordmark"/, path);
         assert.equal(page.body, (await ask(HTTP, path, { host: `127.0.0.1:${PORT}` })).body, path);
       }
       const posted = await ask(HTTP, "/api/signups", {

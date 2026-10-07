@@ -73,6 +73,11 @@ const SKIPPED = new Set([
   join("en", "share"),
   join("assets", "js", "crewpage.js"),
   join("assets", "css", "crewpage.css"),
+  // A crew link and a friend seat are the app's to show (marketing.ts appInvitePath): their templates are never served.
+  "crew",
+  join("en", "crew"),
+  "seat",
+  join("en", "seat"),
 ]);
 
 /** `s` with every character a regular expression gives a meaning escaped, to match it as it is. */
@@ -110,6 +115,14 @@ export const MEETUP_WORDING = [
   ["Mein PC hat abends Platz", "Mein PC hat Platz"],
   ["meist abends ab 20 Uhr", "wenn der PC frei ist"],
   [">Der Abend<", ">Die Zockrunde<"],
+  // "Zockrunde" is feminine where "Crew-Abend" was not: the articles go with it.
+  ["vor jedem Crew-Abend", "vor jeder Zockrunde"],
+  ["jedem Crew-Abend", "jeder Zockrunde"],
+  ["einen Crew-Abend", "eine Zockrunde"],
+  ["ein Crew-Abend", "eine Zockrunde"],
+  ["euer Crew-Abend", "eure Zockrunde"],
+  ["zum Crew-Abend", "zur Zockrunde"],
+  ["dem Crew-Abend", "der Zockrunde"],
   ["Crew-Abend", "Zockrunde"],
   ["Zockabende", "Zockrunden"],
   ["Zockabend", "Zockrunde"],
@@ -150,9 +163,18 @@ export const MEETUP_WORDING = [
   ["Crew night", "Gaming session"],
 ];
 
-/** `text` with the set's meetup and time-of-day wording put the app's way (MEETUP_WORDING). */
+/**
+ * Slips in marketing's build the pages should not show, each with what it
+ * should say; a build that fixes one leaves its entry nothing to do.
+ */
+export const CORRECTIONS = [
+  // A stray slash after the legal basis on the English privacy page.
+  ["(§ 25(2) TDDDG). /", "(§ 25(2) TDDDG)."],
+];
+
+/** `text` with the set's meetup and time-of-day wording put the app's way (MEETUP_WORDING), and its slips corrected. */
 export function neutralWording(text) {
-  return MEETUP_WORDING.reduce((out, [from, to]) => out.replaceAll(from, to), text);
+  return [...MEETUP_WORDING, ...CORRECTIONS].reduce((out, [from, to]) => out.replaceAll(from, to), text);
 }
 
 /**

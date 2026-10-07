@@ -232,6 +232,13 @@ describe("importing the launch set", () => {
   it("says Zockrunde and gaming session, never an evening or a night, and leaves keys and routes alone", () => {
     assert.equal(neutralWording("So läuft ein Crew-Abend"), "So läuft eine Zockrunde");
     assert.equal(neutralWording("Max lädt dich zum Crew-Abend ein"), "Max lädt dich zur Zockrunde ein");
+    // "Zockrunde" is feminine: its articles follow it.
+    assert.equal(
+      neutralWording("dann erinnern wir dich vor jedem Crew-Abend."),
+      "dann erinnern wir dich vor jeder Zockrunde.",
+    );
+    // A slip in marketing's build is corrected too.
+    assert.equal(neutralWording("(§ 25(2) TDDDG). /</p>"), "(§ 25(2) TDDDG).</p>");
     assert.equal(neutralWording("Frei: meist abends ab 20 Uhr"), "Frei: wenn der PC frei ist");
     assert.equal(
       neutralWording("Eine Crew für unsere Zockabende, zwei Testabende, Testabend 1"),
@@ -241,5 +248,28 @@ describe("importing the launch set", () => {
     assert.equal(neutralWording("It&#x27;s on tonight"), "It&#x27;s on today");
     const code = '<span data-t="night.h1" class="fa-night"><a href="/night/AB">x</a></span>';
     assert.equal(neutralWording(code), code);
+  });
+
+  it("keeps German articles agreeing with the feminine Zockrunde in every phrase it swaps", () => {
+    const swapped: [string, string][] = [
+      ["So läuft ein Crew-Abend", "So läuft eine Zockrunde"],
+      ["Max lädt dich zum Crew-Abend ein", "Max lädt dich zur Zockrunde ein"],
+      ["Max hat einen Crew-Abend organisiert", "Max hat eine Zockrunde organisiert"],
+      ["Um 21 Uhr startet euer Crew-Abend.", "Um 21 Uhr startet eure Zockrunde."],
+      ["dann erinnern wir dich vor jedem Crew-Abend.", "dann erinnern wir dich vor jeder Zockrunde."],
+      ["Erinnerungen an Crew-Abende: kurz bestätigen", "Erinnerungen an Zockrunden: kurz bestätigen"],
+      ["Du willst an Crew-Abende erinnert werden?", "Du willst an Zockrunden erinnert werden?"],
+      ["Erinnerung vor Crew-Abenden per Mail?", "Erinnerung vor Zockrunden per Mail?"],
+      [
+        "an eure Crew-Abende (zum Beispiel, wenn ein Abend angesagt wird, und am Tag selbst)",
+        "an eure Zockrunden (zum Beispiel, wenn eine Zockrunde angesagt wird, und am Tag selbst)",
+      ],
+      ["<dt>Der Abend</dt>", "<dt>Die Zockrunde</dt>"],
+      ["Abend ansagen", "Zockrunde ansagen"],
+      ["Zwei Testabende à drei Stunden", "Zwei Testrunden à drei Stunden"],
+      ["eine Crew für unsere Zockabende gegründet", "eine Crew für unsere Zockrunden gegründet"],
+      ["Crew-Abend am Freitag: Max, Lena und du", "Zockrunde am Freitag: Max, Lena und du"],
+    ];
+    for (const [from, to] of swapped) assert.equal(neutralWording(from), to, from);
   });
 });

@@ -50,6 +50,7 @@ function gift(lang: Lang): InviteCopy {
         "gift.lead2":
           "In der Beta kostet {{brand}} eh nichts. Mit dem geschenkten Platz musst du aber nicht auf die nächste Einladungswelle warten.",
         "gift.sig": "Geschenkt für dich · gültig 14 Tage",
+        "gift.s1p": "Mit Steam anmelden. Kein Passwort, kein neues Konto.",
       },
       literal: [],
     };
@@ -65,6 +66,7 @@ function gift(lang: Lang): InviteCopy {
       "gift.lead2":
         "{{brand}} is free during the beta anyway. This seat just lets you skip the wait for the next wave of invites.",
       "gift.sig": "A gift for you · valid for 14 days",
+      "gift.s1p": "Sign in with Steam. No password, no new account.",
     },
     literal: [],
   };
@@ -87,7 +89,7 @@ function night(lang: Lang): InviteCopy {
         "night.p2": "Crew · Gaming-PC",
         "night.p4": "Platz für bis zu 4",
         "night.fn":
-          "Wir erinnern dich am Tag selbst per Mail. Sagst du ab, geht dein Platz an den Nächsten in der Crew.",
+          "Hast du eine Mail-Adresse hinterlegt, erinnern wir dich am Tag selbst. Sagst du ab, geht dein Platz an den Nächsten in der Crew.",
         "night.f1v": "kommt per Mail",
         "night.f2v": "höchstens 4",
         "night.f3v": "kommt per Mail",
@@ -108,7 +110,7 @@ function night(lang: Lang): InviteCopy {
       "night.p2": "crew · gaming PC",
       "night.p4": "room for up to 4",
       "night.fn":
-        "We'll email you a reminder on the day. If you drop out, your seat goes to the next person in the crew.",
+        "If you've added your email, we'll remind you on the day. If you drop out, your seat goes to the next person in the crew.",
       "night.f1v": "sent by email",
       "night.f2v": "4 max",
       "night.f3v": "sent by email",
