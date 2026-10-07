@@ -908,6 +908,7 @@ async function inviting(
   return { name: seatId ? ((await platform.seat(seatId))?.host ?? null) : null, sessionAt: null };
 }
 
+/** Serve one HTTP request: the marketing site, sessions, Steam sign-in, the catalog, the API, link preview cards or the web app. */
 async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? "/", "http://localhost");
   const urlPath = url.pathname;

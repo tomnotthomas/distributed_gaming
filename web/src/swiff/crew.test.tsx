@@ -1406,6 +1406,7 @@ describe("CrewInvite", () => {
   };
   const JOINED = { id: "c1", crew: { ...OPEN, member: undefined, size: 3 }, joined: true };
 
+  /** Put the tab at `path`, as a link into the app would. */
   const at = (path: string) => history.replaceState(null, "", path);
 
   it("names who asks and the crew, and signs a signed-out friend in with Steam, keeping the token out", async () => {

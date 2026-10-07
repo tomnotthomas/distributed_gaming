@@ -243,6 +243,7 @@ describe("marketing site", () => {
   it("never says when a crew plays: no evening or night in a page or a preview", async () => {
     const TIME_OF_DAY = /(Abende?n?s?\b|abend|\b(?:Nacht|nachts|[Nn]ights?|[Tt]onight|[Ee]venings?)\b)/;
     const files: string[] = [];
+    /** Collect every page, text and JSON file under `dir` into `files`. */
     const walk = (dir: string) => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         const path = join(dir, entry.name);
@@ -267,6 +268,7 @@ describe("marketing site", () => {
     const WRONG =
       /\b(der|den|dem|des|ein|einen|einem|eines|kein|keinen|keinem|jeden|jedem|jedes|euer|eurem|euren|dein|deinen|deinem|unser|unseren|unserem|zum|vom|beim|im)\s+(Zock|Test)runde\b/i;
     const german: string[] = [];
+    /** Collect every German file under `dir` into `german`. */
     const walk = (dir: string) => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         const path = join(dir, entry.name);
