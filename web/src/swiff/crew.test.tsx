@@ -1288,7 +1288,7 @@ describe("CrewPage: the guided crew page", () => {
             {
               state: "ready",
               pcs: 1,
-              machines: [{ name: "DESKTOP-7Q", owner: "Max", mine: false, state: "ready" }],
+              machines: readyCrew().machines,
             },
           ),
         },
