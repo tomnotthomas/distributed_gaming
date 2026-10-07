@@ -283,8 +283,10 @@ describe("importing the launch set", () => {
       "also brauchst du einen Windows-Gaming-PC.</p>",
     );
     assert.equal(
-      neutralWording("so you need a Windows gaming PC. Sign up anyway and we'll let you know if that changes.\""),
-      "so you need a Windows gaming PC.\"",
+      neutralWording(
+        "so you need a Windows gaming PC. Sign up anyway and we'll let you know if that changes.\"",
+      ),
+      'so you need a Windows gaming PC."',
     );
     assert.equal(neutralWording("Frei: meist abends ab 20 Uhr"), "Frei: wenn der PC frei ist");
     assert.equal(
