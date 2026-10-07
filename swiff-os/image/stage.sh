@@ -1,9 +1,10 @@
 #!/bin/sh
 # Stages what the image takes from the rest of the repository into
 # <output-dir>/stage, which mkosi adds as an extra tree (ExtraTrees=%O/stage in
-# mkosi.images/system/mkosi.conf): swiff-hostd, swiff-streamer and the Steam
-# sign-in agent, each bundled into one file for the image's Node (Ubuntu's,
-# built without TypeScript type stripping), the streamer's helpers and system
+# mkosi.images/system/mkosi.conf): swiff-hostd and its attestation client
+# (swiff-attest), swiff-streamer and the Steam sign-in agent, each bundled into
+# one file for the image's Node (Ubuntu's, built without TypeScript type
+# stripping), the streamer's helpers and system
 # files, and the renter session. Run it before every build of the image, with
 # the same output directory mkosi gets; the build fails without it.
 #
@@ -26,6 +27,8 @@ put() { install -D -m "$1" "$2" "$stage/$3"; }
 
 put 0644 "$os/hostd/dist/swiff-hostd.mjs" usr/lib/swiff/hostd/swiff-hostd.mjs
 put 0644 "$os/hostd/swiff-hostd.service" usr/lib/systemd/system/swiff-hostd.service
+put 0644 "$os/hostd/dist/swiff-attest.mjs" usr/lib/swiff/hostd/swiff-attest.mjs
+put 0755 "$os/hostd/system/swiff-attest" usr/libexec/swiff/swiff-attest
 
 put 0644 "$os/streamer/dist/swiff-streamer.mjs" usr/lib/swiff/streamer/dist/swiff-streamer.mjs
 put 0644 "$os/streamer/helpers/swiff-gst.py" usr/lib/swiff/streamer/helpers/swiff-gst.py

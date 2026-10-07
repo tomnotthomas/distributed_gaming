@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node src/main.ts",
-    "build": "esbuild src/main.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/swiff-hostd.mjs",
+    "build": "esbuild src/main.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/swiff-hostd.mjs && esbuild src/swiff-attest.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/swiff-attest.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
