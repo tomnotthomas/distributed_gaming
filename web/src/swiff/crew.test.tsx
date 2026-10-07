@@ -13,6 +13,11 @@ import {
   crewTitle,
   inviteMessage,
   pcTitle,
+  sessionClock,
+  sessionDay,
+  sessionWhen,
+  zoned,
+  zonedAt,
   type CrewDetail,
   type CrewMember,
   type MyCrew,
@@ -175,6 +180,24 @@ describe("crew copy", () => {
 });
 
 describe("crew addresses and names", () => {
+  it("says a Zockrunde's day and time in Berlin's, wherever the browser is, across the clock change", () => {
+    // Sunday 25 October 2026 the clocks go back: 21:00 is UTC+1 then, 19:00 UTC the Friday before.
+    expect(zonedAt(2026, 9, 25, 21)).toBe(Date.UTC(2026, 9, 25, 20));
+    expect(zonedAt(2026, 9, 9, 21)).toBe(Date.UTC(2026, 9, 9, 19));
+    expect(zoned(Date.UTC(2026, 9, 9, 23))).toMatchObject({
+      year: 2026,
+      month: 9,
+      day: 10,
+      hour: 1,
+      weekday: 6,
+    });
+    const at = Date.UTC(2026, 9, 9, 19, 30);
+    expect(sessionWhen("de", at)).toBe("Freitag, 9. Oktober, 21:30 Uhr");
+    expect(sessionWhen("en", at)).toBe("Friday 9 October, 9:30 pm");
+    expect(sessionDay("de", at)).toBe("Fr 9. Okt");
+    expect(sessionClock(at)).toBe("21:30");
+  });
+
   it("reads /crews and /crews/<id>, and opens the crew screen there", () => {
     expect(crewRouteAt("/crews")).toEqual({ crew: null });
     expect(crewRouteAt("/crews/")).toEqual({ crew: null });
@@ -222,7 +245,7 @@ describe("crew addresses and names", () => {
 
   it("puts the Zockrunde's date in the message only until 6 hours after it starts", () => {
     const origin = "https://lanterel.example";
-    const at = new Date(2026, 9, 9, 21).getTime();
+    const at = Date.UTC(2026, 9, 9, 19); // Friday 9 October, 21:00 in Berlin
     const crew = crewOf({ session: { at, yes: 1, no: 0 } });
     expect(inviteMessage("en", crew, origin, at + 6 * 3600_000 - 1)).toMatch(
       /^Session on Friday 9 October, 9 pm/,
@@ -401,8 +424,8 @@ describe("CrewPage: signed out, founding and the list", () => {
 
 describe("CrewPage: the guided crew page", () => {
   // Wednesday 7 October 2026, noon: the days on offer run Today to Sunday 11.
-  const NOON = new Date(2026, 9, 7, 12);
-  const FRIDAY_9PM = new Date(2026, 9, 9, 21).getTime();
+  const NOON = new Date(Date.UTC(2026, 9, 7, 10)); // 12:00 in Berlin
+  const FRIDAY_9PM = Date.UTC(2026, 9, 9, 19); // 21:00 in Berlin
   const dated = { at: FRIDAY_9PM, yes: 1, no: 0 };
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["Date"] });
@@ -445,9 +468,35 @@ describe("CrewPage: the guided crew page", () => {
     expect(screen.getByText("Only you so far")).toBeInTheDocument();
   });
 
+  it("offers another day up to the server's 90 days ahead, and no further", async () => {
+    fetchFrom({ "GET /api/crews/c1": [200, { crew: crewOf() }] });
+    render(<CrewPage swiff={atCrew("c1")} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Other day" }));
+    const other = screen.getByLabelText("Other day");
+    expect(other).toHaveAttribute("min", "2026-10-07");
+    expect(other).toHaveAttribute("max", "2027-01-04");
+    fireEvent.change(other, { target: { value: "2027-02-01" } });
+    expect(screen.getByRole("button", { name: /^Set Friday 9, 9 pm/ })).toBeInTheDocument();
+    fireEvent.change(other, { target: { value: "2026-12-24" } });
+    expect(screen.getByRole("button", { name: /^Set Thursday 24, 9 pm/ })).toBeInTheDocument();
+  });
+
+  it("never sets a time that has gone by while the page stood open", async () => {
+    const calls = fetchFrom({ "GET /api/crews/c1": [200, { crew: crewOf() }] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 9, 7, 18, 30))); // 20:30 in Berlin
+    render(<CrewPage swiff={atCrew("c1")} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Today Wed 7" }));
+    const set = screen.getByRole("button", { name: /^Set Today, 9 pm/ });
+    expect(set).toBeEnabled();
+    vi.setSystemTime(new Date(Date.UTC(2026, 9, 7, 19, 5))); // 21:05: the hour has begun
+    fireEvent.click(set);
+    expect(set).toBeDisabled();
+    expect(calls.some(([method]) => method === "POST")).toBe(false);
+  });
+
   it("asks in German too, and never lets a time already gone today be set", async () => {
     fetchFrom({ "GET /api/crews/c1": [200, { crew: crewOf() }] });
-    vi.setSystemTime(new Date(2026, 9, 9, 21, 30));
+    vi.setSystemTime(new Date(Date.UTC(2026, 9, 9, 19, 30))); // 21:30 in Berlin
     render(
       <ScreenLang.Provider value="de">
         <CrewPage swiff={atCrew("c1")} />
@@ -763,7 +812,7 @@ describe("CrewInvite", () => {
 
   it("says when the crew's session is and how many are in so far", async () => {
     at(`/invite/${TOKEN}`);
-    const when = new Date(2026, 9, 9, 21).getTime();
+    const when = Date.UTC(2026, 9, 9, 19); // 21:00 in Berlin
     fetchFrom({
       [`/api/invites/${TOKEN}`]: [200, { crew: { ...OPEN, session: { at: when, yes: 2, no: 1 } } }],
     });

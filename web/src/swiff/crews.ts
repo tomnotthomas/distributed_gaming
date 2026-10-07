@@ -124,21 +124,74 @@ export function inviteMessage(
   return t(key, { crew: crewTitle(lang, crew), link });
 }
 
+/**
+ * Where a Zockrunde's day and time are said: Germany's, wherever the browser
+ * is, as the server's link preview says them (server/src/invite-copy.ts), so
+ * one message never shows two times.
+ */
+export const SESSION_ZONE = "Europe/Berlin";
+
+/** A moment's calendar day and time in SESSION_ZONE: `month` from 0, `weekday` from 0 for Sunday. */
+export type ZonedTime = {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  weekday: number;
+};
+
+const ZONED = new Intl.DateTimeFormat("en-US", {
+  timeZone: SESSION_ZONE,
+  hourCycle: "h23",
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+  hour: "numeric",
+  minute: "numeric",
+  weekday: "short",
+});
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** `at` (Unix ms) as SESSION_ZONE's calendar and clock show it. */
+export function zoned(at: number): ZonedTime {
+  const parts = ZONED.formatToParts(at);
+  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return {
+    year: Number(part("year")),
+    month: Number(part("month")) - 1,
+    day: Number(part("day")),
+    hour: Number(part("hour")),
+    minute: Number(part("minute")),
+    weekday: WEEKDAYS.indexOf(part("weekday")),
+  };
+}
+
+/** The moment (Unix ms) SESSION_ZONE's clock shows `hour`:`minute` on that calendar day (`month` from 0). */
+export function zonedAt(year: number, month: number, day: number, hour: number, minute = 0): number {
+  const wall = Date.UTC(year, month, day, hour, minute);
+  let at = wall;
+  // The zone's offset at the moment itself: twice, so a day that changes the clock settles too.
+  for (let i = 0; i < 2; i++) {
+    const shown = zoned(at);
+    at += wall - Date.UTC(shown.year, shown.month, shown.day, shown.hour, shown.minute);
+  }
+  return at;
+}
+
+/** A date format in SESSION_ZONE, in the language's words. */
+const sessionFormat = (lang: Lang, options: Intl.DateTimeFormatOptions) =>
+  new Intl.DateTimeFormat(lang === "de" ? "de-DE" : "en-GB", { ...options, timeZone: SESSION_ZONE });
+
 /** The date of a Zockrunde (`at`, Unix ms) as a message says it: "Freitag, 9. Oktober, 21 Uhr", "Friday 9 October, 9 pm". */
 export function sessionWhen(lang: Lang, at: number): string {
-  const day = new Intl.DateTimeFormat(lang === "de" ? "de-DE" : "en-GB", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  }).format(at);
+  const day = sessionFormat(lang, { weekday: "long", day: "numeric", month: "long" }).format(at);
   return `${day}, ${sessionTime(lang, at)}`;
 }
 
 /** The time of a Zockrunde as it is said: "21 Uhr", "21:30 Uhr", "9 pm", "9:30 pm". */
 export function sessionTime(lang: Lang, at: number): string {
-  const date = new Date(at);
-  const hour = date.getHours();
-  const minute = date.getMinutes();
+  const { hour, minute } = zoned(at);
   const mm = String(minute).padStart(2, "0");
   if (lang === "de") return `${minute ? `${hour}:${mm}` : hour} Uhr`;
   const twelve = hour % 12 || 12;
@@ -147,15 +200,22 @@ export function sessionTime(lang: Lang, at: number): string {
 
 /** The short day of a Zockrunde, as its ticket says it: "Fr 9. Okt", "Fri 9 Oct". */
 export function sessionDay(lang: Lang, at: number): string {
-  const parts = new Intl.DateTimeFormat(lang === "de" ? "de-DE" : "en-GB", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-  }).formatToParts(at);
+  const parts = sessionFormat(lang, { weekday: "short", day: "numeric", month: "short" }).formatToParts(at);
   const part = (type: string) => parts.find((p) => p.type === type)?.value.replace(".", "") ?? "";
   return lang === "de"
     ? `${part("weekday")} ${part("day")}. ${part("month")}`
     : `${part("weekday")} ${part("day")} ${part("month")}`;
+}
+
+/** The weekday of a Zockrunde: short ("Fr", "Fri") or in full ("Freitag", "Friday"). */
+export function sessionWeekday(lang: Lang, at: number, width: "short" | "long" = "short"): string {
+  return sessionFormat(lang, { weekday: width }).format(at).replace(".", "");
+}
+
+/** A Zockrunde's start on the 24-hour clock, as its ticket and the time choices show it: "21:00". */
+export function sessionClock(at: number): string {
+  const { hour, minute } = zoned(at);
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
 /** How long after it starts a Zockrunde counts as over, and the next one is to be set: 6 hours. */

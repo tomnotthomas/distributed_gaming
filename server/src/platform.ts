@@ -1594,10 +1594,16 @@ export class Platform {
     });
   }
 
-  /** Note that `userId` shared the crew's invite, with its Zockrunde when it has one. Null unless they are in it. */
-  sharedCrew(crewId: string, userId: string): Promise<CrewDetail | null> {
+  /**
+   * Note that `userId` shared the crew's invite with its Zockrunde. Null unless
+   * they are in it; "no-session" while it has none ahead or under way, since
+   * the invite then carries no date to answer.
+   */
+  sharedCrew(crewId: string, userId: string): Promise<CrewDetail | null | "no-session"> {
     return this.#transaction(async () => {
-      if (!(await this.#crewDetail(crewId, userId))) return null;
+      const detail = await this.#crewDetail(crewId, userId);
+      if (!detail) return null;
+      if (!liveSession(detail.session, this.#now())) return "no-session";
       await this.#run("UPDATE crews SET shared_at = $1 WHERE id = $2", this.#now(), crewId);
       return (await this.#crewDetail(crewId, userId))!;
     });

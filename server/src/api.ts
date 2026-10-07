@@ -796,6 +796,10 @@ export function createApi({
       const steamId = requireRenter(req, sessionSecret);
       const crew = await platform.sharedCrew(id, steamId);
       if (!crew) throw new HttpError(404, "no such crew");
+      if (crew === "no-session") {
+        reply(res, 409, { error: "the crew has no Zockrunde to share", code: "no-session" });
+        return true;
+      }
       events?.crewChanged();
       reply(res, 200, { crew: crewReply(crew) });
       return true;

@@ -690,6 +690,9 @@ describe("crew API", () => {
     const early = await call("POST", `/api/crews/${crew.id}/rsvp`, HOST, { rsvp: "yes" });
     assert.equal(early.status, 409);
     assert.equal(early.body.code, "no-session");
+    const unshared = await call("POST", `/api/crews/${crew.id}/shared`, HOST);
+    assert.equal(unshared.status, 409, "an invite with no date to answer does not count as sent");
+    assert.equal(unshared.body.code, "no-session");
 
     const set = await call("POST", `/api/crews/${crew.id}/session`, ALEX, { at });
     assert.equal(set.status, 200);

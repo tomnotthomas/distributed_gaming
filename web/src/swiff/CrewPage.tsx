@@ -24,8 +24,10 @@ import {
   removeCrewMember,
   renameCrew,
   renewCrewLink,
+  sessionClock,
   sessionDay,
   sessionTime,
+  sessionWeekday,
   setCrewSession,
   sharedCrew,
   takeLanding,
@@ -35,6 +37,8 @@ import {
   type CrewMember,
   type CrewSession,
   type MyCrew,
+  zoned,
+  zonedAt,
 } from "./crews";
 import { crewText, type CopyKey, type Lang } from "./crewCopy";
 import { Avatar, LobbyArt, LobbyTitle, PcIcon, Tick, useCrewText, useShare } from "./crewUi";
@@ -263,24 +267,38 @@ function currentStep(steps: Step[], crew: CrewDetail, now: number): StepId {
   return step?.id ?? "play";
 }
 
-/** The weekday of a Zockrunde, short: "Fr", "Fri". */
-function sessionWeekday(lang: Lang, at: number): string {
-  return new Intl.DateTimeFormat(lang === "de" ? "de-DE" : "en-GB", { weekday: "short" })
-    .format(at)
-    .replace(".", "");
-}
-
-/** The day choices for a Zockrunde: today and the next four days, at midnight. */
-function sessionDays(now: Date): Date[] {
-  return [0, 1, 2, 3, 4].map((offset) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset));
-}
-
 /** The hours a Zockrunde may start at. */
 const SESSION_HOURS = [17, 18, 19, 20, 21, 22];
 
-/** A day as `<input type="date">` writes it. */
-const isoDay = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+/** The furthest day ahead a Zockrunde may be set on: inside the server's 90 days (SESSION_AHEAD_MS). */
+const FURTHEST_DAY = 89;
+
+/**
+ * A calendar day in SESSION_ZONE, as the day choices hold it: its midnight in
+ * UTC (Unix ms), so the same day reads the same wherever the browser is.
+ */
+type CalendarDay = number;
+
+/** The calendar day `offset` days after the one `at` falls on in SESSION_ZONE. */
+function dayOf(at: number, offset = 0): CalendarDay {
+  const { year, month, day } = zoned(at);
+  return Date.UTC(year, month, day + offset);
+}
+
+/** The moment `hour` o'clock begins on calendar day `day`, in SESSION_ZONE. */
+function startOf(day: CalendarDay, hour: number): number {
+  const d = new Date(day);
+  return zonedAt(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), hour);
+}
+
+/** A calendar day as `<input type="date">` writes it. */
+const isoDay = (day: CalendarDay) => new Date(day).toISOString().slice(0, 10);
+
+/** A calendar day's weekday, in full or short. */
+const dayWeekday = (lang: Lang, day: CalendarDay, width: "short" | "long") =>
+  new Intl.DateTimeFormat(lang === "de" ? "de-DE" : "en-GB", { weekday: width, timeZone: "UTC" })
+    .format(day)
+    .replace(".", "");
 
 /** One crew's page: the next Zockrunde as a ticket, with the one step to do now open on it. */
 function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
@@ -439,7 +457,7 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
                 {session ? (
                   <>
                     <span>{sessionDay(lang, session.at)}</span>{" "}
-                    <span className="gc-time">{clock(session.at)}</span>
+                    <span className="gc-time">{sessionClock(session.at)}</span>
                   </>
                 ) : (
                   <span>{t("g.noDate")}</span>
@@ -539,7 +557,7 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
                   <h2>
                     {t("g.answerH", {
                       when: t("g.on", {
-                        day: sessionDayName(lang, session.at),
+                        day: sessionWeekday(lang, session.at, "long"),
                         time: sessionTime(lang, session.at),
                       }),
                     })}
@@ -792,17 +810,6 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
   );
 }
 
-/** A Zockrunde's start as its ticket and the time choices show it, on the 24-hour clock: "21:00". */
-function clock(at: number): string {
-  const date = new Date(at);
-  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-}
-
-/** The weekday of a Zockrunde in full: "Freitag", "Friday". */
-function sessionDayName(lang: Lang, at: number): string {
-  return new Intl.DateTimeFormat(lang === "de" ? "de-DE" : "en-GB", { weekday: "long" }).format(at);
-}
-
 /** Setting the crew's Zockrunde, or moving it: a day, a time, and one button that says both. */
 function DateStep({
   crewId,
@@ -818,31 +825,38 @@ function DateStep({
   apply: (work: Promise<CrewDetail | null>) => Promise<CrewDetail | null>;
 }) {
   const { lang, t } = useCrewText();
-  const [today] = useState(() => new Date());
-  const days = sessionDays(today);
+  // Read again on every pick and before setting, so a page left open never sets a time already gone.
+  const [now, setNow] = useState(() => Date.now());
+  const days = [0, 1, 2, 3, 4].map((offset) => dayOf(now, offset));
   const moving = session !== null && !over;
   // Friday when it is among the days, else tomorrow; a session being moved starts from its own day.
-  const [day, setDay] = useState<Date>(() => {
-    if (moving) {
-      const at = new Date(session.at);
-      return new Date(at.getFullYear(), at.getMonth(), at.getDate());
-    }
-    return days.find((d) => d.getDay() === 5) ?? days[1]!;
-  });
-  const [hour, setHour] = useState(() => (moving ? new Date(session.at).getHours() : 21));
-  const [other, setOther] = useState(() => !days.some((d) => d.getTime() === day.getTime()));
-  const at = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour).getTime();
-  const past = at < today.getTime();
-  const sameDay = (d: Date) => d.getTime() === day.getTime();
-  const weekday = new Intl.DateTimeFormat(lang === "de" ? "de-DE" : "en-GB", { weekday: "long" });
-  const short = (d: Date) =>
-    lang === "de"
-      ? `${sessionWeekday(lang, d.getTime())} ${d.getDate()}.`
-      : `${sessionWeekday(lang, d.getTime())} ${d.getDate()}`;
-  const dayName = (d: Date, i: number) =>
-    i === 0 ? t("g.today") : i === 1 ? t("g.tomorrow") : weekday.format(d);
-  const whenDay = days.findIndex(sameDay);
-  const when = `${whenDay >= 0 && !other ? dayName(day, whenDay) : `${weekday.format(day)} ${short(day).split(" ")[1]}`}, ${sessionTime(lang, at)}`;
+  const [day, setDay] = useState<CalendarDay>(() =>
+    moving ? dayOf(session.at) : (days.find((d) => new Date(d).getUTCDay() === 5) ?? days[1]!),
+  );
+  const [hour, setHour] = useState(() => (moving ? zoned(session.at).hour : 21));
+  const [other, setOther] = useState(() => !days.includes(day));
+  const at = startOf(day, hour);
+  const past = at < now;
+  const pick = (next: () => void) => {
+    setNow(Date.now());
+    next();
+  };
+  const short = (d: CalendarDay) =>
+    `${dayWeekday(lang, d, "short")} ${new Date(d).getUTCDate()}${lang === "de" ? "." : ""}`;
+  const dayName = (d: CalendarDay, i: number) =>
+    i === 0 ? t("g.today") : i === 1 ? t("g.tomorrow") : dayWeekday(lang, d, "long");
+  const whenDay = days.indexOf(day);
+  const when = `${
+    whenDay >= 0 && !other
+      ? dayName(day, whenDay)
+      : `${dayWeekday(lang, day, "long")} ${new Date(day).getUTCDate()}${lang === "de" ? "." : ""}`
+  }, ${sessionTime(lang, at)}`;
+
+  const set = () => {
+    const current = Date.now();
+    setNow(current);
+    if (at >= current) void apply(setCrewSession(crewId, at));
+  };
 
   return (
     <>
@@ -854,14 +868,16 @@ function DateStep({
           <div className="gc-chips">
             {days.map((d, i) => (
               <button
-                key={d.getTime()}
+                key={d}
                 type="button"
                 className="gc-chip"
-                aria-pressed={!other && sameDay(d)}
-                onClick={() => {
-                  setOther(false);
-                  setDay(d);
-                }}
+                aria-pressed={!other && d === day}
+                onClick={() =>
+                  pick(() => {
+                    setOther(false);
+                    setDay(d);
+                  })
+                }
               >
                 <span>{dayName(d, i)}</span>
                 <small>{short(d)}</small>
@@ -873,10 +889,13 @@ function DateStep({
                 type="date"
                 aria-label={t("g.otherDay")}
                 min={isoDay(days[0]!)}
+                max={isoDay(dayOf(now, FURTHEST_DAY))}
                 value={isoDay(day)}
                 onChange={(event) => {
                   const [y, m, d] = event.target.value.split("-").map(Number);
-                  if (y && m && d) setDay(new Date(y, m - 1, d));
+                  if (!y || !m || !d) return;
+                  const picked = Date.UTC(y, m - 1, d);
+                  if (picked >= days[0]! && picked <= dayOf(now, FURTHEST_DAY)) pick(() => setDay(picked));
                 }}
               />
             ) : (
@@ -884,7 +903,7 @@ function DateStep({
                 type="button"
                 className="gc-chip gc-other"
                 aria-pressed={false}
-                onClick={() => setOther(true)}
+                onClick={() => pick(() => setOther(true))}
               >
                 <span>{t("g.otherDay")}</span>
               </button>
@@ -900,21 +919,16 @@ function DateStep({
                 type="button"
                 className="gc-chip t"
                 aria-pressed={h === hour}
-                onClick={() => setHour(h)}
+                onClick={() => pick(() => setHour(h))}
               >
-                {clock(new Date(2026, 0, 1, h).getTime())}
+                {`${String(h).padStart(2, "0")}:00`}
               </button>
             ))}
           </div>
         </fieldset>
       </div>
       <div className="gc-go">
-        <button
-          type="button"
-          className="lpill solid"
-          disabled={busy || past}
-          onClick={() => void apply(setCrewSession(crewId, at))}
-        >
+        <button type="button" className="lpill solid" disabled={busy || past} onClick={set}>
           {t(moving ? "g.move" : "g.set", { when })}
           <span className="lpill-c">
             <Glyph name="arrow" size={18} />
