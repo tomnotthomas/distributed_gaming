@@ -7,7 +7,9 @@
 //
 // Only a FAT32 with 512-byte sectors, as the image set's ESP is, and only a
 // file that fits in one cluster, under an 8.3 name in the root folder. A file
-// of that name already there is written over in place.
+// of that name already there is pointed at a new cluster: the one it had is
+// never written, since nothing proves no other file shares it, and stays
+// allocated (one cluster, which chkdsk may report as lost).
 //
 // A disk is `read(offset, length)` and `write([{ offset, bytes }])`, sector-aligned.
 
@@ -82,7 +84,7 @@ function fat32(disk, base) {
 
 /**
  * Put `content` into the FAT32 at `base` on `disk` as the root folder's
- * `name`, written over in place when it is there already. Throws, writing
+ * `name`, in a newly allocated cluster even when it is there already. Throws, writing
  * nothing, unless the FAT32 is one this module knows, the content fits in a
  * cluster and the root folder has room.
  */
@@ -118,11 +120,7 @@ function writeRootFile(disk, base, name, content, now = new Date()) {
         if (first === 0xe5) free ??= { offset, at };
         else if (attrs !== LONG_NAME && !(attrs & VOLUME_ID) && sector.subarray(at, at + 11).equals(want)) {
           if (attrs & DIRECTORY) throw new Error(`${name} on the ESP is a folder.`);
-          found = {
-            offset,
-            at,
-            cluster: (sector.readUInt16LE(at + 20) << 16) | sector.readUInt16LE(at + 26),
-          };
+          found = { offset, at };
           break walk;
         }
       }
@@ -134,9 +132,9 @@ function writeRootFile(disk, base, name, content, now = new Date()) {
   const slot = found ?? free;
   if (!slot) throw new Error("The ESP's root folder has no room for another file.");
 
-  // Its cluster: the one it has, or the first free one.
-  let data = found && valid(found.cluster) ? found.cluster : null;
-  const allocate = data === null;
+  // Its cluster: always the first free one. A cluster the entry names already
+  // may be free in the FAT or shared with another file, so it is never reused.
+  let data = null;
   for (let c = 2; data === null && c < fat.clusters + 2;) {
     const [{ offset, at }] = fat.fatAt(c);
     const sector = disk.read(offset, SECTOR);
@@ -155,26 +153,23 @@ function writeRootFile(disk, base, name, content, now = new Date()) {
       bytes: Buffer.concat([content, Buffer.alloc(fat.clusterBytes - content.length)]),
     },
   ];
-  if (allocate) {
-    for (const { offset, at } of fat.fatAt(data)) {
-      const sector = disk.read(offset, SECTOR);
-      sector.writeUInt32LE(((sector.readUInt32LE(at) & ~CLUSTER) | CLUSTER) >>> 0, at);
-      writes.push({ offset, bytes: sector });
-    }
-    // The free cluster count it keeps, when it keeps one, is one less.
-    const info =
-      fat.fsInfo > 0 && fat.fsInfo < fat.reserved ? disk.read(fat.sector(fat.fsInfo), SECTOR) : null;
-    const count = info?.readUInt32LE(488);
-    if (
-      info &&
-      info.readUInt32LE(0) === 0x41615252 &&
-      info.readUInt32LE(484) === 0x61417272 &&
-      count > 0 &&
-      count <= fat.clusters
-    ) {
-      info.writeUInt32LE(count - 1, 488);
-      writes.push({ offset: fat.sector(fat.fsInfo), bytes: info });
-    }
+  for (const { offset, at } of fat.fatAt(data)) {
+    const sector = disk.read(offset, SECTOR);
+    sector.writeUInt32LE(((sector.readUInt32LE(at) & ~CLUSTER) | CLUSTER) >>> 0, at);
+    writes.push({ offset, bytes: sector });
+  }
+  // The free cluster count it keeps, when it keeps one, is one less.
+  const info = fat.fsInfo > 0 && fat.fsInfo < fat.reserved ? disk.read(fat.sector(fat.fsInfo), SECTOR) : null;
+  const count = info?.readUInt32LE(488);
+  if (
+    info &&
+    info.readUInt32LE(0) === 0x41615252 &&
+    info.readUInt32LE(484) === 0x61417272 &&
+    count > 0 &&
+    count <= fat.clusters
+  ) {
+    info.writeUInt32LE(count - 1, 488);
+    writes.push({ offset: fat.sector(fat.fsInfo), bytes: info });
   }
   const dir = disk.read(slot.offset, SECTOR);
   const entry = Buffer.alloc(ENTRY);

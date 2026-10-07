@@ -41,6 +41,29 @@ function withVolume() {
   return disk;
 }
 
+type Disk = ReturnType<typeof memoryDisk>;
+
+/** Where cluster `c` of the FAT32 at BASE starts, from its boot sector. */
+function clusterOffset(disk: Disk, c: number): number {
+  const boot = disk.read(BASE, 512);
+  const dataStart = boot.readUInt16LE(14) + boot[16]! * boot.readUInt32LE(36);
+  return BASE + (dataStart + (c - 2) * boot[13]!) * 512;
+}
+
+/** Point the root folder's LANTEREL.ENV entry at cluster `c`, leaving the FAT as it is. */
+function setEntryCluster(disk: Disk, c: number) {
+  const root = clusterOffset(disk, disk.read(BASE, 512).readUInt32LE(44));
+  const sector = disk.read(root, 512);
+  for (let at = 0; at < 512; at += 32) {
+    if (sector.toString("ascii", at, at + 11) !== "LANTERELENV") continue;
+    sector.writeUInt16LE(c >>> 16, at + 20);
+    sector.writeUInt16LE(c & 0xffff, at + 26);
+    disk.write([{ offset: root, bytes: sector }]);
+    return;
+  }
+  throw new Error("no LANTEREL.ENV entry");
+}
+
 const ENV = Buffer.from("LANTEREL_POSTHOG_KEY=phc_x\nLANTEREL_POSTHOG_HOST=https://eu.i.posthog.com\n");
 
 describe("writeRootFile", () => {
@@ -56,16 +79,34 @@ describe("writeRootFile", () => {
     expect(after.free).toBe(before.free - 1);
   });
 
-  it("writes over the file it wrote before, in place", () => {
+  it("writes a file it wrote before into a new cluster, keeping its one entry and never touching the old cluster", () => {
     const disk = withVolume();
-    writeRootFile(disk, BASE, "LANTEREL.ENV", Buffer.from("a much longer first version of the file\n"));
+    const old = Buffer.from("a much longer first version of the file\n");
+    writeRootFile(disk, BASE, "LANTEREL.ENV", old);
     const first = readRootFile(disk.read, BASE, "LANTEREL.ENV");
+    const oldCluster = disk.read(clusterOffset(disk, first.file!.cluster), 4096);
     writeRootFile(disk, BASE, "LANTEREL.ENV", ENV);
     const second = readRootFile(disk.read, BASE, "LANTEREL.ENV");
     expect(second.names.filter((n) => n === "LANTERELENV")).toHaveLength(1);
-    expect(second.file!.cluster).toBe(first.file!.cluster);
+    expect(second.file!.cluster).not.toBe(first.file!.cluster);
     expect(second.file!.content.equals(ENV)).toBe(true);
-    expect(second.free).toBe(first.free);
+    expect(disk.read(clusterOffset(disk, first.file!.cluster), 4096).equals(oldCluster)).toBe(true);
+    expect(second.free).toBe(first.free - 1);
+  });
+
+  it("never writes into the cluster an existing entry names when the FAT says that cluster is free", () => {
+    const disk = withVolume();
+    writeRootFile(disk, BASE, "LANTEREL.ENV", ENV);
+    const first = readRootFile(disk.read, BASE, "LANTEREL.ENV");
+    // Point the entry at a far cluster the FAT has as free, as a damaged or foreign ESP might.
+    const far = first.file!.cluster + 1000;
+    setEntryCluster(disk, far);
+    const farBefore = disk.read(clusterOffset(disk, far), 4096);
+    writeRootFile(disk, BASE, "LANTEREL.ENV", ENV);
+    const second = readRootFile(disk.read, BASE, "LANTEREL.ENV");
+    expect(second.file!.cluster).not.toBe(far);
+    expect(second.file!.fat).toEqual([0x0fffffff, 0x0fffffff]);
+    expect(disk.read(clusterOffset(disk, far), 4096).equals(farBefore)).toBe(true);
   });
 
   it("writes nothing into a partition that is not a FAT32, or a file larger than a cluster", () => {
