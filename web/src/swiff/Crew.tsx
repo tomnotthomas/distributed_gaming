@@ -99,7 +99,7 @@ export function VoiceBar({
         </Button>
         <p className="voice-note">
           {voice.micRefused
-            ? "Swiff couldn't use your microphone. Allow it in the browser and try again."
+            ? "Lanterel couldn't use your microphone. Allow it in the browser and try again."
             : "Your microphone is used only once you join. Nothing is recorded."}
         </p>
       </div>

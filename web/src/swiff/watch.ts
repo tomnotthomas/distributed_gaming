@@ -299,7 +299,7 @@ export function endedLine(ended: WatchState["ended"], player: string): string {
     case "cooldown":
       return `You asked ${player} a moment ago. Give it a minute.`;
     case "no-relay":
-      return "Watching isn't available here yet. It needs Swiff's relay, which keeps your addresses private.";
+      return "Watching isn't available here yet. It needs Lanterel's relay, which keeps your addresses private.";
     case "watch-replaced":
       return "You're watching in another tab.";
     default:

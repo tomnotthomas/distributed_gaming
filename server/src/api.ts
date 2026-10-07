@@ -889,7 +889,7 @@ export function createApi({
         const relay = (await watchRelay?.({ id, side: "viewer", expiresAt: exp })) ?? [];
         if (!relay.length) {
           reply(res, 503, {
-            error: "watching needs Swiff's relay, which is not set up here",
+            error: "watching needs Lanterel's relay, which is not set up here",
             code: "no-relay",
           });
           return true;

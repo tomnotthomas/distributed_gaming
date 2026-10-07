@@ -341,7 +341,7 @@ describe("watching", () => {
     expect(endedLine("watch-stopped", "Mara")).toBe("Mara stopped sharing with you.");
     expect(endedLine("not-crew", "Mara")).toBe("You're no longer in a crew with Mara.");
     expect(endedLine("no-relay", "Mara")).toBe(
-      "Watching isn't available here yet. It needs Swiff's relay, which keeps your addresses private.",
+      "Watching isn't available here yet. It needs Lanterel's relay, which keeps your addresses private.",
     );
     for (const reason of ["watch-unanswered", "watch-ended", "full", "cooldown", null] as const) {
       expect(endedLine(reason, "Mara")).not.toMatch(/[—–]/);

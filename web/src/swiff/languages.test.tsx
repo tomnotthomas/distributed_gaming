@@ -152,6 +152,8 @@ function swiffOn(games: Game[], machines: Record<string, SeedMachine>, signedIn:
     setShowAll: noop,
     setScreen: noop,
     goHome: noop,
+    crewLive: [],
+    watch: noop,
   } as unknown as Swiff;
 }
 
