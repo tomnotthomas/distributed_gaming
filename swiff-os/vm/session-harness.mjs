@@ -34,6 +34,7 @@ import { spawn, execFileSync } from "node:child_process";
 import { createHash, randomBytes, randomInt } from "node:crypto";
 import {
   appendFileSync,
+  chmodSync,
   copyFileSync,
   createReadStream,
   existsSync,
@@ -217,8 +218,12 @@ const sbin = (tool) => ["/usr/sbin", "/sbin", "/usr/bin"].map((d) => join(d, too
 
 /** Writes the run's disks: the image's copy, OVMF's variables, and the fixture, key and state disks. */
 function prepare() {
+  // The fixture disk carries the machine key, the others the VM's state:
+  // everything the run writes is this user's alone.
+  process.umask(0o077);
   rmSync(RUN, { recursive: true, force: true });
-  mkdirSync(join(RUN, "fixtures", "qr"), { recursive: true });
+  mkdirSync(join(RUN, "fixtures", "qr"), { recursive: true, mode: 0o700 });
+  chmodSync(RUN, 0o700);
   mkdirSync(join(RUN, "tpm"));
   const fixtures = join(RUN, "fixtures");
   // swiff-hostd's config, as the owner's app would leave it: the image's
@@ -260,6 +265,7 @@ function prepare() {
   CODES.forEach((code, i) => writeFileSync(join(fixtures, "qr", `${i + 1}.xwd`), qrXwd(code)));
   const mkfs = sbin("mkfs.ext4");
   execFileSync(mkfs, ["-q", "-L", "SWIFFSESS", "-d", fixtures, join(RUN, "fixtures.img"), "16M"]);
+  chmodSync(join(RUN, "fixtures.img"), 0o600);
   rmSync(fixtures, { recursive: true });
   execFileSync(mkfs, ["-q", "-L", "SWIFFKEEP", join(RUN, "keep.img"), "16M"]);
   // Raw: swiff-hostd formats it as LUKS2 itself the first time the server has no key share for it.

@@ -107,7 +107,10 @@ while pgrep -x 'qemu-system-.*' > /dev/null 2>&1 ||
 	sleep 180
 done
 
+# The run's files hold a machine key and the VM's state: this user's alone.
+umask 077
 mkdir -p "$run"
+chmod 700 "$run"
 exec 9> "$build_dir/session-vm.lock"
 flock -n 9 || die "another session-test.sh is running"
 echo "== running the test in a network namespace of its own; the run's files are in $run"
