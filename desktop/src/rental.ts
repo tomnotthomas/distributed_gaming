@@ -510,7 +510,7 @@ export function waitingFor(read: RentalRead, targetId: string | null): Waiting[]
   if (checks.some((c) => c.id === "gpu" && c.state === "blocked"))
     waiting.push({ id: "gpu", setting: ["Graphics card", "Update coming"] });
   if (!read.imageRefused && checks.some((c) => c.id === "image" && c.state === "blocked"))
-    waiting.push({ id: "image", setting: ["Lanterel OS", "Update coming"] });
+    waiting.push({ id: "image", setting: ["Lanterel OS", "Download after this"] });
   return waiting;
 }
 
@@ -777,7 +777,11 @@ export function rentalLine(setup: RentalSetup): string {
     case "unsigned":
       return "Files didn't check out";
     case "almost":
-      return s.waiting.some((w) => w.id === "gpu") ? "Not on NVIDIA yet" : "Waiting for an update";
+      return s.waiting.some((w) => w.id === "gpu")
+        ? "Not on NVIDIA yet"
+        : setup.download?.status === "running"
+          ? "Downloading Lanterel OS"
+          : "Download Lanterel OS";
     case "ready":
       return "Ready to install";
     case "preview":

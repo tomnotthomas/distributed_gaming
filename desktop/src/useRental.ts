@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { RunEvent } from "../rental-exec.cjs";
 import type { RentalPlan, RentalRead } from "../rental.cjs";
 import { bridge } from "./bridge";
-import { IDLE_RUN, type RentalRun, type RentalSetup, type WritePass } from "./model";
+import { IDLE_RUN, type ImageDownload, type RentalRun, type RentalSetup, type WritePass } from "./model";
 import { meter } from "./progress";
 import { endsInRestart, fileName, firmwareChecks, pcChecks, recoveryDue, writesOf } from "./rental";
 
@@ -63,6 +63,7 @@ export function useRental(): RentalSetup & {
   openBitLocker(): void;
   seenRemoval(): void;
   finishRemoval(): void;
+  downloadImage(): void;
 } {
   const [read, setRead] = useState<RentalRead | null>(null);
   const [reading, setReading] = useState(true);
@@ -72,6 +73,7 @@ export function useRental(): RentalSetup & {
   const [readAt, setReadAt] = useState<number | null>(null);
   const [planning, setPlanning] = useState(false);
   const [bitlockerPage, setBitlockerPage] = useState<"opened" | "failed" | null>(null);
+  const [download, setDownload] = useState<ImageDownload>({ status: "idle" });
   // Which live run the owner has seen summed up: kept in this window's storage, a convenience only.
   const [liveSeen, setLiveSeen] = useState<number | null>(() => {
     try {
@@ -118,6 +120,35 @@ export function useRental(): RentalSetup & {
   }, []);
   const check = useCallback(() => reread(), [reread]);
   useEffect(check, [check]);
+
+  // How far Lanterel OS's download is, as main reports it.
+  useEffect(
+    () =>
+      bridge()?.onImageProgress?.((p) =>
+        setDownload((d) => {
+          if (d.status !== "running") return d;
+          const now = Date.now();
+          const same = d.phase === p.phase && d.total === p.total;
+          return { status: "running", ...p, meter: meter(same ? d.meter : null, p.done, now) };
+        }),
+      ),
+    [],
+  );
+  const downloadImage = () => {
+    const host = bridge();
+    if (!host || download.status === "running") return;
+    setDownload({ status: "running", phase: "check", done: 0, total: 0, meter: null });
+    void host
+      .downloadImage()
+      .catch(() => ({ ok: false as const, error: "The download stopped. Try again.", retry: true }))
+      .then((outcome) => {
+        if (outcome && !outcome.ok)
+          setDownload({ status: "failed", error: outcome.error, retry: outcome.retry });
+        else setDownload({ status: "idle" });
+        // Its files are on this PC now, or another window got them there: the next read says.
+        reread();
+      });
+  };
 
   // Each step of a run, as main reports it.
   useEffect(
@@ -251,6 +282,8 @@ export function useRental(): RentalSetup & {
     liveSeen,
     bitlockerPage,
     removalTried,
+    download,
+    downloadImage,
     target,
     preview,
     run,

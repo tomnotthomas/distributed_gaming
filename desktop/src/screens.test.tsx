@@ -114,6 +114,7 @@ function realView(live: Live, more: Partial<HostView> = {}): HostView {
 function actions(): HostActions {
   return {
     plan: vi.fn(),
+    downloadImage: vi.fn(),
     goLive: vi.fn(),
     setUntil: vi.fn(),
     pause: vi.fn(),
@@ -1089,6 +1090,62 @@ describe("rental mode", () => {
     expect(pills()).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Check again" }));
     expect(actions.checkRental).toHaveBeenCalled();
+  });
+
+  it("offers to download Lanterel OS when its files are not on this PC", () => {
+    const actions = renderReal(
+      "rental",
+      off,
+      rental({ read: { ...read(), image: null, imageRefused: false } }),
+    );
+    expect(h1()).toHaveTextContent("Almost ready");
+    expect(document.querySelector(".plate")).toHaveTextContent("Lanterel OSDownload from Lanterel");
+    fireEvent.click(screen.getByRole("button", { name: "Download Lanterel OS" }));
+    expect(actions.downloadImage).toHaveBeenCalled();
+  });
+
+  it("shows the download's size, how far it is and the time left", () => {
+    const now = Date.now();
+    renderReal(
+      "rental",
+      off,
+      rental({
+        read: { ...read(), image: null, imageRefused: false },
+        download: {
+          status: "running",
+          phase: "download",
+          done: 0.6 * 1024 ** 3,
+          total: 1.4 * 1024 ** 3,
+          meter: {
+            since: now - 20_000,
+            at: now,
+            done: 0.6 * 1024 ** 3,
+            rate: 5 * 1024 ** 2,
+            mark: { at: now - 2000, done: 0.59 * 1024 ** 3 },
+            recent: 5 * 1024 ** 2,
+          },
+        },
+      }),
+    );
+    expect(h1()).toHaveTextContent("Downloading Lanterel OS");
+    expect(screen.getByText(/0\.6 GB of 1\.4 GB\. About 3 minutes left\./)).toBeInTheDocument();
+    expect(document.querySelector(".plate")).toHaveTextContent("42 percent");
+    expect(pills()).toHaveLength(0);
+  });
+
+  it("says why a download stopped, and offers to carry on", () => {
+    const actions = renderReal(
+      "rental",
+      off,
+      rental({
+        read: { ...read(), image: null, imageRefused: false },
+        download: { status: "failed", error: "Lanterel's download server didn't answer.", retry: true },
+      }),
+    );
+    expect(h1()).toHaveTextContent("Lanterel OS's download stopped");
+    expect(screen.getByText("Lanterel's download server didn't answer.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(actions.downloadImage).toHaveBeenCalled();
   });
 
   it("shows the graphics card only as waiting beside the IOMMU on an NVIDIA PC", () => {

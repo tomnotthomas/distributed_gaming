@@ -524,6 +524,7 @@ export function useDemoRental(c: RentalCase | null, clockAt: number) {
   const actions = {
     checkRental: () => setS((cur) => ({ ...cur, reading: true, preview: null, run: IDLE_RUN })),
     chooseRentalTarget: (id: string) => setS((cur) => ({ ...cur, target: id })),
+    downloadImage: () => {},
     previewRental: (kind: RentalPlan["kind"], options?: { key?: boolean }) =>
       setS((cur) => ({
         ...cur,

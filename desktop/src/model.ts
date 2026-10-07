@@ -112,6 +112,22 @@ export const IDLE_RUN: RentalRun = {
 };
 
 /**
+ * Lanterel OS's download (image-download.cjs): under way, with how far it is
+ * and its rate (progress.ts), or stopped with the owner's message, and whether
+ * trying again can help.
+ */
+export type ImageDownload =
+  | { status: "idle" }
+  | {
+      status: "running";
+      phase: "check" | "download" | "unpack";
+      done: number;
+      total: number;
+      meter: RateMeter | null;
+    }
+  | { status: "failed"; error: string; retry: boolean };
+
+/**
  * Rental mode on this PC (rental.cjs): what Swiff OS needs from it, read
  * while `reading`; `read` is null until then, and where the app cannot read
  * this PC. `target` is the place for Swiff OS the owner chose, by id, null
@@ -133,6 +149,8 @@ export type RentalSetup = {
   bitlockerPage?: "opened" | "failed" | null;
   /** The app's one automatic go at Remove Swiff OS's disk part has started, this app start. */
   removalTried?: boolean;
+  /** Lanterel OS's download, when its files are not on this PC. */
+  download?: ImageDownload;
 };
 
 // --- standing, levels and the rate ---------------------------------------------
@@ -348,6 +366,8 @@ export type HostActions = {
   checkRental(): void;
   /** Where Swiff OS goes, by target id. */
   chooseRentalTarget(id: string): void;
+  /** Download Lanterel OS, or carry on a download that stopped. */
+  downloadImage(): void;
   /**
    * Show the steps that install rental mode, remove it or its key, switch to it or confirm its key
    * again. Remove Swiff OS: `key` starts with Swiff's key, or without it; main decides when absent.

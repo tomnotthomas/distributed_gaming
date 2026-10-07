@@ -213,8 +213,7 @@ ipcMain.handle("image:download", async (event) => {
     onProgress: (p) => {
       // A few a second is plenty for the screen.
       const now = Date.now();
-      if (p.phase === "download" || p.phase === "unpack")
-        if (now - last < 250 && p.done < p.total) return;
+      if (p.phase !== "check" && now - last < 250 && p.done < p.total) return;
       last = now;
       tell(p);
     },

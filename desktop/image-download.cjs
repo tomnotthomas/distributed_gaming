@@ -279,8 +279,13 @@ async function fetchPart(fetchFn, url, file, part, onBytes, signal) {
         onBytes(chunk.length);
       }
     } catch (error) {
-      if (error instanceof DownloadError) fs.rmSync(file, { force: true });
-      if (error instanceof DownloadError || signal?.aborted) throw error;
+      if (error instanceof DownloadError) {
+        // Too long to be the part: none of it is kept, nor counted.
+        fs.rmSync(file, { force: true });
+        onBytes(-at);
+        throw error;
+      }
+      if (signal?.aborted) throw error;
       throw new DownloadError(
         "The download stopped part way. Check this PC is online, then try again: it carries on where it stopped.",
       );

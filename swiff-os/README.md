@@ -180,6 +180,19 @@ SWIFF_OS_SIGNING_KEY=$k/image-signing-key.pem SWIFF_OS_KEY_PASSPHRASE=$(cat "$k/
 with the VM test certificate, or signed before `image-trust.json` lists its key, fails there and
 is never published.
 
+Hosts download the set themselves: the Lanterel Host app fetches it from the GitHub release
+`swiffos-<version>` (`desktop/image-download.json`), so publish the set's `download/` parts,
+`swiffos.json` and `swiffos.json.sig` there, all at the release's top level:
+
+```sh
+gh release create swiffos-0.1.0 <set-dir>/download/* <set-dir>/swiffos.json <set-dir>/swiffos.json.sig
+```
+
+The app reads nothing from the release unless a key in `image-trust.json` signed its
+`swiffos.json`, and keeps no part or file whose size and SHA-256 differ from what it lists. Each
+file is gzip-compressed and cut into parts under 1.9 GiB (a release takes at most 2 GiB a file): the
+8 GiB root, mostly empty, packs to about 1.3 GB, the whole set to about 1.4 GB.
+
 To rotate the keys (on suspicion of a leak, or to move them into an HSM, which is a rotation like
 any other): make the new pair into a new folder (`release-key.sh ~/.lanterel-keys/release-<date>
 <backup-file>`), `add-trust` its `public.txt` beside the old entry, and ship an app release that
