@@ -2,7 +2,8 @@
 # sign-in window, before anyone is served (steam/client save). swiff-hostd
 # offers the PC only once this is done, and closes it for the rest of the boot.
 # Only the session pulls it in (Wants= there), so its wait for the kept client
-# holds no target.
+# holds the session and graphical.target, never multi-user.target or what is
+# ordered after it.
 [Unit]
 Description=Lanterel renter's Steam client, kept for the next boot before any renter
 After=swiff-steam-client.service

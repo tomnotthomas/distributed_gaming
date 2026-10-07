@@ -3,8 +3,8 @@
 # waits for swiff-hostd to open the persistent state, as long as 15 minutes;
 # on a machine not provisioned it does nothing, and Steam runs in the wiped
 # home alone. Only the session and swiff-steam-client-save, which the session
-# pulls in, want it, so its wait holds them, never a target or the rest of the
-# boot.
+# pulls in, want it, so its wait holds them and graphical.target, which waits
+# for the session, never multi-user.target or what is ordered after it.
 [Unit]
 Description=Lanterel renter's Steam client, kept from the last boot
 After=swiff-provision.service home.mount systemd-tmpfiles-setup.service
