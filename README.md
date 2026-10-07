@@ -66,24 +66,34 @@ it is set), live in `web/marketing/`, imported from marketing's built set with
 `node server/scripts/import-launch-pages.mjs <built set>`; the server reads them when it starts, so
 an import takes effect on its next start (every deploy). The same server serves them, off unless
 `MARKETING_PAGES=on`, and then only on the host `SITE_ORIGIN` names, so the app keeps its own `/`,
-`/share` and `/host`. The invite pages (`/crew/<code>`, `/seat/`, `/gift/`, `/night/`) show only
-what the product knows about an invite; the waitlist and Founding Host forms post to
-`POST /api/signups`, with double opt-in: the confirm and unsubscribe links in the mails open a page
-whose button does it, so a mail scanner opening a link changes nothing. See
+`/share` and `/host`.
+
+Signing up is signing in with Steam: there is no sign-up form. "Crew gründen" and every other button
+on the pages goes to Steam sign-in on the app's origin and back to the app's crew pages (`/crews`),
+which found a crew at once for a player who has none yet and show the PC card first to someone from
+the host page. A crew link or friend seat the site is given (`/crew/<code>`, `/seat/<code>`) goes on to
+the app's own invite page (`/invite/<token>`, `/seat/<token>`), which names who asks; those app links
+also get a link preview naming them (`server/src/invite-preview.ts`). Gift seats and Zockrunden
+(`/gift/`, `/night/`) do not exist yet, so their pages name nobody. The set's wording for a crew's
+time together ("Crew-Abend", "crew night") is put the app's way at import ("Zockrunde", "gaming
+session"), never an evening or a night. The one address the product asks for is optional: reminders
+on the crew page, with double opt-in, where the confirm and unsubscribe links in the mails open a
+page whose button does it, so a mail scanner opening a link changes nothing. See
 `server/src/marketing.ts` and `server/src/signups.ts`.
 
 Settings (server environment):
 
-- `MARKETING_PAGES=on` turns the pages and the sign-ups on. Leave it off until the bracketed
+- `MARKETING_PAGES=on` turns the pages and the reminders on. Leave it off until the bracketed
   placeholders in the Impressum and legal notice (the founder's name, address and contact, e.g.
   `[VOR- UND NACHNAME]`) are filled in.
-- `SITE_ORIGIN`, e.g. `https://lanterel.de`: the site's own origin. The pages and sign-ups are served only to
-  requests for its host, and it is the origin in the pages' canonical, Open Graph and mail links.
+- `SITE_ORIGIN`, e.g. `https://lanterel.de`: the site's own origin. The pages are served only to
+  requests for its host, and it is the origin in the pages' canonical and Open Graph links.
   Without it the pages stay off even with `MARKETING_PAGES=on`.
 - `PUBLIC_ORIGIN`, the app's own origin (Steam sign-in needs it too): every link on the pages into the
-  app, such as "Prüf deine Bibliothek", goes there. Without it the pages stay off as well.
+  app, such as "Crew gründen" and "Prüf deine Bibliothek", goes there, and the reminders and their
+  mail links are served there. Without it the pages stay off as well.
 
-The server has no mail sender yet: every sign-up mail is rendered into the `marketing_outbox`
+The server has no mail sender yet: every reminder mail is rendered into the `marketing_outbox`
 table and stays there until one exists.
 
 ## Host side (gaming PC app)

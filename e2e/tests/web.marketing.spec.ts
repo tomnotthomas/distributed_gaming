@@ -1,13 +1,19 @@
-// The marketing site (server/src/marketing.ts) on a host of its own, one page
-// per flow: the waitlist on the player landing, a crew invite into the
-// Founding Host application, a seat and a gift into the waitlist with their
-// code, a crew Night, the share page, the Lanterel OS page and the legal pages.
-// The forms post to the real sign-up endpoint (server/src/signups.ts).
+// The marketing site (server/src/marketing.ts) on a host of its own, and how
+// it hands people into the app: "Crew gründen" through Steam sign-in on the
+// app's origin to the crew pages, a crew link the site is given straight to
+// the app's own invite page, the app's crew link previewing who asks, and the
+// crew page's optional reminder address (server/src/signups.ts). Then a gift,
+// the Zockrunde page, the Lanterel OS page and the legal pages. Steam itself
+// is never called: the sign-in request is caught before it leaves.
 
-import { expect, test, type Page, type Request } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import { signIn } from "./credentials";
 
 /** The site's origin: the e2e server's port on the host SITE_ORIGIN names (playwright.config.ts). */
 const site = (baseURL: string | undefined) => baseURL!.replace("127.0.0.1", "lanterel.localhost");
+
+/** The app's origin: PUBLIC_ORIGIN, which the e2e server leaves at its development default. */
+const app = (baseURL: string | undefined) => baseURL!.replace("127.0.0.1", "localhost");
 
 /** Fail on any console error, and on any request that leaves the site. */
 function watch(page: Page, origin: string): string[] {
@@ -22,82 +28,103 @@ function watch(page: Page, origin: string): string[] {
   return problems;
 }
 
-/** Submit the first form on the page with `email`; the request it sent. */
-async function submitFirstForm(page: Page, email: string): Promise<Request> {
-  const form = page.locator("form.wl").first();
-  await form.locator("input[type=email]").fill(email);
-  const [sent] = await Promise.all([
-    page.waitForRequest((request) => request.url().endsWith("/api/signups") && request.method() === "POST"),
-    form.locator("button[type=submit]").click(),
-  ]);
-  const answered = await sent.response();
-  expect(answered?.status()).toBe(202);
-  await expect(form.locator(".wl-done")).toBeVisible();
-  await expect(form.locator(".wl-done")).toContainText(email);
-  return sent;
-}
-
 test.describe("marketing site", () => {
-  test("player landing: joins the waitlist", async ({ page, baseURL }) => {
+  test("player landing: no email field, Crew gründen signs in with Steam on the app, to the crew pages", async ({
+    page,
+    context,
+    request,
+    baseURL,
+  }) => {
     const origin = site(baseURL);
-    const problems = watch(page, origin);
+    // The app's sign-in is caught before it goes on to Steam.
+    const signingIn = new Promise<URL>((resolve) => {
+      void context.route(`${app(baseURL)}/auth/steam/login**`, async (route) => {
+        resolve(new URL(route.request().url()));
+        await route.fulfill({ status: 200, contentType: "text/html", body: "<title>Steam</title>" });
+      });
+    });
     await page.goto(`${origin}/`);
     await expect(page).toHaveTitle(/\| Lanterel$/);
     await expect(page.locator("a.wordmark").first()).toHaveText("LANTEREL");
+    await expect(page.locator("input[type=email]")).toHaveCount(0);
 
-    const sent = await submitFirstForm(page, "player@example.com");
-    expect(sent.postDataJSON()).toMatchObject({
-      email: "player@example.com",
-      kind: "player",
-      lang: "de",
-      invite: null,
+    await page.locator(".hero").getByRole("link", { name: "Crew gründen" }).click();
+    const login = await signingIn;
+    expect(login.origin).toBe(app(baseURL));
+    expect(login.searchParams.get("to")).toBe("/crews?found=1");
+
+    // The server sends that on to Steam, coming back to the crew pages (not followed).
+    const steam = await request.get(`${app(baseURL)}${login.pathname}${login.search}`, { maxRedirects: 0 });
+    expect(steam.status()).toBe(302);
+    const openid = new URL(steam.headers()["location"]!);
+    expect(openid.origin + openid.pathname).toBe("https://steamcommunity.com/openid/login");
+    const returnTo = new URL(openid.searchParams.get("openid.return_to")!);
+    expect(returnTo.origin + returnTo.pathname).toBe(`${app(baseURL)}/auth/steam/return`);
+    expect(returnTo.searchParams.get("to")).toBe("/crews?found=1");
+  });
+
+  test("back from sign-in: a player with no crew gets one at once, and can ask for reminders", async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await signIn(context, app(baseURL), "76561198000000031");
+    await page.goto(`${app(baseURL)}/crews?found=1`);
+    await expect(page).toHaveURL(/\/crews\/[\w-]+$/);
+    await expect(page.getByText("Almost ready.")).toBeVisible();
+
+    const reminders = page.getByTestId("reminders");
+    await reminders.getByLabel("Email address").fill("crew@example.com");
+    const [sent] = await Promise.all([
+      page.waitForRequest((r) => r.url().endsWith("/api/signups/reminders") && r.method() === "POST"),
+      reminders.getByRole("button", { name: "Remind me" }).click(),
+    ]);
+    expect(sent.postDataJSON()).toEqual({ email: "crew@example.com", lang: "en" });
+    await expect(
+      reminders.getByText("Almost there: click the link in the email to crew@example.com."),
+    ).toBeVisible();
+  });
+
+  test("a crew link the site is given opens the app's own invite page, which previews who asks", async ({
+    page,
+    browser,
+    request,
+    baseURL,
+  }) => {
+    // The founder's crew link, from the app.
+    const founder = await browser.newContext();
+    await signIn(founder, app(baseURL), "76561198000000032");
+    const made = await founder.request.post(`${app(baseURL)}/api/crews`, { data: {} });
+    expect(made.ok()).toBe(true);
+    const token: string = (await made.json()).crew.token;
+    await founder.close();
+
+    await page.goto(`${site(baseURL)}/en/crew/${token}`);
+    // The app's invite page keeps the token in the tab and out of the address bar.
+    await expect(page).toHaveURL(`${app(baseURL)}/invite`);
+    await expect(page.getByRole("link", { name: "Join with Steam" }).first()).toBeVisible();
+
+    const preview = await request.get(`${app(baseURL)}/invite/${token}`, {
+      headers: { "accept-language": "en" },
     });
-    expect(problems).toEqual([]);
+    expect(preview.headers()["x-robots-tag"]).toBe("noindex");
+    const html = await preview.text();
+    expect(html).toContain('<meta property="og:title" content="Join the crew" />');
+    expect(html).toContain(`<meta property="og:image" content="${app(baseURL)}/og/og-crew-en.jpg" />`);
+    expect(html).not.toContain(token);
+    const card = await request.get(`${app(baseURL)}/og/og-crew-en.jpg`);
+    expect(card.headers()["content-type"]).toBe("image/jpeg");
   });
 
-  test("crew invite: names nobody, then applies as a host with the invite", async ({ page, baseURL }) => {
-    const origin = site(baseURL);
-    const problems = watch(page, origin);
-    await page.goto(`${origin}/en/crew/AB12cd`);
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("A friend wants to borrow your rig.");
-    await expect(page.locator("body")).not.toContainText("Max");
-
-    await page.getByRole("link", { name: "Sure, check my PC" }).first().click();
-    await expect(page).toHaveURL(`${origin}/en/host/?i=crew:AB12cd#bewerben`);
-    const sent = await submitFirstForm(page, "host@example.com");
-    expect(sent.postDataJSON()).toMatchObject({ kind: "host", lang: "en", invite: "crew:AB12cd" });
-    expect(problems).toEqual([]);
-  });
-
-  test("seat at a rig: takes the seat into the waitlist with its code", async ({ page, baseURL }) => {
-    const origin = site(baseURL);
-    const problems = watch(page, origin);
-    await page.goto(`${origin}/seat/S3at_1`);
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText(
-      "Jemand hält dir einen Platz an einem Rig frei.",
-    );
-
-    await page.getByRole("link", { name: "Platz annehmen" }).last().click();
-    await expect(page).toHaveURL(`${origin}/?i=seat:S3at_1#beta`);
-    const sent = await submitFirstForm(page, "seat@example.com");
-    expect(sent.postDataJSON()).toMatchObject({ kind: "player", invite: "seat:S3at_1" });
-    expect(problems).toEqual([]);
-  });
-
-  test("gift seat: redeems into the waitlist with its code", async ({ page, baseURL }) => {
-    const origin = site(baseURL);
-    await page.goto(`${origin}/en/gift/G1ft`);
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("A friend just got you a seat.");
-    await page.locator('a[href*="?i=gift:G1ft"]').first().click();
-    await expect(page).toHaveURL(`${origin}/en/?i=gift:G1ft#beta`);
-  });
-
-  test("crew Night, share page, Lanterel OS and the legal pages load clean", async ({ page, baseURL }) => {
+  test("a gift, the Zockrunde page, Lanterel OS and the legal pages load clean", async ({
+    page,
+    baseURL,
+  }) => {
     const origin = site(baseURL);
     const problems = watch(page, origin);
     for (const path of [
+      "/en/gift/G1ft",
       "/night/N1ght",
-      "/en/share/",
       "/lanterel-os/",
       "/en/lanterel-os/",
       "/impressum/",
@@ -106,15 +133,13 @@ test.describe("marketing site", () => {
       const answer = await page.goto(`${origin}${path}`);
       expect(answer?.status(), path).toBe(200);
       await expect(page, path).toHaveTitle(/Lanterel/);
+      await expect(page.locator("body"), path).not.toContainText(/Abend|tonight|crew night/i);
     }
-    // The bare share page links to the crew page, not to a code nobody has.
-    await page.goto(`${origin}/share/`);
-    await expect(page.locator("#lk")).toHaveText(`${origin}/crew/`);
     expect(problems).toEqual([]);
   });
 
   test("leaves the app's own host alone", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator("meta[name=form-endpoint]")).toHaveCount(0);
+    await expect(page.locator("a.wordmark")).toHaveCount(0);
   });
 });
