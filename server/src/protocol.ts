@@ -54,9 +54,11 @@ export type RegisterMessage =
 export type JoinMessage = { type: "join"; ticket: string };
 
 /**
- * Relayed verbatim between the two peers. The server never reads these.
+ * Between the PC and the renter, relayed verbatim: the server never reads these.
  * `watchId` names a viewer: between the player and that viewer, never the PC.
  * The player sets it; on a viewer's frame the server sets it to the viewer's own.
+ * A frame with a `watchId` is not relayed verbatim but rebuilt (watchFrame in
+ * watchIce.ts): relay candidates only, and an SDP without the users' addresses.
  */
 export type SdpMessage = { type: "offer" | "answer"; sdp: RTCSessionDescriptionInit; watchId?: string };
 export type IceMessage = { type: "ice"; candidate: RTCIceCandidateInit; watchId?: string };
@@ -145,9 +147,10 @@ export type VoicePerson = {
 };
 
 /**
- * The voice chat's own talk between the player and one viewer, relayed as is
- * between them (the server never reads `data`): the player sends who is in it
- * (`roster`), a viewer says whether it is in it and muted (`voice`).
+ * The voice chat's own talk between the player and one viewer: the player
+ * sends who is in it (`roster`), a viewer says whether it is in it and muted
+ * (`voice`). The server rebuilds `data` field by field (watchFrame in
+ * watchIce.ts) and drops anything that is not one of these.
  */
 export type CrewSignal =
   { kind: "roster"; people: VoicePerson[] } | { kind: "voice"; inVoice: boolean; muted: boolean };
