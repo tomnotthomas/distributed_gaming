@@ -308,7 +308,12 @@ async function swiffPlayer(browser, rtc) {
     roomId,
   });
   await page.reload();
-  await page.getByTestId("away").getByRole("button", { name: "Reconnect" }).click();
+  // As a person would, once the page knows the game: Reconnect looks the game up
+  // when it is pressed, and a page whose game list has not loaded yet stays on
+  // Ignition (the away dialog names the game only once it has).
+  const away = page.getByTestId("away");
+  await away.filter({ hasText: "Counter-Strike 2" }).waitFor({ timeout: 60_000 });
+  await away.getByRole("button", { name: "Reconnect" }).click();
   await until(
     async () => {
       await new Promise((r) => setTimeout(r, 1000));
@@ -343,9 +348,7 @@ async function wakeHud(page) {
 
 /** The renter plays on the Swiff page; their crewmate asks to watch from the wall, the renter says yes; they talk. */
 async function watching(browser, rtc) {
-  // The renter goes back to their session on the Lanterel page first. (Resuming
-  // while the PC is already in one of their crews leaves the page blank today:
-  // the game is not in its game list, so the session view draws nothing.)
+  // The renter goes back to their session on the Lanterel page first.
   const page = await swiffPlayer(browser, rtc);
   // Then the renter founds a crew; its link brings in the VM's owner, who brings the VM, and the friend.
   const founded = await call("POST", "/api/crews", RENTER, {});
