@@ -15,7 +15,7 @@ describe("the console installer's key code", () => {
       expect(JSON.stringify(answer)).not.toContain("48217730");
       expect(answer).not.toHaveProperty("mok");
     }
-    expect(shown(switchPlan("once")).steps.map((s) => s.id)).toEqual(["once", "restart"]);
+    expect(shown(switchPlan("once")).steps.map((s) => s.id)).toEqual(["ek", "once", "restart"]);
   });
 
   it("hides the key code in a dry run's operations", () => {
