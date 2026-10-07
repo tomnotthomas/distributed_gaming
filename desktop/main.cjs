@@ -299,7 +299,7 @@ function machineOf(machine) {
 }
 /**
  * What a plan's provision op hands Swiff OS: the planned server and machine id,
- * and the machine key from its encrypted file, read only as the step runs and
+ * and the machine key from its encrypted file, read when the run starts and
  * sent nowhere but to the elevated worker.
  */
 function provisioning(machine) {
@@ -422,7 +422,7 @@ ipcMain.handle("rental:run", async (event) => {
   }
   try {
     const outcome = await runPlan(plan, {
-      // The provisioning gets this PC's machine key only here, on its way to the worker.
+      // The machine key, read when the run started, goes nowhere but to the worker.
       apply: async (op, progress) => worker.apply(op.op === "provision" ? { ...op, record } : op, progress),
       // The owner agreed to every step at once, with the OK that started this run.
       confirm: async () => true,
