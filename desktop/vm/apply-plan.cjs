@@ -15,6 +15,7 @@
 //
 //   node apply-plan.cjs windows <disk.raw> <bytes>      lay out a disk like a Windows PC's
 //   node apply-plan.cjs facts <disk.raw>                print what the app's preflight would read
+//   node apply-plan.cjs download <url> <dir>            download the image set as the host app does (image-download.cjs)
 //   node apply-plan.cjs install <disk.raw> <image-set> <facts.json> <vars.fd>
 //   node apply-plan.cjs switch <start|stop> <vars.fd>
 //   node apply-plan.cjs mok <vars.fd> <cert.der> <code>   only the install's MOK request, with this code
@@ -30,6 +31,7 @@ const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { emptyGpt, gptWrites, readGpt, withPartitions, withResized } = require("../gpt.cjs");
+const { downloadSet } = require("../image-download.cjs");
 const { fileOf, readImageSet, sourceOf, trustOf } = require("../image-set.cjs");
 const { MOK_CERT, TYPE, installPlan, mokRequest, mokSteps, rentalOf, switchPlan } = require("../rental.cjs");
 
@@ -324,7 +326,26 @@ function run(plan, ctx) {
 const [cmd, ...args] = process.argv.slice(2);
 if (cmd === "windows") windows(args[0], Number(args[1]));
 else if (cmd === "facts") facts(args[0]);
-else if (cmd === "install") {
+else if (cmd === "download") {
+  const [url, dir] = args;
+  let shown = "";
+  downloadSet({
+    url,
+    dir,
+    trust: trustOf({ dev: true }),
+    onProgress: ({ phase, done, total }) => {
+      // A line each tenth of a phase, not each chunk.
+      const line = `${phase} ${total ? Math.floor((done / total) * 10) * 10 : 0}% of ${total} bytes`;
+      if (line !== shown) console.log((shown = line));
+    },
+  }).then(
+    (version) => console.log(`Downloaded Lanterel OS ${version} into ${dir}`),
+    (error) => {
+      console.error(error.message);
+      process.exit(1);
+    },
+  );
+} else if (cmd === "install") {
   const [file, dir, factsFile, vars] = args;
   const set = readImageSet(dir, { trust: trustOf({ dev: true }) });
   const rental = rentalOf(JSON.parse(fs.readFileSync(factsFile, "utf8")), [{ letter: "C", games: 1 }]);
@@ -341,6 +362,6 @@ else if (cmd === "install") {
   const [mok] = mokSteps(code);
   run({ steps: [{ ...mok, ops: mok.ops.filter((op) => op.op === "mok-import") }] }, { vars, cert });
 } else {
-  console.error("usage: apply-plan.cjs windows|facts|install|switch|mok ...");
+  console.error("usage: apply-plan.cjs windows|facts|download|install|switch|mok ...");
   process.exit(2);
 }

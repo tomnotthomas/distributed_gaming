@@ -117,7 +117,8 @@ from the image's own archive snapshot, MokManager, and the build's signed system
 `grubx64.efi`, the name shim starts), slot A and its verity hashes, Swiff's certificate, and
 `swiffos.json` with the layout and each file's SHA-256, signed (`swiffos.json.sig`, Ed25519),
 and `SHA256SUMS`, every file's SHA-256 as `sha256sum` prints it.
-The app looks for it in `$SWIFF_OS_IMAGE_DIR`, else `swiff-os` in its user data folder, and
+The app looks for it in `$SWIFF_OS_IMAGE_DIR`, else `swiff-os` in its user data folder (where
+it downloads the set when none is there, below under **Release keys**), and
 reads no manifest that a key in `desktop/image-trust.json` did not sign, nor a set whose
 certificate is not the one that key's sets carry; a set that is there but not signed by Swiff
 shows as that on the rental screen, with Check again. The installer's administrator side keeps the
@@ -180,6 +181,19 @@ SWIFF_OS_SIGNING_KEY=$k/image-signing-key.pem SWIFF_OS_KEY_PASSPHRASE=$(cat "$k/
 with the VM test certificate, or signed before `image-trust.json` lists its key, fails there and
 is never published.
 
+Hosts download the set themselves: the Lanterel Host app fetches it from the GitHub release
+`swiffos-<version>` (`desktop/image-download.json`), so publish the set's `download/` parts,
+`swiffos.json` and `swiffos.json.sig` there, all at the release's top level:
+
+```sh
+gh release create swiffos-0.1.0 <set-dir>/download/* <set-dir>/swiffos.json <set-dir>/swiffos.json.sig
+```
+
+The app reads nothing from the release unless a key in `image-trust.json` signed its
+`swiffos.json`, and keeps no part or file whose size and SHA-256 differ from what it lists. Each
+file is gzip-compressed and cut into parts under 1.9 GiB (a release takes at most 2 GiB a file): the
+8 GiB root, mostly empty, packs to about 1.3 GB, the whole set to about 1.4 GB.
+
 To rotate the keys (on suspicion of a leak, or to move them into an HSM, which is a rotation like
 any other): make the new pair into a new folder (`release-key.sh ~/.lanterel-keys/release-<date>
 <backup-file>`), `add-trust` its `public.txt` beside the old entry, and ship an app release that
@@ -208,7 +222,8 @@ app's check of the start after it: Windows back, its space and BitLocker as befo
 entry or request for shim left), a reinstall, a second app instance, Secure Boot off, and the packaged test build
 driven through its own screens. `desktop/rental-cli.cjs`
 drives the same installer from a console, one step at a
-time. `desktop/vm/rental-install-test.sh` carries the plans out on a disk image with
+time. `desktop/vm/rental-install-test.sh` downloads the image set as a host does (packed in
+several parts, served from a local HTTP server), carries the plans out with it on a disk image with
 `apply-plan.cjs` standing in for Windows, and boots the shim chain under OVMF with
 Microsoft's keys; `desktop/vm/mok-enroll-test.sh` confirms the app's MOK request at MokManager,
 after a miss and then with the code.

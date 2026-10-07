@@ -317,6 +317,9 @@ const ReadyPlate = ({ small }: { small: string }) => (
 
 // --- the install, as it runs ----------------------------------------------------------------
 
+/** 1,273,547,479 bytes → "1.2 GB": a download's size, with a tenth so it is seen to move. */
+const gbOf = (bytes: number): string => `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+
 /** Seconds since `from`, ticking once a second while shown. */
 function useSince(from: number | null): number {
   const [now, setNow] = useState(() => Date.now());
@@ -718,22 +721,70 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
       break;
     case "almost": {
       const gpu = s.waiting.some((w) => w.id === "gpu");
+      const image = s.waiting.some((w) => w.id === "image");
+      const d = setup.download ?? { status: "idle" };
+      const rows = s.waiting.map((w) =>
+        w.id === "gpu"
+          ? { name: "Graphics card support", value: "Lanterel OS update", wait: true }
+          : { name: "Lanterel OS", value: "Download from Lanterel", wait: true },
+      );
       title = "Almost ready";
       line = gpu
         ? "Everything else on this PC is ready. Rental mode starts with the Lanterel OS update that supports this graphics card."
-        : "Everything else on this PC is ready. Lanterel OS itself comes with a Lanterel Host update.";
-      plate = (
-        <SettingsPlate
-          where="This PC"
-          rows={s.waiting.map((w) =>
-            w.id === "gpu"
-              ? { name: "Graphics card support", value: "Lanterel OS update", wait: true }
-              : { name: "Lanterel OS", value: "Lanterel Host update", wait: true },
-          )}
-          checking={reading}
-          at={checkedAt}
-        />
-      );
+        : "Everything else on this PC is ready. Download Lanterel OS: Lanterel Host checks Lanterel signed every part before it keeps it.";
+      plate = <SettingsPlate where="This PC" rows={rows} checking={reading} at={checkedAt} />;
+      if (!image) break;
+      if (d.status === "running") {
+        const unpacking = d.phase === "unpack";
+        const left = d.total ? timeLeft(d.meter, d.total) : null;
+        title =
+          d.phase === "check"
+            ? "Checking Lanterel OS's release"
+            : unpacking
+              ? "Unpacking Lanterel OS"
+              : "Downloading Lanterel OS";
+        line =
+          `${d.total ? `${gbOf(d.done)} of ${gbOf(d.total)}. ${left ?? ""}` : "Checking Lanterel signed it."} Keep the PC on. If it stops, it carries on where it stopped.`.replace(
+            /\s+/g,
+            " ",
+          );
+        const percent = d.total ? Math.floor((d.done / d.total) * 100) : 0;
+        plate = (
+          <Plate
+            caption={[
+              d.total ? `${percent} percent` : "Lanterel OS",
+              left ? left.replace(/\.$/, "") : "Measuring",
+            ]}
+          >
+            <Dial
+              live
+              progress={d.total ? d.done / d.total : null}
+              big={d.total ? gbOf(d.done) : "…"}
+              small={d.total ? `of ${gbOf(d.total)}${unpacking ? ", unpacking" : ""}` : "checking"}
+            />
+          </Plate>
+        );
+      } else if (d.status === "failed") {
+        title = "Lanterel OS's download stopped";
+        line = d.error;
+        action = d.retry ? (
+          <Pill icon="refresh" onClick={actions.downloadImage}>
+            Try again
+          </Pill>
+        ) : (
+          again
+        );
+        plate = (
+          <Plate caption={["Lanterel OS", "Not downloaded"]}>
+            <Dial off cut big="Stopped" small={d.retry ? "try again" : "update"} />
+          </Plate>
+        );
+      } else
+        action = (
+          <Pill icon="arrow" onClick={actions.downloadImage}>
+            Download Lanterel OS
+          </Pill>
+        );
       break;
     }
     case "ready": {

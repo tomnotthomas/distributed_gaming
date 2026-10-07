@@ -125,6 +125,8 @@ function fakeBridge(idle = 600): HostBridge {
     seenRemoval: vi.fn(async () => true),
     reportRental: vi.fn(async () => null),
     onRentalEvent: vi.fn(() => () => {}),
+    downloadImage: vi.fn(async () => null),
+    onImageProgress: vi.fn(() => () => {}),
     secondsSinceInput: vi.fn(async () => idle),
     setGlance: vi.fn(),
     onTrayAction: vi.fn(() => () => {}),

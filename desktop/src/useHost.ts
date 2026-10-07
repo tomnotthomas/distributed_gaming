@@ -316,6 +316,7 @@ export function useHost(): Host {
       planning: rental.planning,
       bitlockerPage: rental.bitlockerPage,
       removalTried: rental.removalTried,
+      download: rental.download,
     },
     standing: null,
     earlyEnd: null,
@@ -468,6 +469,7 @@ export function useHost(): Host {
         readCrew();
       },
       chooseRentalTarget: rental.choose,
+      downloadImage: rental.downloadImage,
       previewRental: rental.plan,
       closeRentalPreview: rental.close,
       // The platform holds the choice, sent now or with the next offer; the screen
