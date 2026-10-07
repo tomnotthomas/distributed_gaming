@@ -28,6 +28,7 @@ const { promisify } = require("node:util");
 const { readPc, readSteamArt, steamPathOnce, steamRootOnce, watchSteamGames } = require("./pc.cjs");
 const { testBuild } = require("./build-kind.cjs");
 const { MANIFEST, readImageSet, trustOf } = require("./image-set.cjs");
+const { downloadSet, sourceOf } = require("./image-download.cjs");
 const { runPlan, startWorker } = require("./rental-exec.cjs");
 const { BITLOCKER_PANEL, drivesOff, recoveryOf, recoveryStore } = require("./recovery-key.cjs");
 const { bootTrail, canAnswer, keyOf, keyStep, keyStore } = require("./rental-key.cjs");
@@ -197,6 +198,35 @@ const imageRead = () => {
     return { image: null, imageRefused: fs.existsSync(path.join(imageDir(), MANIFEST)) };
   }
 };
+/** The image set's download under way (image-download.cjs), so only one runs at a time. */
+let imageDownload = null;
+ipcMain.handle("image:download", async (event) => {
+  if (!fromApp(event) || imageDownload || imageRead().image) return null;
+  const tell = (p) => {
+    if (win && !win.isDestroyed()) win.webContents.send("image:progress", p);
+  };
+  let last = 0;
+  imageDownload = downloadSet({
+    url: sourceOf(),
+    dir: imageDir(),
+    trust: trustOf({ dev: TEST_BUILD }),
+    onProgress: (p) => {
+      // A few a second is plenty for the screen.
+      const now = Date.now();
+      if (p.phase === "download" || p.phase === "unpack")
+        if (now - last < 250 && p.done < p.total) return;
+      last = now;
+      tell(p);
+    },
+  });
+  try {
+    return { ok: true, version: await imageDownload };
+  } catch (error) {
+    return { ok: false, error: error.message, retry: error.retry !== false };
+  } finally {
+    imageDownload = null;
+  }
+});
 /** The OS's encryption for the logged-in Windows user, as the machine key has it; null where there is none. */
 const crypt = () =>
   safeStorage.isEncryptionAvailable()

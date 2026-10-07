@@ -8,6 +8,7 @@
 //   installSteam                      download Valve's installer and open it for the owner
 //   onGamesChanged                    the installed games, again, whenever they change
 //   readRental                        what rental mode needs from this PC, and whether it is installed
+//   downloadImage / onImageProgress   download Lanterel OS's image set, checked against the keys the app trusts, and hear how far it is
 //   planRental                        the steps that would install rental mode, confirm its key again or switch to it, as a preview
 //   runRental / onRentalEvent         run that plan up to its restart, and hear each step as it goes
 //   restartRental                     Restart now: the PC restarts, to the blue screen or Swiff OS
@@ -53,6 +54,8 @@ contextBridge.exposeInMainWorld("swiffHost", {
   installSteam: () => ipcRenderer.invoke("steam:install"),
   onGamesChanged: (listener) => subscribe("pc:games", listener),
   readRental: () => ipcRenderer.invoke("rental:read"),
+  downloadImage: () => ipcRenderer.invoke("image:download"),
+  onImageProgress: (listener) => subscribe("image:progress", listener),
   planRental: (ask) =>
     ipcRenderer.invoke("rental:plan", {
       kind: String(ask?.kind),

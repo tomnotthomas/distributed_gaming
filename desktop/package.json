@@ -63,6 +63,8 @@
       "image-set.cjs",
       "image-trust.json",
       "image-trust.dev.json",
+      "image-download.cjs",
+      "image-download.json",
       "efi.cjs",
       "measured-boot.cjs",
       "dist/**"

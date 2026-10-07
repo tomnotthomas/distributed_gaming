@@ -3,6 +3,7 @@
 // fallback for "no bridge".
 
 import type { PcRead, SteamGame } from "../pc.cjs";
+import type { ImageProgress } from "../image-download.cjs";
 import type { RunEvent, RunOutcome } from "../rental-exec.cjs";
 import type { RentalPlan, RentalRead } from "../rental.cjs";
 import type { SteamRead } from "../steam.cjs";
@@ -20,6 +21,9 @@ export type HostBridge = {
   onGamesChanged(listener: (games: SteamGame[]) => void): () => void;
   /** Null where rental mode cannot be read (off Windows). */
   readRental(): Promise<RentalRead | null>;
+  /** Download Lanterel OS's image set (image-download.cjs); null when one is there already or under way. */
+  downloadImage(): Promise<{ ok: true; version: string } | { ok: false; error: string; retry: boolean } | null>;
+  onImageProgress(listener: (progress: ImageProgress) => void): () => void;
   /** The steps, as main will run them; null when there is no plan to show. */
   planRental(ask: {
     kind: RentalPlan["kind"];
