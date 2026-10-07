@@ -140,8 +140,8 @@ test.describe("Lanterel Host desktop app", () => {
     // The key is a credential for this machine's room: the renderer may ask
     // main to store and return it. Besides that it may read what the PC is,
     // read Steam's state and ask main to fetch Valve's installer, hear its
-    // installed games change, read what rental mode needs and preview its
-    // install or switch, run that plan, restart into the key request, answer
+    // installed games change, read what rental mode needs, download Lanterel
+    // OS's image set and hear how far it is, preview its install or switch, run that plan, restart into the key request, answer
     // the key request, note that the BitLocker recovery key was saved (never
     // the key), open Windows' BitLocker page, note that the removal's ending
     // was seen, report the run and hear its events, read how long
@@ -161,6 +161,8 @@ test.describe("Lanterel Host desktop app", () => {
       installSteam: "function",
       onGamesChanged: "function",
       readRental: "function",
+      downloadImage: "function",
+      onImageProgress: "function",
       planRental: "function",
       runRental: "function",
       restartRental: "function",
