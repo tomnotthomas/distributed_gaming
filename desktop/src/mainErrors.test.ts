@@ -5,7 +5,7 @@
 
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
-import { builtInConfig, projectOf, startErrorTracking, windowError } from "./mainErrors";
+import { builtInConfig, startErrorTracking, windowError } from "./mainErrors";
 
 const CONFIG = { key: "phc_test", host: "https://eu.i.posthog.com" };
 const APP_WINDOW = { sender: "app" };
@@ -136,24 +136,6 @@ describe("the Lanterel server's project", () => {
     const { ipcMain, project } = main(CONFIG);
     ipcMain.emit("errors:project", APP_WINDOW, SERVER);
     expect(project()).toEqual(CONFIG);
-  });
-});
-
-describe("projectOf", () => {
-  it("takes a PostHog project key and an https host on posthog.com, and nothing else", () => {
-    expect(projectOf({ key: "phc_abc", host: "https://eu.i.posthog.com", extra: 1 })).toEqual({
-      key: "phc_abc",
-      host: "https://eu.i.posthog.com",
-    });
-    for (const bad of [
-      null,
-      "phc_abc",
-      { key: "phx_personal", host: "https://eu.i.posthog.com" },
-      { key: "phc_abc", host: "http://eu.i.posthog.com" },
-      { key: "phc_abc", host: "https://eu.i.posthog.com.evil.example" },
-      { key: "phc_abc\nLANTEREL_X=1", host: "https://eu.i.posthog.com" },
-    ])
-      expect(projectOf(bad)).toBeNull();
   });
 });
 

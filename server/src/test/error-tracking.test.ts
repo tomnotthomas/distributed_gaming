@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { errorTrackingFromEnv } from "../error-tracking.js";
 
@@ -23,5 +24,17 @@ describe("errorTrackingFromEnv", () => {
       errorTrackingFromEnv({ ...on, VITE_POSTHOG_HOST: "https://posthog.com.evil.example" }),
       null,
     );
+  });
+
+  it("takes the same projects as @swiff/error-tracking's projectOf, on its table of cases", () => {
+    const cases = JSON.parse(
+      readFileSync(new URL("../../../packages/error-tracking/src/project-cases.json", import.meta.url), "utf8"),
+    ) as { what: string; key: string; host: string; origin: string | null }[];
+    for (const { what, key, host, origin } of cases)
+      assert.deepEqual(
+        errorTrackingFromEnv({ VITE_POSTHOG_KEY: key, VITE_POSTHOG_HOST: host }),
+        origin === null ? null : { key, host: origin },
+        what,
+      );
   });
 });

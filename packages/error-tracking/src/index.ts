@@ -5,6 +5,7 @@ export {
   errorTrackingConfig,
   exceptionList,
   parseStack,
+  projectOf,
   trackProcess,
   FLUSH_TIMEOUT_MS,
   MAX_REPORTS,

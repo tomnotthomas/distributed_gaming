@@ -63,10 +63,22 @@ export function errorTrackingConfig(
   names: { key: string; host: string } = { key: "LANTEREL_POSTHOG_KEY", host: "LANTEREL_POSTHOG_HOST" },
 ): ErrorTrackingConfig | null {
   if (doNotTrack(env)) return null;
-  const key = env[names.key]?.trim();
-  const host = posthogHost(env[names.host]?.trim() ?? "");
-  if (!key || !PROJECT_KEY.test(key) || !host) return null;
-  return { key, host };
+  return projectOf({ key: env[names.key], host: env[names.host] });
+}
+
+/**
+ * `value` as a project, or null unless it is a PostHog project key and an
+ * https origin on posthog.com: no path, port or user, the host's case and
+ * trailing slash normalised. The one rule for a project, wherever it comes
+ * from: desktop/rental.cjs and server/src/error-tracking.ts keep copies, tested
+ * to agree on project-cases.json.
+ */
+export function projectOf(value: unknown): ErrorTrackingConfig | null {
+  if (value === null || typeof value !== "object") return null;
+  const { key, host } = value as Record<string, unknown>;
+  if (typeof key !== "string" || typeof host !== "string") return null;
+  const origin = posthogHost(host.trim());
+  return PROJECT_KEY.test(key.trim()) && origin ? { key: key.trim(), host: origin } : null;
 }
 
 /** One frame of a stack, as PostHog's error tracking reads it. */

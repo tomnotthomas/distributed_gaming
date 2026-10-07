@@ -25,6 +25,7 @@ import {
   createTracker,
   doNotTrack,
   errorTrackingConfig,
+  projectOf,
   trackProcess,
   type ErrorTrackingConfig,
   type Send,
@@ -68,18 +69,6 @@ export type ErrorHooks = {
 
 /** What startErrorTracking started: the tracker, and the project it reports to now. */
 export type ErrorTracking = { tracker: Tracker; project: () => ErrorTrackingConfig | null };
-
-const PROJECT_KEY = /^phc_\w{1,100}$/;
-const PROJECT_HOST = /^https:\/\/(?:[a-z0-9-]+\.)*posthog\.com$/;
-
-/** `value` as a project, if it is a PostHog project key and an https host on posthog.com. */
-export function projectOf(value: unknown): ErrorTrackingConfig | null {
-  if (value === null || typeof value !== "object") return null;
-  const { key, host } = value as Record<string, unknown>;
-  if (typeof key !== "string" || !PROJECT_KEY.test(key)) return null;
-  if (typeof host !== "string" || !PROJECT_HOST.test(host)) return null;
-  return { key, host };
-}
 
 /** A window's report is a few short strings; longer ones are cut. */
 const LIMITS = { name: 100, message: 2_000, stack: 16_000, mechanism: 40 } as const;

@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import {
   createTracker,
@@ -6,6 +7,7 @@ import {
   exceptionList,
   MAX_REPORTS,
   parseStack,
+  projectOf,
   trackProcess,
   type TrackedProcess,
 } from "./tracker.ts";
@@ -31,6 +33,37 @@ function recorded(opts: { secrets?: string[]; send?: (url: string, body: string)
   });
   return { tracker, urls, bodies };
 }
+
+describe("projectOf", () => {
+  it("takes a PostHog project key and an https origin on posthog.com, normalised, and nothing else", () => {
+    expect(projectOf({ key: "phc_abc", host: "https://EU.i.posthog.com/", extra: 1 })).toEqual({
+      key: "phc_abc",
+      host: "https://eu.i.posthog.com",
+    });
+    for (const bad of [
+      null,
+      "phc_abc",
+      { key: "phc_abc" },
+      { key: "phx_personal", host: "https://eu.i.posthog.com" },
+      { key: "phc_abc", host: "http://eu.i.posthog.com" },
+      { key: "phc_abc", host: "https://eu.i.posthog.com.evil.example" },
+      { key: "phc_abc\nLANTEREL_X=1", host: "https://eu.i.posthog.com" },
+    ])
+      expect(projectOf(bad)).toBeNull();
+  });
+});
+
+describe("projectOf's table of cases, which the server's and rental.cjs's copies run too", () => {
+  const cases = JSON.parse(readFileSync(new URL("./project-cases.json", import.meta.url), "utf8")) as {
+    what: string;
+    key: string;
+    host: string;
+    origin: string | null;
+  }[];
+  it.each(cases)("$what", ({ key, host, origin }) => {
+    expect(projectOf({ key, host })).toEqual(origin === null ? null : { key, host: origin });
+  });
+});
 
 describe("errorTrackingConfig", () => {
   it("reads the key and https host, and trims the host's trailing slash", () => {

@@ -5,6 +5,7 @@
 // partition after it.
 
 import { createHash } from "node:crypto";
+import { projectOf } from "@swiff/error-tracking";
 import { describe, expect, it, vi } from "vitest";
 import { emptyGpt, withPartitions } from "../gpt.cjs";
 import { drivesOff, recoveryOf, recoveryStore } from "../recovery-key.cjs";
@@ -14,6 +15,7 @@ import {
   bitlockerDrives,
   bitlockerState,
   BOOT_CHANGES,
+  errorReportsFile,
   factsOf,
   freeSpans,
   gamesDriveOf,
@@ -63,6 +65,7 @@ import {
   waitingFor,
   windowsTodos,
 } from "./rental";
+import PROJECT_CASES from "../../packages/error-tracking/src/project-cases.json";
 import FACTS from "./test/rental-facts.json";
 
 const MiB = 1024 * 1024;
@@ -403,6 +406,14 @@ describe("the install plan", () => {
           .steps.flatMap((s) => s.ops)
           .map((o) => o.op),
       ).not.toContain("esp-file");
+  });
+
+  it.each(PROJECT_CASES)("takes the same projects for LANTEREL.ENV as @swiff/error-tracking's projectOf: $what", ({ key, host, origin }) => {
+    const shared = projectOf({ key, host });
+    expect(shared).toEqual(origin === null ? null : { key, host: origin });
+    expect(errorReportsFile({ key, host })).toBe(
+      shared && `LANTEREL_POSTHOG_KEY=${shared.key}\nLANTEREL_POSTHOG_HOST=${shared.host}\n`,
+    );
   });
 
   it("goes on in the partitions a stopped install already made: no shrink, no new partitions, the same offsets", () => {

@@ -908,8 +908,10 @@ Reports are off unless the program's environment names a project, and off whenev
 | `LANTEREL_POSTHOG_HOST` | its ingestion host, `https://eu.i.posthog.com`; https only |
 
 The root is read-only and `/var` a tmpfs, so they come from the one place Lanterel Host
-writes that Lanterel OS can read: its ESP. When the host app has a project (the one its
-Lanterel server names at `GET /api/error-tracking`, or a dev build's own) and the
+writes that Lanterel OS can read: its ESP. Installers carry no key: the hosted Lanterel
+server serves its own `VITE_POSTHOG_KEY` and `VITE_POSTHOG_HOST` (the web app's project,
+built by the same Render service) at runtime at `GET /api/error-tracking`, and a dev build
+may override them with its own. When the host app has a project from either and the
 PC does not set `DO_NOT_TRACK`, the install writes `LANTEREL.ENV` (`NAME=value` lines) into
 the ESP's root directory, after the ESP is written and read back against its SHA-256
 (`desktop/esp-file.cjs`); without them it writes none, and a new install writes the ESP

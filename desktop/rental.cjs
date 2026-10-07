@@ -116,12 +116,25 @@ const ERROR_REPORTS_FILE = "LANTEREL.ENV";
 
 /**
  * LANTEREL.ENV's lines for `project`, or null unless it is a PostHog project
- * key and an https host on posthog.com, as Lanterel OS takes them.
+ * key and an https origin on posthog.com, as Lanterel OS takes them: the same
+ * rule as projectOf in packages/error-tracking, which this CommonJS file
+ * cannot import (rental.test.ts checks the two agree on its project-cases.json). The key is PostHog's
+ * public client token, which the web app ships to every visitor, never a
+ * personal API key: only phc_ keys are written.
  */
 function errorReportsFile({ key, host }) {
-  if (typeof key !== "string" || !/^phc_\w{1,100}$/.test(key)) return null;
-  if (typeof host !== "string" || !/^https:\/\/(?:[a-z0-9-]+\.)*posthog\.com$/.test(host)) return null;
-  return `LANTEREL_POSTHOG_KEY=${key}\nLANTEREL_POSTHOG_HOST=${host}\n`;
+  if (typeof key !== "string" || typeof host !== "string") return null;
+  let url;
+  try {
+    url = new URL(host.trim());
+  } catch {
+    return null;
+  }
+  const onPosthog = url.hostname === "posthog.com" || url.hostname.endsWith(".posthog.com");
+  const bare =
+    !url.username && !url.password && !url.port && url.pathname === "/" && !url.search && !url.hash;
+  if (!/^phc_\w{1,100}$/.test(key.trim()) || url.protocol !== "https:" || !onPosthog || !bare) return null;
+  return `LANTEREL_POSTHOG_KEY=${key.trim()}\nLANTEREL_POSTHOG_HOST=${url.origin}\n`;
 }
 
 /** Where the install records what it changed, for the switch, the uninstall and a recovery to find. */

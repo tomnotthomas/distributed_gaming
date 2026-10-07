@@ -33,8 +33,16 @@ The host is the project's ingestion host, `https://eu.i.posthog.com` for
 Lanterel's EU project: an https origin on `posthog.com`, with no path or port.
 The key is the project's public key (`phc_...`), the same one the web app is
 built with. Anything else turns reports off: Lanterel OS reads both from a file
-Windows can write (`swiff-os/README.md`, "Error reports"). The server serves
-the web app's own project, from its `VITE_POSTHOG_KEY` and `VITE_POSTHOG_HOST`
-(`server/src/error-tracking.ts`), so no installer needs a key built in: Lanterel
-Host keeps what the server last said between starts, and the install puts it
-onto Lanterel OS's ESP.
+Windows can write (`swiff-os/README.md`, "Error reports"). `projectOf` is the
+one rule for what counts as a project; Lanterel Host uses it, and the server
+(`server/src/error-tracking.ts`) and `desktop/rental.cjs` keep copies, tested to
+agree on the same cases (`src/project-cases.json`).
+
+The hosted Lanterel server serves its own `VITE_POSTHOG_KEY` and
+`VITE_POSTHOG_HOST` at runtime (`server/src/error-tracking.ts`): the same Render
+service builds the web app, so they are the same variables. Installers carry no
+key, and CI builds them without one, so a new key needs no new installer:
+Lanterel Host keeps what the server last said between starts, and the install
+puts it onto Lanterel OS's ESP. A dev build may set `VITE_POSTHOG_KEY` and
+`VITE_POSTHOG_HOST` (`desktop/.env.example`) to report to its own project
+instead.

@@ -73,6 +73,8 @@ try {
       (win !== null && event.sender === win.webContents) ||
       (glance !== null && event.sender === glance.webContents),
     secrets: [os.homedir(), userName()],
+    // The project's key is PostHog's public client token, never a personal API
+    // key: projectOf (packages/error-tracking) takes only phc_ keys.
     store: {
       read: () => JSON.parse(fs.readFileSync(errorProjectFile(), "utf8")),
       write: (project) =>
