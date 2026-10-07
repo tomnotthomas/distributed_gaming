@@ -250,7 +250,8 @@ describe.skipIf(!SWTPM)("swiff-attest on a software TPM, against the server's TP
       await new Promise((r) => setTimeout(r, 200));
     }
     throw new Error("the server did not start");
-  });
+    // The TPM's manufacture, the boot, the policy and then up to 80 s for the server.
+  }, 120_000);
 
   afterAll(() => {
     server?.kill();
