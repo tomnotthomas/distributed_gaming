@@ -198,10 +198,12 @@ const imageRead = () => {
     return { image: null, imageRefused: fs.existsSync(path.join(imageDir(), MANIFEST)) };
   }
 };
-/** The image set's download under way (image-download.cjs), so only one runs at a time. */
+/** The image set's download under way (image-download.cjs), so only one runs at a time: a second ask gets its outcome. */
 let imageDownload = null;
-ipcMain.handle("image:download", async (event) => {
-  if (!fromApp(event) || imageDownload || imageRead().image) return null;
+ipcMain.handle("image:download", (event) => {
+  if (!fromApp(event)) return null;
+  if (imageDownload) return imageDownload;
+  if (imageRead().image) return null;
   const tell = (p) => {
     if (win && !win.isDestroyed()) win.webContents.send("image:progress", p);
   };
@@ -217,14 +219,15 @@ ipcMain.handle("image:download", async (event) => {
       last = now;
       tell(p);
     },
-  });
-  try {
-    return { ok: true, version: await imageDownload };
-  } catch (error) {
-    return { ok: false, error: error.message, retry: error.retry !== false };
-  } finally {
-    imageDownload = null;
-  }
+  })
+    .then(
+      (version) => ({ ok: true, version }),
+      (error) => ({ ok: false, error: error.message, retry: error.retry !== false }),
+    )
+    .finally(() => {
+      imageDownload = null;
+    });
+  return imageDownload;
 });
 /** The OS's encryption for the logged-in Windows user, as the machine key has it; null where there is none. */
 const crypt = () =>

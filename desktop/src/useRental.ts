@@ -121,33 +121,44 @@ export function useRental(): RentalSetup & {
   const check = useCallback(() => reread(), [reread]);
   useEffect(check, [check]);
 
+  // Whether this window follows a download main runs: one it asked for, or one under way when it opened.
+  const following = useRef(false);
+  const follow = useCallback(
+    (host: NonNullable<ReturnType<typeof bridge>>) => {
+      following.current = true;
+      void host
+        .downloadImage()
+        .catch(() => ({ ok: false as const, error: "The download stopped. Try again.", retry: true }))
+        .then((outcome) => {
+          following.current = false;
+          if (outcome && !outcome.ok)
+            setDownload({ status: "failed", error: outcome.error, retry: outcome.retry });
+          else setDownload({ status: "idle" });
+          // Its files are on this PC now, or another window got them there: the next read says.
+          reread();
+        });
+    },
+    [reread],
+  );
   // How far Lanterel OS's download is, as main reports it.
   useEffect(
     () =>
-      bridge()?.onImageProgress?.((p) =>
+      bridge()?.onImageProgress?.((p) => {
+        const host = bridge();
+        if (host && !following.current) follow(host);
         setDownload((d) => {
-          if (d.status !== "running") return d;
           const now = Date.now();
-          const same = d.phase === p.phase && d.total === p.total;
+          const same = d.status === "running" && d.phase === p.phase && d.total === p.total;
           return { status: "running", ...p, meter: meter(same ? d.meter : null, p.done, now) };
-        }),
-      ),
-    [],
+        });
+      }),
+    [follow],
   );
   const downloadImage = () => {
     const host = bridge();
-    if (!host || download.status === "running") return;
+    if (!host || following.current) return;
     setDownload({ status: "running", phase: "check", done: 0, total: 0, meter: null });
-    void host
-      .downloadImage()
-      .catch(() => ({ ok: false as const, error: "The download stopped. Try again.", retry: true }))
-      .then((outcome) => {
-        if (outcome && !outcome.ok)
-          setDownload({ status: "failed", error: outcome.error, retry: outcome.retry });
-        else setDownload({ status: "idle" });
-        // Its files are on this PC now, or another window got them there: the next read says.
-        reread();
-      });
+    follow(host);
   };
 
   // Each step of a run, as main reports it.

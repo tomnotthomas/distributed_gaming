@@ -21,7 +21,7 @@ export type HostBridge = {
   onGamesChanged(listener: (games: SteamGame[]) => void): () => void;
   /** Null where rental mode cannot be read (off Windows). */
   readRental(): Promise<RentalRead | null>;
-  /** Download Lanterel OS's image set (image-download.cjs); null when one is there already or under way. */
+  /** Download Lanterel OS's image set (image-download.cjs); the outcome of the one under way, if one is; null when one is there already. */
   downloadImage(): Promise<
     { ok: true; version: string } | { ok: false; error: string; retry: boolean } | null
   >;

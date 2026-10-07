@@ -451,6 +451,36 @@ describe("useRental", () => {
     expect(host.restartRental).toHaveBeenCalledOnce();
   });
 
+  it("takes up a download main already runs when it opens, and follows it to its end", async () => {
+    const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
+    let progress: Parameters<HostBridge["onImageProgress"]>[0] | null = null;
+    host.onImageProgress = vi.fn((listener) => {
+      progress = listener;
+      return () => {};
+    });
+    let finish!: (outcome: Awaited<ReturnType<HostBridge["downloadImage"]>>) => void;
+    host.downloadImage = vi.fn(() => new Promise((resolve) => (finish = resolve)));
+    const { result } = renderHook(() => useRental());
+    await act(async () => {});
+    expect(result.current.download).toEqual({ status: "idle" });
+    act(() => progress!({ phase: "download", done: 300, total: 1000 }));
+    expect(result.current.download).toMatchObject({
+      status: "running",
+      phase: "download",
+      done: 300,
+      total: 1000,
+    });
+    act(() => progress!({ phase: "download", done: 600, total: 1000 }));
+    expect(result.current.download).toMatchObject({ status: "running", done: 600 });
+    // It waits on the one download main runs, and starts no other.
+    act(() => result.current.downloadImage());
+    expect(host.downloadImage).toHaveBeenCalledOnce();
+    const reads = vi.mocked(host.readRental!).mock.calls.length;
+    await act(async () => finish({ ok: false, error: "No room.", retry: true }));
+    expect(result.current.download).toEqual({ status: "failed", error: "No room.", retry: true });
+    expect(host.readRental).toHaveBeenCalledTimes(reads + 1);
+  });
+
   it("remembers which live run the owner has seen summed up", async () => {
     const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
     host.readRental = vi.fn(
