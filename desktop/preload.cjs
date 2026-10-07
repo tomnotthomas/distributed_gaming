@@ -64,6 +64,9 @@ contextBridge.exposeInMainWorld("swiffHost", {
       ...(ask?.registered === null || typeof ask?.registered === "string"
         ? { registered: ask.registered }
         : {}),
+      ...(ask?.machine
+        ? { machine: { serverUrl: String(ask.machine.serverUrl), machineId: String(ask.machine.machineId) } }
+        : {}),
     }),
   runRental: () => ipcRenderer.invoke("rental:run"),
   restartRental: () => ipcRenderer.invoke("rental:restart"),

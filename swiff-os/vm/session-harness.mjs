@@ -15,21 +15,28 @@
 //      a release's own.
 //   2. the owner: offers the PC with the machine key and registers its TPM's
 //      EK certificate, as their app does before the PC restarts into rental
-//      mode, and hands the VM swiff-hostd's config on a fixture disk, as their
-//      app will.
+//      mode, and provisions it as their app does: the installer's own
+//      provision step (desktop/vm/apply-plan.cjs) writes the server, the
+//      machine id and the machine key at the start of the image's keep
+//      partition. No config is given to the VM any other way.
 //   3. the VM: OVMF with Secure Boot and a software TPM manufactured with an EK
-//      certificate. swiff-hostd attests with the image's attestation client
+//      certificate, in a home network of its own (QEMU's user network is its
+//      router). swiff-provision seals the provisioning to the TPM and zeroes
+//      it; swiff-hostd attests with the image's attestation client
 //      (swiff-attest: EK, AK, credential activation, a quote of PCRs 0-7 and
-//      11-13 with the event log), opens its persistent state (a disk of its own
-//      here) with the key share the server releases to that attested boot, and
-//      offers the PC.
+//      11-13 with the event log), opens its persistent state (the image's state
+//      partition) with the key share the server releases to that attested boot
+//      and, once the Steam client is installed and kept on that state, offers
+//      the PC.
 //   4. a renter: headless Chromium on the hosted site, signed in, who holds
 //      Launch on the PC, sees Steam's sign-in code on Ignition, gets the game
 //      once Steam signs in, plays it on the path ICE picks (both seats hold a
 //      relay allocation; SWIFF_SESSION_RELAY_ONLY=1 leaves only the relay),
 //      reloads and reconnects, and ends the session.
 //   5. the restart: swiff-hostd restarts the PC clean, and in the next boot
-//      attests again, opens the same state and offers the PC again.
+//      attests again, opens the same state, finds there that it took the PC
+//      off offer itself, and offers it again, with the Steam client kept from
+//      the boot before rather than downloaded again.
 //   6. a tampered boot: the PC is powered off and booted with a kernel command
 //      line from outside the signed UKI (an SMBIOS string systemd-stub takes
 //      and measures into PCR 12). The server refuses its attestation, so it
@@ -67,6 +74,7 @@ import {
   readFileSync,
   readlinkSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -96,6 +104,8 @@ const ORIGIN = `http://127.0.0.1:${PORT}`;
 const MACHINE = "lanterel-vm-1";
 const NAME = "Lanterel VM";
 const MACHINE_KEY = randomBytes(32).toString("base64url");
+/** Where the machine key waits for the provisioning, as the owner's app keeps it: this user's alone. */
+const KEY_FILE = join(RUN, "machine-key");
 const ROOM_SECRET = randomBytes(32).toString("base64url");
 const SESSION_SECRET = randomBytes(32).toString("base64url");
 const TURN_SECRET = randomBytes(32).toString("base64url");
@@ -135,6 +145,12 @@ const EXPECTED = NO_IOMMU
       "boot1/hostd-attested",
       "boot1/state-open",
       "boot1/hostd-offered",
+      "boot1/provisioned",
+      "boot1/renter-cannot-read-provisioning",
+      "the provisioning is sealed: neither the record nor the machine key in the clear on the keep",
+      "boot1/steam-client-overlay",
+      "boot1/renter-cannot-reach-kept-client",
+      "the first boot installs Steam and keeps it on the state before the offer",
       "renter sees the PC on the wall",
       "renter's Ignition waits on the PC",
       "hostd serves the renter's session",
@@ -161,6 +177,9 @@ const EXPECTED = NO_IOMMU
       "boot2/hostd-attested",
       "boot2/state-open",
       "boot2/hostd-offered",
+      "boot2/provisioned",
+      "the restart kept hostd's state: it offered the PC again as its own reset",
+      "the second boot does not download Steam again",
       "the PC is offered again after the restart",
       "a tampered boot is refused attestation",
       "the tampered boot gets no state key and is not offered",
@@ -261,10 +280,21 @@ function drawnPath(url) {
 /** A system tool's path, which may be in /usr/sbin, outside this user's PATH. */
 const sbin = (tool) => ["/usr/sbin", "/sbin", "/usr/bin"].map((d) => join(d, tool)).find(existsSync) ?? tool;
 
-/** Writes the run's disks: the image's copy, OVMF's variables, and the fixture, key and state disks. */
+/** The image's keep partition: its offset and size in bytes, from the build's own GPT (the overlay's too). */
+function keepPartition() {
+  const table = JSON.parse(execFileSync(sbin("sfdisk"), ["-J", IMAGE]).toString());
+  const keep = table.partitiontable.partitions.find((p) => p.name === "swiff-keep");
+  if (!keep) throw new Error("the image has no swiff-keep partition");
+  return { offset: keep.start * 512, bytes: keep.size * 512 };
+}
+
+/**
+ * Writes the run's disks: an overlay of the build, provisioned as the owner's app
+ * provisions a PC, OVMF's variables, and the fixture disk with the test's own
+ * plumbing (the server's address for the loopback forwarder, Steam's codes).
+ */
 function prepare() {
-  // The fixture disk carries the machine key, the others the VM's state:
-  // everything the run writes is this user's alone.
+  // The machine key and the VM's state: everything the run writes is this user's alone.
   process.umask(0o077);
   rmSync(RUN, { recursive: true, force: true });
   mkdirSync(join(RUN, "fixtures", "qr"), { recursive: true, mode: 0o700 });
@@ -272,55 +302,79 @@ function prepare() {
   mkdirSync(join(RUN, "tpm"));
   manufactureTpm();
   const fixtures = join(RUN, "fixtures");
-  // swiff-hostd's config, as the owner's app would leave it: the image's
-  // streamer (hostd/hostd.example.json) at 720p30 for a VM without a GPU, and
-  // its persistent state on a disk of its own, with U's credential on another.
-  const hostd = {
-    serverUrl: "ws://127.0.0.1:8080",
-    machineId: MACHINE,
-    machineKeyFile: "/var/lib/swiff/machine-key",
-    stateDir: "/var/lib/swiff/state/hostd",
-    streamer: {
-      command: "/usr/bin/node",
-      args: [
-        "/usr/lib/swiff/streamer/dist/swiff-streamer.mjs",
-        "--pipewire-remote",
-        "/run/user/1000/pipewire-0",
-        "--steam-socket",
-        "/run/swiff/steam/login.sock",
-        "--size",
-        "1280x720",
-        "--fps",
-        "30",
-        "--bitrate",
-        "3000000",
-      ],
-      uid: 961,
-      gid: 961,
-    },
-    state: {
-      device: "/dev/disk/by-id/virtio-swiffstate",
-      mountpoint: "/var/lib/swiff/state",
-      localShare: "/var/lib/swiff/keep/state-u.cred",
-      attestCommand: "/usr/libexec/swiff/sessiontest-attest",
-    },
-  };
-  writeFileSync(join(fixtures, "hostd.json"), `${JSON.stringify(hostd, null, 2)}\n`, { mode: 0o600 });
-  writeFileSync(join(fixtures, "machine-key"), `${MACHINE_KEY}\n`, { mode: 0o600 });
   writeFileSync(join(fixtures, "forward"), `${SERVER_IP} ${PORT}\n`);
   CODES.forEach((code, i) => writeFileSync(join(fixtures, "qr", `${i + 1}.xwd`), qrXwd(code)));
   const mkfs = sbin("mkfs.ext4");
   execFileSync(mkfs, ["-q", "-L", "SWIFFSESS", "-d", fixtures, join(RUN, "fixtures.img"), "16M"]);
   chmodSync(join(RUN, "fixtures.img"), 0o600);
   rmSync(fixtures, { recursive: true });
-  execFileSync(mkfs, ["-q", "-L", "SWIFFKEEP", join(RUN, "keep.img"), "16M"]);
-  // Raw: swiff-hostd formats it as LUKS2 itself the first time the server has no key share for it.
-  writeFileSync(join(RUN, "state.img"), "");
-  execFileSync("truncate", ["-s", "64M", join(RUN, "state.img")]);
   // The build stays as it is: the VM writes to an overlay of it.
   const overlay = ["-f", "qcow2", "-b", IMAGE, "-F", "raw"];
   execFileSync("qemu-img", ["create", "-q", ...overlay, join(RUN, "disk.qcow2")]);
   copyFileSync(OVMF_VARS, join(RUN, "vars.fd"));
+  // The owner's app before the restart into rental mode: Go live's provision step, with the
+  // server and machine id from its Settings and the machine key from its encrypted store. It
+  // reads the build's keep partition only, and hands the record over in a file, written into
+  // the overlay at the keep's start.
+  const recordFile = join(RUN, "provision.rec");
+  writeFileSync(KEY_FILE, `${MACHINE_KEY}\n`, { mode: 0o600 });
+  try {
+    const said = execFileSync(
+      process.execPath,
+      [join(REPO, "desktop/vm/apply-plan.cjs"), "provision", IMAGE, recordFile],
+      {
+        stdio: ["ignore", "pipe", "inherit"],
+        env: {
+          ...process.env,
+          SWIFF_PROVISION_SERVER: "ws://127.0.0.1:8080",
+          SWIFF_PROVISION_MACHINE_ID: MACHINE,
+          SWIFF_PROVISION_KEY_FILE: KEY_FILE,
+        },
+      },
+    ).toString();
+    rmSync(KEY_FILE);
+    process.stdout.write(said);
+    const offset = said.match(/\(offset (\d+)\)/)?.[1];
+    if (!offset) throw new Error("the provision step named no offset for its record");
+    execFileSync(
+      "qemu-io",
+      ["-f", "qcow2", join(RUN, "disk.qcow2"), "-c", `write -s ${recordFile} ${offset} ${statSync(recordFile).size}`],
+      { stdio: ["ignore", "ignore", "inherit"] },
+    );
+  } finally {
+    rmSync(KEY_FILE, { force: true });
+    if (existsSync(recordFile)) {
+      writeFileSync(recordFile, Buffer.alloc(statSync(recordFile).size));
+      rmSync(recordFile);
+    }
+  }
+}
+
+/**
+ * Whether the keep in the run's disk (the VM's overlay, read while the VM runs) holds the
+ * plaintext record, or the machine key in the clear, anywhere on it.
+ */
+function keepInTheClear() {
+  const { offset, bytes } = keepPartition();
+  const file = join(RUN, "keep.read");
+  execFileSync(
+    "qemu-img",
+    [
+      ...["dd", "-U", "-f", "qcow2", "-O", "raw", "bs=512"],
+      ...[`skip=${offset / 512}`, `count=${bytes / 512}`, `if=${join(RUN, "disk.qcow2")}`, `of=${file}`],
+    ],
+    { stdio: ["ignore", "ignore", "inherit"] },
+  );
+  let keep;
+  try {
+    keep = readFileSync(file);
+  } finally {
+    writeFileSync(file, Buffer.alloc(bytes));
+    rmSync(file);
+  }
+  const clear = { record: keep.subarray(0, 8).toString("latin1") === "SWIFFPRV", key: keep.includes(MACHINE_KEY) };
+  keep.fill(0);
+  return clear;
 }
 
 /**
@@ -434,12 +488,15 @@ function startRelay() {
     `--userdb=${join(RUN, "turndb")}`,
   ]);
   let rest = "";
+  // The relay's log, for a run that needs reading: each TURN user named only by its seat.
+  const log = openSync(join(RUN, "turnserver.log"), "w");
   createReadStream(fifo, "utf8").on("data", (chunk) => {
     const lines = (rest + chunk).split("\n");
     rest = lines.pop();
     for (const line of lines) {
       const m = /user <\d+:[\w-]+-(renter|host)>: incoming packet ALLOCATE processed, success/.exec(line);
       if (m) allocations.add(m[1]);
+      appendFileSync(log, `${redact(line.replace(/user <\d+:[\w-]+-(renter|host)>/g, "user <$1>"))}\n`);
     }
   });
 }
@@ -577,6 +634,13 @@ function watchSerial() {
 /** The first serial console line matching `pattern`, in boot `inBoot` when given. */
 const seen = (pattern, inBoot) =>
   vmLines.find((l) => (inBoot === undefined || l.boot === inBoot) && pattern.test(l.line));
+/** What boot `n` said of the Steam client: whether Steam installed or found it, its digest, and how keeping it went. */
+function steamClient(n) {
+  const m = seen(/SWIFF-SESSIONTEST INFO steam-client (installed|found) (\w+) kept=(\w*)/, n)?.line.match(
+    /steam-client (installed|found) (\w+) kept=(\w*)/,
+  );
+  return m ? { how: m[1], digest: m[2], kept: m[3] } : null;
+}
 /** Waits up to `ms` for the VM to report step `name`, and records it failed when it never does or the VM stopped. */
 const waitVm = (name, ms) =>
   until(() => results.get(name) ?? (vmStopped && { stopped: vmStopped }), name, ms).then(
@@ -584,25 +648,61 @@ const waitVm = (name, ms) =>
     () => record(name, false, "never reported"),
   );
 
+/**
+ * A network namespace of its own for one side, at 10.<net>.0.2, routed through
+ * this one (10.<net>.0.1), where the server and the relay are; nothing is
+ * forwarded between two such sides. Returns the namespace's holder pid.
+ */
+async function sideNetwork(name, net) {
+  const holder = child("unshare", ["--net", "sleep", "infinity"]);
+  const own = readlinkSync("/proc/self/ns/net");
+  await until(() => readlinkSync(`/proc/${holder.pid}/ns/net`) !== own, `the ${name}'s network`, 5_000);
+  const pid = String(holder.pid);
+  execFileSync("ip", ["link", "add", `${name}0`, "type", "veth", "peer", "name", `${name}1`]);
+  execFileSync("ip", ["link", "set", `${name}1`, "netns", pid]);
+  execFileSync("ip", ["addr", "add", `10.${net}.0.1/24`, "dev", `${name}0`]);
+  execFileSync("ip", ["link", "set", `${name}0`, "up"]);
+  execFileSync("nsenter", [
+    "-t",
+    pid,
+    "-n",
+    "sh",
+    "-c",
+    `ip link set lo up && ip addr add 10.${net}.0.2/24 dev ${name}1 && ip link set ${name}1 up && ip route add default via 10.${net}.0.1`,
+  ]);
+  return pid;
+}
+
 /** The running VM's QEMU (its vm-run.py) and swtpm. */
 let vm = [];
 /** Why the VM stopped on its own, when vm-run.py or QEMU failed: the VM's waits end with it. */
 let vmStopped = null;
+/** The PC's home network: made at its first boot, kept for every boot after. */
+let pcNetwork;
 /**
- * Starts swtpm and QEMU: the image boots under OVMF with Secure Boot and the software TPM. `extra`: more QEMU arguments.
- * QEMU starts through vm-run.py, which waits for room among the PC's test VMs and stops it
- * when its console is silent for 10 minutes or it runs past an hour.
+ * Starts swtpm and QEMU: the image boots under OVMF with Secure Boot and the
+ * software TPM. QEMU runs in the PC's home network (10.97.0.2), so its user
+ * network is the PC's home router: what it sends leaves from there, and
+ * nothing reaches it there but answers to what it sent, as behind a NAT. (In
+ * this namespace, where the renter's packets arrive, it would listen on every
+ * port it sends from.) `extra`: more QEMU arguments. QEMU starts through
+ * vm-run.py, which waits for room among the PC's test VMs and stops it when its
+ * console is silent for 10 minutes or it runs past an hour.
  */
-function startVm(extra = []) {
+async function startVm(extra = []) {
   const tpm = join(RUN, "tpm");
   rmSync(`${tpm}/sock`, { force: true });
   const swtpm = child("swtpm", [
     ...["socket", "--tpm2", "--tpmstate", `dir=${tpm}`, "--ctrl", `type=unixio,path=${tpm}/sock`],
   ]);
+  pcNetwork ??= await sideNetwork("pc", 97);
+  const network = pcNetwork;
   return until(() => existsSync(`${tpm}/sock`), "swtpm", 10_000).then(() => {
     const qemu = child(
-      join(dirname(fileURLToPath(import.meta.url)), "vm-run.py"),
+      "nsenter",
       [
+        ...["-t", network, "-n", "--"],
+        join(dirname(fileURLToPath(import.meta.url)), "vm-run.py"),
         ...["--name", "session", "--timeout", "3600", "--stall", "600", "--progress", serial, "--"],
         "qemu-system-x86_64",
         ...[
@@ -626,10 +726,6 @@ function startVm(extra = []) {
         ...["-device", "virtio-blk-pci,drive=os,bootindex=1"],
         ...["-drive", `if=none,id=fix,format=raw,readonly=on,file=${join(RUN, "fixtures.img")}`],
         ...["-device", "virtio-blk-pci,drive=fix"],
-        ...["-drive", `if=none,id=keep,format=raw,file=${join(RUN, "keep.img")}`],
-        ...["-device", "virtio-blk-pci,drive=keep"],
-        ...["-drive", `if=none,id=state,format=raw,file=${join(RUN, "state.img")}`],
-        ...["-device", "virtio-blk-pci,drive=state,serial=swiffstate"],
         ...["-netdev", "user,id=n0", "-device", "virtio-net-pci,netdev=n0", "-device", "virtio-rng-pci"],
         ...["-display", "none", "-vga", "none", "-monitor", "none", "-serial", `file:${serial}`],
         ...extra,
@@ -665,20 +761,30 @@ async function powerOff() {
 
 // --- The renter --------------------------------------------------------------------------
 
-/** In the renter's page: each peer connection's state and its candidate pairs' types, for a stream that never came. */
+/**
+ * In the renter's page: each peer connection's state, the types of its local
+ * and remote candidates and its candidate pairs, never their addresses, for a
+ * stream that never came.
+ */
 async function iceReport() {
   const out = [];
   for (const pc of window.__swiffPeers ?? []) {
     const stats = await pc.getStats();
     const side = (id) => stats.get(id)?.candidateType;
     const pairs = [];
+    const local = [];
+    const remote = [];
     stats.forEach((s) => {
+      if (s.type === "local-candidate") local.push(s.candidateType);
+      if (s.type === "remote-candidate") remote.push(s.candidateType);
       if (s.type === "candidate-pair")
         pairs.push(
-          `${side(s.localCandidateId)}->${side(s.remoteCandidateId)} ${s.state}${s.nominated ? " nominated" : ""} req ${s.requestsSent}/${s.responsesReceived}`,
+          `${side(s.localCandidateId)}->${side(s.remoteCandidateId)} ${s.state}${s.nominated ? " nominated" : ""} req ${s.requestsSent}/${s.responsesReceived} in ${s.requestsReceived ?? "?"}`,
         );
     });
-    out.push(`${pc.connectionState}/${pc.iceConnectionState}: ${pairs.join("; ")}`);
+    out.push(
+      `${pc.connectionState}/${pc.iceConnectionState} local ${local.join(",") || "none"} remote ${remote.join(",") || "none"}: ${pairs.join("; ")}`,
+    );
   }
   return out.join(" | ");
 }
@@ -708,22 +814,7 @@ async function selectedPair() {
  * secure context, as it would over https. Returns the namespace's holder pid.
  */
 async function renterNetwork() {
-  const holder = child("unshare", ["--net", "sleep", "infinity"]);
-  const own = readlinkSync("/proc/self/ns/net");
-  await until(() => readlinkSync(`/proc/${holder.pid}/ns/net`) !== own, "the renter's network", 5_000);
-  const pid = String(holder.pid);
-  execFileSync("ip", ["link", "add", "renter0", "type", "veth", "peer", "name", "renter1"]);
-  execFileSync("ip", ["link", "set", "renter1", "netns", pid]);
-  execFileSync("ip", ["addr", "add", "10.99.0.1/24", "dev", "renter0"]);
-  execFileSync("ip", ["link", "set", "renter0", "up"]);
-  execFileSync("nsenter", [
-    "-t",
-    pid,
-    "-n",
-    "sh",
-    "-c",
-    "ip link set lo up && ip addr add 10.99.0.2/24 dev renter1 && ip link set renter1 up && ip route add default via 10.99.0.1",
-  ]);
+  const pid = await sideNetwork("renter", 99);
   child("nsenter", [
     "-t",
     pid,
@@ -798,6 +889,11 @@ async function renter() {
     });
     const page = await context.newPage();
     page.on("pageerror", (err) => console.log(`renter page error: ${redact(err.message)}`));
+    // What the renter's page says, for a run that needs reading.
+    const consoleLog = openSync(join(RUN, "renter-console.log"), "w");
+    page.on("console", (msg) =>
+      appendFileSync(consoleLog, `${elapsed()} ${msg.type()} ${redact(msg.text())}\n`),
+    );
     const played = () =>
       page.evaluate(async () => {
         const play = JSON.parse(localStorage.getItem("swiff.play") ?? "null");
@@ -1067,10 +1163,10 @@ async function withoutIommu() {
 
 // --- The run ------------------------------------------------------------------------------
 
-/** Stops every process the harness started and deletes the fixture disk, which holds the machine key. */
+/** Stops every process the harness started, and deletes the machine key's file should it still be there. */
 function stopAll() {
   for (const proc of children) proc.kill();
-  rmSync(join(RUN, "fixtures.img"), { force: true });
+  rmSync(KEY_FILE, { force: true });
 }
 process.on("exit", stopAll);
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => process.exit(1));
@@ -1094,7 +1190,26 @@ try {
   if (NO_IOMMU) {
     await waitVm("boot1/hostd-active", 300_000);
     await withoutIommu();
-  } else await waitVm("boot1/hostd-offered", 600_000);
+  } else {
+    await waitVm("boot1/hostd-offered", 900_000);
+    // The VM reports these right after the offer.
+    await waitVm("boot1/provisioned", 10_000);
+    await waitVm("boot1/steam-client-overlay", 10_000);
+    const clear = keepInTheClear();
+    record(
+      "the provisioning is sealed: neither the record nor the machine key in the clear on the keep",
+      !clear.record && !clear.key,
+      `${clear.record ? "the record is still there" : "no record"}; ${clear.key ? "the machine key is in the clear" : "no machine key in the clear"}`,
+    );
+    const client1 = steamClient(1);
+    record(
+      "the first boot installs Steam and keeps it on the state before the offer",
+      client1?.how === "installed" && client1.kept === "saved",
+      client1
+        ? `Steam ${client1.how} its client (${client1.digest}); keeping it: ${client1.kept}`
+        : "not reported",
+    );
+  }
   if (!NO_IOMMU && results.get("boot1/hostd-offered")?.ok) {
     await renter().catch((e) => record("renter", false, e.message));
     await until(() => seen(/\[swiff-hostd\] session \S+ is over/, 1), "the session's end", 60_000).catch(
@@ -1116,6 +1231,22 @@ try {
       // The VM reports these right after the offer, not before it.
       await waitVm("boot2/hostd-attested", 10_000);
       await waitVm("boot2/state-open", 10_000);
+      await waitVm("boot2/provisioned", 10_000);
+      await until(() => steamClient(2), "boot 2's Steam client", 10_000).catch(() => {});
+      const resumed = seen(/\[swiff-hostd\] offering the PC again after its own reset/, 2);
+      record(
+        "the restart kept hostd's state: it offered the PC again as its own reset",
+        Boolean(resumed),
+        resumed ? "resume.json on the persistent state" : "no 'offering the PC again' in boot 2's log",
+      );
+      const client2 = steamClient(2);
+      record(
+        "the second boot does not download Steam again",
+        client2?.how === "found" && client2.digest === client1?.digest,
+        client2
+          ? `Steam ${client2.how} its client (${client2.digest}, boot 1's ${client1?.digest ?? "?"}); keeping it: ${client2.kept}`
+          : "not reported",
+      );
       const res = await fetch(`${ORIGIN}/api/machines/${MACHINE}/heartbeat`, {
         method: "POST",
         headers: ownerHeaders,

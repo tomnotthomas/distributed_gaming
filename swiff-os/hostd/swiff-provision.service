@@ -1,0 +1,31 @@
+# What the owner's app provisioned: this machine's server, id and machine key,
+# from the record it leaves at the start of the keep partition when it installs
+# Lanterel OS and each time it restarts the PC into it. `swiff-hostd provision`
+# seals a fresh record to this PC's TPM and keeps it on the keep (formatted
+# anew for it), then writes this boot's swiff-hostd config and machine key into
+# /var/lib/swiff, root's alone (hostd/src/provision.ts). Without a
+# provisioning, swiff-hostd does not start.
+[Unit]
+Description=Lanterel OS: this machine's server, id and key, as the owner's app provisioned them
+Requires=dev-disk-by\x2dpartlabel-swiff\x2dkeep.device
+After=dev-disk-by\x2dpartlabel-swiff\x2dkeep.device local-fs.target systemd-tmpfiles-setup.service tpm2.target
+Wants=tpm2.target
+Before=swiff-hostd.service swiff-steam-client.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/node /usr/lib/swiff/hostd/swiff-hostd.mjs provision
+# The keep it mounts is the system's, for swiff-hostd: nothing here may give it
+# a mount namespace of its own (PrivateTmp=, Protect*=, InaccessiblePaths=).
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

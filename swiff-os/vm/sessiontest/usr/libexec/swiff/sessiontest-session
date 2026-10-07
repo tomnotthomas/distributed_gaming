@@ -5,9 +5,10 @@
 # PipeWire node name (fake-gamescope.py) stands in for it, and a tone
 # (test-tone.py) for the game's sound; Steam and the X tools the agent reads
 # Steam through stand in for a Steam account (sessiontest/bin). The agent
-# itself is the image's, run as steam/session runs it.
+# itself is the image's, run as steam/session runs it, with the image's answer
+# to the launcher's install question on its PATH.
 set -eu
-export PATH=/usr/lib/swiff/sessiontest/bin:/usr/games:/usr/local/bin:/usr/bin
+export PATH=/usr/lib/swiff/sessiontest/bin:/usr/lib/swiff/steam/bin:/usr/games:/usr/local/bin:/usr/bin
 (while :; do
 	python3 /usr/lib/swiff/sessiontest/fake-gamescope.py || true
 	sleep 1

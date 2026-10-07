@@ -25,8 +25,9 @@
 #   swiff-os/vm/session-test.sh --rebuild   build the image anyway
 #   swiff-os/vm/session-test.sh --no-build  run it on the last build
 #
+# The VM runs in a home network of its own, QEMU's user network its router.
 # SWIFF_SESSION_RELAY_ONLY=1 puts the renter's browser behind a home router of
-# its own, on a private address the image's firewall refuses, so the stream
+# its own too, on a private address the image's firewall refuses, so the stream
 # can come only through the relay. By default ICE picks the path.
 #
 # SWIFF_SESSION_NO_IOMMU=1 boots the VM without QEMU's virtual IOMMU: the run

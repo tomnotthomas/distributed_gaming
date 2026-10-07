@@ -17,14 +17,18 @@
 #      and a recovery partition at the end, and firmware variables with
 #      Secure Boot on and Windows in BootOrder
 #   2. the install plan for it: C: shrunk by Swiff OS's 24,192 MiB, Swiff OS's
-#      six partitions added with the image's ids, names and attributes, its
-#      ESP (with the shim, swiff-os/image-set.sh) and slot A written, its boot
-#      entry for the shim added after Windows, C: named SWIFFGAMES, Swiff's key
-#      queued for MokManager (MokNew, MokAuth) and BootNext set
+#      eight partitions added with the image's ids, names and attributes, this
+#      PC's provisioning (server, machine id, machine key) written at the start
+#      of its keep partition, its ESP (with the shim, swiff-os/image-set.sh)
+#      and slot A written, its boot entry for the shim added after Windows, C:
+#      named SWIFFGAMES, Swiff's key queued for MokManager (MokNew, MokAuth)
+#      and BootNext set
 #   3. boot 0: shim shows MokManager, and the owner confirms Swiff's key with
 #      the install's code (mok-drive.py)
-#   4. start sharing (Swiff OS first in BootOrder, BootNext), then boot 1:
-#      shim must start Swiff's systemd-boot and Swiff OS, which runs its self-test
+#   4. start sharing (the provisioning again, Swiff OS first in BootOrder,
+#      BootNext), then boot 1: shim must start Swiff's systemd-boot and Swiff
+#      OS, which seals the provisioning to the TPM, zeroes the record and keeps
+#      it on its keep (swiff-provision), and runs its self-test
 #   5. stop sharing (Windows first), then boot 2: the firmware must start
 #      Windows Boot Manager
 #
@@ -159,6 +163,10 @@ log "What the app reads"
 node "$here/apply-plan.cjs" facts "$disk" > "$run/facts.json"
 cat "$run/facts.json"
 log "Install"
+# What the app's Settings and its encrypted machine key hand Swiff OS (provision.cjs).
+export SWIFF_PROVISION_SERVER=wss://lanterel.test SWIFF_PROVISION_MACHINE_ID=lanterel-install-vm
+export SWIFF_PROVISION_KEY_FILE=$run/machine-key
+(umask 077 && od -An -N24 -tx1 /dev/urandom | tr -d ' \n' > "$SWIFF_PROVISION_KEY_FILE")
 code=$(node -e 'console.log(require(process.argv[1]).mokCode())' "$here/../rental.cjs")
 SWIFF_MOK_CODE=$code node "$here/apply-plan.cjs" install "$disk" "$set" "$run/facts.json" "$vars"
 "$BOOT_VARS" show "$vars" | tee "$run/vars-installed.log"
@@ -217,7 +225,7 @@ boot_vm 0 300 "$code"
 
 # --- 4. start sharing, boot 1 -----------------------------------------------------------
 log "Start sharing"
-node "$here/apply-plan.cjs" switch start "$vars"
+node "$here/apply-plan.cjs" switch start "$vars" "$disk"
 "$BOOT_VARS" show "$vars" | tee "$run/vars-started.log"
 boot_vm 1 "$boot_timeout"
 "$BOOT_VARS" show "$vars" | tee "$run/vars-after-boot1.log"
@@ -266,7 +274,19 @@ disk = [{k: p.get(k) for k in keys} for p in parts(sys.argv[2])][4:]
 print("same" if img == disk else f"image {img}\ndisk {disk}")
 EOF
 )
-expect partitions-as-image "6 Lanterel OS partitions after Windows' 4, as in the image" test "$compare" = same
+expect partitions-as-image "8 Lanterel OS partitions after Windows' 4, as in the image" test "$compare" = same
+# The app's provisioning, taken in at boot 1: sealed to the TPM and kept on the keep, now ext4,
+# with neither the record nor the machine key left in the clear anywhere on it.
+read -r keep_start keep_sectors < <(sfdisk -J "$disk" | python3 -c 'import json,sys
+for p in json.load(sys.stdin)["partitiontable"]["partitions"]:
+    if p.get("name") == "swiff-keep": print(p["start"], p["size"])')
+keep_raw=$run/keep.raw
+dd if="$disk" of="$keep_raw" bs=512 skip="$keep_start" count="$keep_sectors" status=none
+expect provision-sealed "Lanterel OS took the provisioning in: no record and no machine key in the clear on its keep" \
+	bash -c "! grep -aq SWIFFPRV '$keep_raw' && ! grep -aqF \"\$(cat '$SWIFF_PROVISION_KEY_FILE')\" '$keep_raw'"
+expect provision-kept "the keep holds a filesystem: $(file -b "$keep_raw" 2> /dev/null | cut -c1-40)" \
+	bash -c "[ \"\$(od -An -tx1 -j1080 -N2 '$keep_raw' | tr -d ' ')\" = 53ef ]"
+rm -f "$keep_raw"
 read_c
 kept=$(on_c ntfscat {} /windows-marker.txt 2> /dev/null || true)
 expect windows-files-kept "C: still holds its file after the shrink and both boots" test "$kept" = "$marker"

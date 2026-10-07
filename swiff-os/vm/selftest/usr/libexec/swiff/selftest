@@ -161,6 +161,7 @@ check hostd-enabled "$(systemctl is-enabled swiff-hostd.service) User=$(systemct
 	bash -c "systemctl -q is-enabled swiff-hostd.service && grep -q 'argv\[\]=/usr/bin/node /usr/lib/swiff/hostd/swiff-hostd.mjs ' <<< '$hostd_exec'"
 # Without a config (this test gives it none) the agent does not start at all.
 say INFO hostd-state "$(systemctl show -P ActiveState swiff-hostd.service) condition=$(systemctl show -P ConditionResult swiff-hostd.service)"
+say INFO provision "$(journalctl -b -o cat -u swiff-provision.service 2> /dev/null | grep -F '[swiff-provision]' | paste -sd'|' -)"
 IFS=: read -r _ _ suid sgid _ _ sshell <<< "$(getent passwd swiff-stream)"
 check streamer-user "uid=$suid gid=$sgid shell=$sshell groups=$(id -nG swiff-stream)" \
 	test "$suid" = 961 -a "$sgid" = 961 -a "$sshell" = /usr/sbin/nologin -a "$(id -nG swiff-stream)" = swiff-stream

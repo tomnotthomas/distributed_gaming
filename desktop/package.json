@@ -67,6 +67,7 @@
       "image-download.json",
       "efi.cjs",
       "measured-boot.cjs",
+      "provision.cjs",
       "dist/**"
     ],
     "win": {

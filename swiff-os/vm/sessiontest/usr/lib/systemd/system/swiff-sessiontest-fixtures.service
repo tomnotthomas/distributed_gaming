@@ -1,0 +1,17 @@
+# VM session test build only (mkosi --profile=sessiontest). The test's
+# plumbing from the fixture disk: where the test's server is, and the codes the
+# stand-in Steam shows. swiff-hostd's config is the provisioning's, as on a real PC.
+[Unit]
+Description=Lanterel OS session test: the test's plumbing from the fixture disk
+After=local-fs.target
+Before=swiff-hostd.service swiff-sessiontest-forward.service swiff-session.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/swiff/sessiontest-fixtures
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

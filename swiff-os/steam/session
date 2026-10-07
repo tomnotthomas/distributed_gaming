@@ -5,8 +5,9 @@
 # The image installs this as /usr/libexec/swiff/session and the agent as one
 # bundled file (npm run build -w @swiff/steam-login, image/stage.sh).
 # SWIFF_GAMESCOPE_ARGS adds gamescope options, such as the headless backend
-# the test VM uses.
+# the test VM uses. /usr/lib/swiff/steam/bin answers the one question Ubuntu's
+# Steam launcher asks on a home without the client (steam/bin/zenity).
 set -eu
-export PATH=/usr/games:/usr/local/bin:/usr/bin
+export PATH=/usr/lib/swiff/steam/bin:/usr/games:/usr/local/bin:/usr/bin
 # shellcheck disable=SC2086 # the options are meant to split
 exec gamescope --steam ${SWIFF_GAMESCOPE_ARGS:-} -- node /usr/lib/swiff/steam/swiff-steam-login.mjs

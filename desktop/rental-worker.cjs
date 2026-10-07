@@ -19,6 +19,9 @@
 //                  Swiff OS's ESP once it is written and read back (esp-file.cjs)
 //   firmware       Boot####, BootOrder, BootNext and shim's MOK requests
 //                  (efi.cjs), through SetFirmwareEnvironmentVariableEx
+//   provisioning   the record that hands Swiff OS this PC's server, machine id
+//                  and machine key (provision.cjs), written at the start of the
+//                  keep partition the install added, and read back
 //
 // It trusts nothing it is sent: an operation runs only if it matches the image
 // set and what the install recorded so far. Partitions it adds must be the
@@ -49,6 +52,7 @@ const {
   trustOf,
 } = require("./image-set.cjs");
 const { writeRootFile } = require("./esp-file.cjs");
+const { provisionRecord } = require("./provision.cjs");
 const {
   BOOT_PATH,
   BOOT_TITLE,
@@ -415,6 +419,9 @@ function checkOp(op) {
         (op.disk === null || isInt(op.disk)) && Array.isArray(op.ids) && op.ids.every(isGuid),
         "A bad removal check.",
       );
+    case "provision":
+      // Its fields are checked as the record is made (provisionRecord).
+      return must(op.record && typeof op.record === "object", "A bad provisioning.");
     case "image-check":
     case "fast-startup-off":
     case "fast-startup-on":
@@ -996,6 +1003,32 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
         await run(op);
         if (restore) state.save({ labels: s.labels.filter((l) => l !== recorded) });
         else if (!recorded) state.save({ labels: [...s.labels, { letter: op.letter, from: was }] });
+        return {};
+      }
+      case "provision": {
+        const keep = s.partitions.find((p) => p.role === "keep");
+        must(s.disk !== null && keep, "This Lanterel OS has no keep partition: install Lanterel OS again.");
+        const record = provisionRecord(op.record);
+        try {
+          await withDisk(s.disk, async (disk, gpt) => {
+            // The keep the install added, where it was added: nothing else is written.
+            const e = gpt.entries.find((x) => x.id === keep.id);
+            must(
+              e &&
+                e.type === TYPE.linux &&
+                e.first * gpt.sectorSize === keep.offset &&
+                (e.last - e.first + 1) * gpt.sectorSize === keep.bytes,
+              "Lanterel OS's keep partition is not on the disk.",
+            );
+            disk.write([{ offset: keep.offset, bytes: record }]);
+            const back = disk.read(keep.offset, record.length);
+            const same = back.equals(record);
+            back.fill(0);
+            must(same, "The provisioning did not read back as written.");
+          });
+        } finally {
+          record.fill(0);
+        }
         return {};
       }
       case "installed":

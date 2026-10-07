@@ -6,6 +6,8 @@
 //   shrink            ntfsresize, then ntfsfix -d (Resize-Partition leaves the volume clean)
 //   label             ntfslabel
 //   write             the image set's file (image-set.cjs), at the plan's offset
+//   provision         the app's provisioning record (provision.cjs), at the start
+//                     of the keep partition, as the worker writes it
 //   boot-entry, boot-first, boot-next, mok-import
 //                     the VM's firmware variables, through boot-vars.py
 //   check, image-check, fast-startup-off, installed, restart
@@ -17,11 +19,17 @@
 //   node apply-plan.cjs facts <disk.raw>                print what the app's preflight would read
 //   node apply-plan.cjs download <url> <dir>            download the image set as the host app does (image-download.cjs)
 //   node apply-plan.cjs install <disk.raw> <image-set> <facts.json> <vars.fd>
-//   node apply-plan.cjs switch <start|stop> <vars.fd>
+//   node apply-plan.cjs switch <start|stop> <vars.fd> [disk.raw]
+//   node apply-plan.cjs provision <disk.raw> [<record>]  only the provisioning a start writes; with
+//                                                       <record>, the disk is only read and the record
+//                                                       goes to that file, its offset on the disk said
 //   node apply-plan.cjs mok <vars.fd> <cert.der> <code>   only the install's MOK request, with this code
 //
 // The install's one-time code is $SWIFF_MOK_CODE when set. <cert.der> stands in
-// for Swiff's certificate (MOK_CERT) that the install enrols.
+// for Swiff's certificate (MOK_CERT) that the install enrols. What the
+// provisioning hands Swiff OS, as the app's Settings and its encrypted key
+// would: $SWIFF_PROVISION_SERVER, $SWIFF_PROVISION_MACHINE_ID, and the machine
+// key in the file $SWIFF_PROVISION_KEY_FILE.
 //
 // NTFS tools run through sudo on a loop device over the partition; $NTFS_BIN
 // names their directory, $LD_LIBRARY_PATH reaches them, $BOOT_VARS is the
@@ -33,6 +41,7 @@ const path = require("node:path");
 const { emptyGpt, gptWrites, readGpt, withPartitions, withResized } = require("../gpt.cjs");
 const { downloadSet } = require("../image-download.cjs");
 const { fileOf, readImageSet, sourceOf, trustOf } = require("../image-set.cjs");
+const { provisionRecord } = require("../provision.cjs");
 const { MOK_CERT, TYPE, installPlan, mokRequest, mokSteps, rentalOf, switchPlan } = require("../rental.cjs");
 
 const MiB = 1024 * 1024;
@@ -48,8 +57,8 @@ const bootVars = (args) =>
   execFileSync(process.env.BOOT_VARS ?? "boot-vars.py", args, { stdio: ["ignore", "inherit", "inherit"] });
 
 /** A disk image file as gpt.cjs reads and writes disks. */
-function openDisk(file) {
-  const fd = fs.openSync(file, "r+");
+function openDisk(file, flags = "r+") {
+  const fd = fs.openSync(file, flags);
   const bytes = fs.fstatSync(fd).size;
   return {
     bytes,
@@ -221,6 +230,17 @@ function writeImage(disk, source, offset, bytes) {
   fs.closeSync(fd);
 }
 
+/** What the provisioning hands Swiff OS, from the environment (see the top of this file). */
+function provisioning() {
+  const { SWIFF_PROVISION_SERVER: serverUrl, SWIFF_PROVISION_MACHINE_ID: machineId } = process.env;
+  const keyFile = process.env.SWIFF_PROVISION_KEY_FILE;
+  if (!serverUrl || !machineId || !keyFile)
+    throw new Error(
+      "provisioning needs SWIFF_PROVISION_SERVER, SWIFF_PROVISION_MACHINE_ID and SWIFF_PROVISION_KEY_FILE",
+    );
+  return { serverUrl, machineId, machineKey: fs.readFileSync(keyFile, "utf8").trim() };
+}
+
 /** Carries out one plan operation on the VM's disk image and firmware variables, as the worker would on Windows. */
 function apply(op, ctx) {
   const say = (line) => console.log(`  ${op.op}: ${line}`);
@@ -267,6 +287,20 @@ function apply(op, ctx) {
       writeImage(disk, source, op.offset, op.bytes);
       disk.close();
       return say(`${path.basename(source)} at ${op.offset}`);
+    }
+    case "provision": {
+      // With ctx.record, the disk is only read (the session test's cached build, under its overlay):
+      // the record goes to that file, for the caller to write at the offset said.
+      const disk = openDisk(ctx.file, ctx.record ? "r" : "r+");
+      const gpt = readGpt(disk.read, { diskBytes: disk.bytes });
+      const keep = gpt.entries.find((e) => e.name === "swiff-keep" && e.type === TYPE.linux);
+      if (!keep) throw new Error("no keep partition on the disk");
+      const record = provisionRecord(provisioning());
+      if (ctx.record) fs.writeFileSync(ctx.record, record, { mode: 0o600 });
+      else disk.write([{ offset: keep.first * 512, bytes: record }]);
+      disk.close();
+      record.fill(0);
+      return say(`the provisioning record at the start of the keep partition (offset ${keep.first * 512})`);
     }
     case "boot-entry": {
       const disk = openDisk(ctx.file);
@@ -358,13 +392,21 @@ else if (cmd === "download") {
   });
   run(plan, { file, set, vars });
 } else if (cmd === "switch") {
-  run(switchPlan(args[0]), { vars: args[1] });
+  // Without the disk, the provisioning is left out: the firmware's part alone.
+  const plan = switchPlan(args[0]);
+  run(args[2] ? plan : { ...plan, steps: plan.steps.filter((s) => s.id !== "provision") }, {
+    vars: args[1],
+    file: args[2],
+  });
+} else if (cmd === "provision") {
+  // What the app writes before each restart into Swiff OS, alone: the session test's disk is the image's own.
+  run({ steps: switchPlan("start").steps.filter((s) => s.id === "provision") }, { file: args[0], record: args[1] });
 } else if (cmd === "mok") {
   const [vars, cert, code] = args;
   // The request alone: this VM boots its ESP as the firmware's own disk entry, with no Swiff OS entry for BootNext.
   const [mok] = mokSteps(code);
   run({ steps: [{ ...mok, ops: mok.ops.filter((op) => op.op === "mok-import") }] }, { vars, cert });
 } else {
-  console.error("usage: apply-plan.cjs windows|facts|download|install|switch|mok ...");
+  console.error("usage: apply-plan.cjs windows|facts|download|install|switch|provision|mok ...");
   process.exit(2);
 }

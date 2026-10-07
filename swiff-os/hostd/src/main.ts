@@ -5,10 +5,12 @@
 //   node src/main.ts return-to-windows   ask for the PC back (honoured only when idle: D8)
 //   node src/main.ts session-env <file>  write the renter session's error-tracking
 //                                        project to <file> (swiff-error-tracking.service)
+//   node src/main.ts provision           write this boot's config from what the owner's app
+//                                        provisioned (swiff-provision.service, provision.ts)
 //
 // The config file is SWIFF_HOSTD_CONFIG, or /var/lib/swiff/hostd.json. A run
 // of the agent reports what nothing caught to PostHog, when its environment or
-// the file LANTEREL_ERROR_TRACKING_FILE names a project (errors.ts); the two
+// the file LANTEREL_ERROR_TRACKING_FILE names a project (errors.ts); the other
 // commands do not.
 
 import { createAgent } from "./agent.ts";
@@ -16,9 +18,11 @@ import { createHostApi } from "./api.ts";
 import { DEFAULT_CONFIG_PATH, HARDWARE_FLOOR, loadConfig, OWNER_TAKEOVER, readMachineKey } from "./config.ts";
 import { COMMANDS, sendControl, serveControl, type Command } from "./control.ts";
 import { errorTrackingEnv, errorTrackingFile, hostdTracker, writeSessionEnv } from "./errors.ts";
+import { KEEP, linuxKeep, PATHS, provision, tpmSeal, tpmUnseal } from "./provision.ts";
 import { fileResumeStore } from "./resume.ts";
 import { openMachineSocket } from "./socket.ts";
 import {
+  announcedUnlock,
   ATTEST_TIMEOUT_MS,
   commandAttestation,
   linuxStateDisk,
@@ -52,12 +56,24 @@ const env =
     : process.env;
 if (command === undefined) trackProcess(hostdTracker(env, secrets), process);
 
+if (command === "provision") {
+  // Not provisioned is no failure: swiff-hostd simply does not start (its unit's condition).
+  await provision({
+    keep: linuxKeep(KEEP, run),
+    seal: tpmSeal(),
+    unseal: tpmUnseal(),
+    paths: PATHS,
+    log: (message) => console.log(`[swiff-provision] ${message}`),
+  });
+  process.exit(0);
+}
+
 const config = await loadConfig(process.env.SWIFF_HOSTD_CONFIG ?? DEFAULT_CONFIG_PATH);
 secrets.push(config.machineId);
 
 if (command !== undefined) {
   if (!(COMMANDS as readonly string[]).includes(command)) {
-    console.error(`usage: swiff-hostd [${COMMANDS.join(" | ")}]`);
+    console.error(`usage: swiff-hostd [${[...COMMANDS, "provision"].join(" | ")}]`);
     process.exit(2);
   }
   console.log(JSON.stringify(await sendControl(config.controlSocket, command as Command)));
@@ -74,13 +90,15 @@ if (command !== undefined) {
     system: linuxSystem(HARDWARE_FLOOR),
     resume: fileResumeStore(config.stateDir),
     ...(config.state && {
-      state: stateUnlock({
-        attest: commandAttestation(config.state.attestCommand, runWithin(ATTEST_TIMEOUT_MS)),
-        api: stateKeyApi(config.serverUrl, config.machineId),
-        local: tpmLocalShare(config.state.localShare),
-        disk: linuxStateDisk(config.state, run),
-        log: (message) => console.log(`[swiff-hostd] ${message}`),
-      }),
+      state: announcedUnlock(
+        stateUnlock({
+          attest: commandAttestation(config.state.attestCommand, runWithin(ATTEST_TIMEOUT_MS)),
+          api: stateKeyApi(config.serverUrl, config.machineId),
+          local: tpmLocalShare(config.state.localShare),
+          disk: linuxStateDisk(config.state, run),
+          log: (message) => console.log(`[swiff-hostd] ${message}`),
+        }),
+      ),
     }),
     ownerTakeover: OWNER_TAKEOVER,
   });

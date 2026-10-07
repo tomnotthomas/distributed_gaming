@@ -1,0 +1,12 @@
+#!/bin/sh
+# Ubuntu's Steam launcher (/usr/games/steam) asks on a home without the Steam
+# client whether to install it: a "Steam installer" question, Install or
+# Cancel. Nobody sits at a rental-mode PC to answer, and the renter never
+# sees the desktop, so the session (steam/session puts this first on PATH)
+# answers that one question with Install, as the image's build accepted
+# Steam's licence (image/mkosi.postinst.chroot). Every other zenity call is
+# zenity's own.
+for arg; do
+	[ "$arg" = "--title=Steam installer" ] && exit 0
+done
+exec /usr/bin/zenity "$@"

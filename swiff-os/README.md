@@ -61,14 +61,15 @@ drive BitLocker protects later asks again. The install:
    shrink that far, and every file of the image set matches its SHA-256
 2. suspends BitLocker on C: for 3 restarts (`manage-bde -protectors -disable -RebootCount`)
 3. turns off Fast Startup, shrinks C: by 24 GB (`Resize-Partition`), or uses free space
-4. adds Swiff OS's six partitions with the image's ids, names and attributes (`gpt.cjs`
+4. adds Swiff OS's eight partitions with the image's ids, names and attributes (`gpt.cjs`
    on `\\.\GLOBALROOT\Device\HarddiskN\Partition0`, then `Update-Disk`)
-5. writes the ESP and slot A, hashing as it writes and reading back, then, when the host app
+5. hands Swiff OS this PC's server, machine id and machine key (below, **Provisioning**)
+6. writes the ESP and slot A, hashing as it writes and reading back, then, when the host app
    has an error-reports project, `LANTEREL.ENV` onto the ESP ("Error reports" below)
-6. adds a `Boot####` entry for `\EFI\swiff\shimx64.efi` on Swiff OS's ESP, last in BootOrder
+7. adds a `Boot####` entry for `\EFI\swiff\shimx64.efi` on Swiff OS's ESP, last in BootOrder
    (`desktop/efi.cjs`, through `SetFirmwareEnvironmentVariableEx`: bcdedit cannot name a
    second ESP without a drive letter)
-7. names the games drive `SWIFFGAMES`, queues Swiff's key as a MOK (MokNew, MokAuth) with a
+8. names the games drive `SWIFFGAMES`, queues Swiff's key as a MOK (MokNew, MokAuth) with a
    one-time code and `MokTimeout` -1, and sets BootNext; on Restart now the PC restarts into
    MokManager's blue screen, whose menu then waits for the owner instead of counting down
 
@@ -84,7 +85,7 @@ in two parts across a restart, with one confirmation on MokManager's blue screen
 which removes it once the owner confirms with a new code, lives on Swiff OS's own boot
 partition, so the key comes off first (BitLocker on C: suspended for that restart). Back in
 Windows, the app goes on by itself (Windows may ask once more for permission) with the uninstall: the boot entry, every request for shim (MokNew,
-MokDel, MokTimeout), the six partitions, the drive Swiff OS came from grown back to its size,
+MokDel, MokTimeout), the eight partitions, the drive Swiff OS came from grown back to its size,
 the names, Fast Startup and BitLocker as they were; then a check as administrator that no
 `Boot####` starts shim, no request is queued and none of the partitions is on the disk; then a
 restart. An install that stopped part way (no key went in) goes straight to that second part.
@@ -95,11 +96,12 @@ BitLocker is on again where it was, and the install record is gone. The screen s
 marked where one is not as it was. Should the owner miss the blue screen, the removal goes
 on without the key (shim, the only thing that would trust it, is gone with the partitions), or
 they ask for the key's removal again. Once installed, going live reads the TPM's EK
-certificate as administrator and sets only BootNext for now, both only once the server has that EK
-registered: the read stops before BootNext when the TPM has another than the one registered, and
-the app registers it and goes live again, stopping without one (see Attestation in
-`docs/system-design/session-keys.md`); the restart after that is Windows again, and Swiff OS first in
-BootOrder waits until Swiff OS can hand the PC back. Without `MokTimeout`, MokManager waits only 10 seconds, then drops
+certificate as administrator, hands Swiff OS this PC's machine key again and sets only BootNext
+for now, all only once the server has that EK registered: the read stops before anything else
+when the TPM has another than the one registered, and the app registers it and goes live again,
+stopping without one (see Attestation in `docs/system-design/session-keys.md`); the restart
+after that is Windows again, and Swiff OS first in BootOrder waits until Swiff OS can hand the
+PC back. Without `MokTimeout`, MokManager waits only 10 seconds, then drops
 the request; shim then fails to verify the next stage and falls through into Windows in the
 same power-on, which changes PCR 7 (Windows Hello then asks for a new PIN, and BitLocker for its
 recovery key), as Continue boot does at MokManager's menu. So every request and every Swiff OS
@@ -111,6 +113,19 @@ Confirm the key with a new code. The same log holds the Secure Boot db the firmw
 so whether it trusts the CA that signs shim is read without a trip to the BIOS. After a clean
 restart, whether the key is enrolled cannot be read from Windows (shim publishes MokListRT only
 to what it starts), so the app asks the owner.
+
+**Provisioning.** Swiff OS's agent needs the platform's address, this machine's id and its
+machine key, and the image carries none of them. Before each restart into Swiff OS (the
+install, Go live, starting it once) the app hands them over (`desktop/provision.cjs`): main
+reads the machine key from its encrypted store as the step runs, never putting it in a plan,
+and the elevated worker writes one record (`SWIFFPRV`, a version, the length and SHA-256 of
+a JSON payload `{ serverUrl, machineId, machineKey }`, padded to 4 KiB) at the start of the
+keep partition the install added, and reads it back. At its next start Swiff OS seals the
+record to the PC's TPM and zeroes it (below, **Provisioning** under "What runs"), so the
+plaintext key is on the disk only from the owner's restart to that start. A machine id and
+server the app's Settings do not hold, or a machine key it does not keep, stop that step,
+before the image is written. The console installer takes `--server`, `--machine-id` and the
+key from `--machine-key-file`.
 
 **The image set** (`swiff-os/image-set.sh`, read by `desktop/image-set.cjs`) is what the
 installer writes: the build's ESP files on a FAT32 with 512-byte sectors (Windows' chkdsk
@@ -245,8 +260,9 @@ drives the same installer from a console, one step at a
 time. `desktop/vm/rental-install-test.sh` downloads the image set as a host does (packed in
 several parts, served from a local HTTP server), carries the plans out with it on a disk image with
 `apply-plan.cjs` standing in for Windows, and boots the shim chain under OVMF with
-Microsoft's keys; `desktop/vm/mok-enroll-test.sh` confirms the app's MOK request at MokManager,
-after a miss and then with the code.
+Microsoft's keys, checking that Swiff OS took the provisioning in (no record and no machine
+key left in the clear on its keep); `desktop/vm/mok-enroll-test.sh` confirms the app's MOK
+request at MokManager, after a miss and then with the code.
 
 ## Stage 1: the image
 
@@ -273,14 +289,16 @@ not itself measured, so the PCR 11 prediction is the same.
 The layout is a fixed 23.6 GiB, inside the ~24 GB budget of decision D6. The owner is not offered a
 size choice.
 
-| Partition      | Size    | Contents                                                                                       |
-| -------------- | ------- | ---------------------------------------------------------------------------------------------- |
-| ESP            | 1 GiB   | systemd-boot and the signed UKI                                                                |
-| root, slot A   | 8 GiB   | read-only erofs root under dm-verity, labelled `swiffos_<version>`                             |
-| root-verity, A | 128 MiB | its dm-verity hash tree                                                                        |
-| root, slot B   | 8 GiB   | empty (`_empty`), for the next version                                                         |
-| root-verity, B | 128 MiB | empty (`_empty`)                                                                               |
-| scratch        | 6.4 GiB | per-boot encrypted scratch: `/home`, and the games view's writes when the library is read-only |
+| Partition      | Size     | Contents                                                                                                    |
+| -------------- | -------- | ----------------------------------------------------------------------------------------------------------- |
+| ESP            | 1 GiB    | systemd-boot and the signed UKI                                                                             |
+| root, slot A   | 8 GiB    | read-only erofs root under dm-verity, labelled `swiffos_<version>`                                          |
+| root-verity, A | 128 MiB  | its dm-verity hash tree                                                                                     |
+| root, slot B   | 8 GiB    | empty (`_empty`), for the next version                                                                      |
+| root-verity, B | 128 MiB  | empty (`_empty`)                                                                                            |
+| scratch        | 3.36 GiB | per-boot encrypted scratch: `/home`, and the games view's writes when the library is read-only              |
+| keep           | 16 MiB   | `swiff-keep`: the owner's app's provisioning, sealed to the TPM, and U, the state key's TPM-sealed share    |
+| state          | 3 GiB    | `swiff-state`: the persistent state, LUKS2 under U XOR V: swiff-hostd's own state and the kept Steam client |
 
 The A/B slots follow systemd-sysupdate's conventions. A UKI finds its own root by UUID, because
 systemd-repart derives the root and hash partition UUIDs from the root hash. An update writes a new
@@ -309,8 +327,41 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   through Mesa, Intel through its media driver) or with x264; NVIDIA stays out of the image with
   NVIDIA's driver. The renter's PipeWire carries gamescope's picture and the game's sound.
   `image/stage.sh <output-dir>` builds and stages them into the output directory, which the image
-  takes as an extra tree; run it before every build. `swiff-hostd` starts only on a machine that
-  has its config, `/var/lib/swiff/hostd.json` (see swiff-hostd's "Not yet here").
+  takes as an extra tree; run it before every build. `swiff-hostd` starts only on a machine the
+  owner's app provisioned (below).
+- **Provisioning: what the owner's app hands over, sealed to the TPM.** `swiff-provision.service`
+  (`swiff-hostd provision`, `hostd/src/provision.ts`) runs before the agent. A fresh record at
+  the start of the keep partition (the host app's, above) is checked (its version, length and
+  SHA-256, a `wss://` server, or `ws://` on this machine, a machine id and a machine key),
+  sealed with `systemd-creds` under Swiff's signed PCR 11 policy, as the state's U share is,
+  so only a signed Swiff OS boot of this PC opens it, and zeroed; the keep is then formatted
+  as ext4 and keeps the sealed record (`provision.cred`). A TPM that cannot seal leaves the
+  record for the next boot. Every boot then unseals it and writes swiff-hostd's config for
+  that boot, `/var/lib/swiff/hostd.json` (0600, in root's 0700 `/var/lib/swiff`, on the
+  tmpfs), from the image's own settings (`/usr/lib/swiff/hostd.json`) with this machine's
+  server and id, and its machine key beside it. The record is data only: everything that
+  names a program, a device or a user comes from the image, so a record (which the owner's
+  Windows can write) cannot make the agent run anything. A keep with neither a record nor a
+  sealed provisioning, or one that no longer unseals (the TPM was cleared), starts no agent,
+  and the owner's next Go live provisions it again. Nothing logs the record or the key.
+- **The Steam client is kept across reboots, never a renter's.** Ubuntu's Steam launcher
+  installs the client into the renter's home, which every reboot wipes, and first asks
+  whether to install it, a question nobody is at the PC to answer; the session answers it
+  (`steam/bin/zenity`, first on the session's `PATH`). Once swiff-hostd has opened the
+  persistent state, `swiff-steam-client.service` (`steam/client prepare`) mounts it for
+  itself (the agent's mount is its sandbox's alone) and lays the kept client under the
+  renter's Steam folder (`~/.steam/debian-installation`, `~/.steam/steam` and `root` pointing
+  to it) as an overlay: the kept client below, read-only, the renter's writes above it on the
+  scratch. The launcher then finds the client and neither asks nor downloads; Steam updates
+  itself above it when Valve has a newer one. Once Steam waits at its sign-in window,
+  `swiff-steam-client-save.service` (`steam/client save`) copies the client as Steam left it
+  into a new generation on the state, sharing every unchanged file with the one below
+  (`rsync --link-dest`), and the next boot lays that one out. swiff-hostd offers the PC only
+  once that is done (at most 15 minutes, then without it), and closes it before it offers or
+  serves anyone, so whatever a renter runs can change their own session's client, never the
+  next renter's. What is per-user or per-session (logs, config, userdata, caches, games,
+  Steam's machine auth files) is never kept. After Windows ran, the state is formatted anew
+  (session-keys.md, "Continuity"), and that boot downloads Steam again.
 - **The keyboard reaches nothing but the session.** Ctrl+Alt+Del never reboots:
   `ctrl-alt-del.target` is masked, and `CtrlAltDelBurstAction=none` turns off systemd's forced
   reboot after 7 presses within 2 s. Alt+Up (`kbrequest.target`) is masked too. Before the session
@@ -610,20 +661,28 @@ checks the session's wiring, not a running game; the session test (below) plays 
 `sessiontest` profile, the shipped image plus `vm/sessiontest/`, and runs `vm/session-harness.mjs`
 in a network namespace of its own, where the real server (with its production `tpm` attestation
 verifier) and a TURN relay (coturn) have addresses that look public to the VM (TEST-NET-2), so
-the image's firewall treats them as the internet. The VM boots under OVMF with Secure Boot and
-swtpm, 2 GiB and 4 vCPUs, and the harness reports each step PASS or FAIL. `swtpm_setup`
-manufactures the TPM with an EK certificate from a throwaway local CA, the server's only trusted
-TPM vendor. The server's boot policy is this build, signed with a throwaway key: PCR 11 as
-systemd-measure predicts it for the built UKI, PCRs 12 and 13 empty, and the boot applications
-and Secure Boot authorities the VM's first boot measured (its event log, read off the serial
-console before the server starts).
+the image's firewall treats them as the internet. The VM sits in a home network of its own,
+behind QEMU's user network as behind a router: run beside the renter, QEMU would answer them on
+every port it sends from, a path no NAT gives. It boots under OVMF with Secure Boot and swtpm,
+2 GiB and 4 vCPUs, and the harness reports each step PASS or FAIL. `swtpm_setup` manufactures
+the TPM with an EK certificate from a throwaway local CA, the server's only trusted TPM vendor.
+The server's boot policy is this build, signed with a throwaway key: PCR 11 as systemd-measure
+predicts it for the built UKI, PCRs 12 and 13 empty, and the boot applications and Secure Boot
+authorities the VM's first boot measured (its event log, read off the serial console before the
+server starts).
 
-1. The owner offers the PC with the machine key and registers its TPM's EK certificate
-   (`PUT /api/machines/:id/ek`), as their app does before the PC restarts into rental mode. A
-   fixture disk gives `swiff-hostd` its config and key, as the owner's app will.
-2. `swiff-hostd` attests with `swiff-attest`, formats its persistent state (a disk of its own
-   here) with U XOR V, V released only to that attested boot, and offers the PC on its
-   machine-key socket in rental mode.
+1. The owner offers the PC with the machine key, registers its TPM's EK certificate
+   (`PUT /api/machines/:id/ek`), and provisions it as their app does before the PC restarts
+   into rental mode: the installer's own provision step (`apply-plan.cjs provision` in
+   `desktop/vm/`) writes the server, the machine id and the machine key at the start of the
+   image's keep partition. Nothing else gives the VM a config or a key.
+2. `swiff-provision` seals the record to the TPM and zeroes it: neither it nor the machine key is
+   left in the clear on the keep, and the renter can read neither the key, the config nor the
+   keep. `swiff-hostd` attests with `swiff-attest`, formats its persistent state (the image's
+   state partition) with U XOR V, V released only to that attested boot, and waits for the
+   Steam client: the first boot installs it (the launcher's question answered) and keeps it on
+   the state, the renter unable to reach it there. Then it offers the PC on its machine-key
+   socket in rental mode.
 3. A renter on the hosted site (headless Chromium, signed in) sees the PC on the wall and holds
    Launch; Ignition waits on the PC. `swiff-hostd` hears the claim, starts the host session and
    the streamer, as `swiff-stream` with no capabilities, no other group and only its three
@@ -635,8 +694,9 @@ console before the server starts).
    the candidate types of the pair ICE picked, never their addresses.
 5. The renter reloads the page mid-session and reconnects to the same session, then ends it.
 6. The streamer stops; `swiff-hostd` takes the PC off offer and restarts it clean. In the next
-   boot it attests again, opens the same state with U unsealed from the TPM, and offers the PC
-   again.
+   boot it attests again, opens the same state with U unsealed from the TPM, finds there that it
+   took the PC off offer itself, and offers it again, with the Steam client kept from the boot
+   before rather than downloaded again.
 7. The PC is powered off and booted with a kernel command line from outside its signed UKI (an
    SMBIOS string systemd-stub takes and measures into PCR 12). The server refuses its
    attestation (`unknown-boot-extras`), so the PC gets no state key and is never offered.
@@ -647,29 +707,32 @@ GStreamer's `pipewiresink`: under PipeWire 1.6 a playing `pipewiresink` audio st
 capture stream in the session (games play through PipeWire's Pulse and ALSA layers, which do
 not). Steam needs an account and a phone, so
 `sessiontest/bin` stands in for Steam and for the X tools the agent reads it through: a
-`steam` that signs in 20 s after the agent first read its code, and an `xwd` that hands out
-X window dumps of two sign-in codes, which the image's own `zbarimg` decodes. The agent, the
-streamer, `swiff-hostd`, its attestation client and everything else are the shipped image's
-(`sessiontest-attest` only runs `swiff-attest` and counts the certificates it earns). The
-persistent state and key disks are not in the image yet.
+`steam` that installs its client as the launcher does (asking its question, then 15 s and a
+client with an 8 MiB file of fresh random bytes) or finds it, signs in 20 s after the agent
+first read its code, and an `xwd` that hands out X window dumps of two sign-in codes, which the
+image's own `zbarimg` decodes. The agent, the streamer, `swiff-hostd`, its attestation client,
+the provisioning, the kept Steam client, the firewall and everything else are the shipped
+image's; the image's settings for `swiff-hostd` are overridden only for a 720p30 stream and the
+attestation command (`sessiontest-attest` only runs `swiff-attest` and counts the certificates
+it earns).
 `swiff-hostd` takes plain `ws://` only from a server on its own machine, so a forwarder on the
 VM's loopback carries its signaling to the test's server; the streamer's media does not.
 
 It needs coturn's `turnserver` (`TURNSERVER=path`), Playwright's Chromium
 (`PLAYWRIGHT_BROWSERS_PATH`), user and network namespaces (`unshare`) and a `/dev/kvm` this user
 can open; it waits for room among this PC's test VMs (`vm/vm-run.py`). `--no-build` runs it on
-the last build. The run's serial console, server log and
-`results.json` are in `$SWIFF_OS_BUILD_DIR/session-vm`. In the last run all 43 steps passed:
-Steam's first code was on the renter's page within a second of the claim, and the PC was offered
-again 25 s after the session ended.
+the last build. The run's serial console, server log, relay log (each TURN user named only by
+its seat), the renter page's console and `results.json` are in `$SWIFF_OS_BUILD_DIR/session-vm`.
 
-`SWIFF_SESSION_RELAY_ONLY=1` puts the renter's browser in a home network of its own, at a private
-address the image's firewall refuses, so only the relay can carry the stream. That run does not
-pass yet. Both seats get a relay allocation, but the streamer's werift peer loses consent on the
-first pair it nominates (its host candidate to the renter's relayed one), and on the connection
-the page opens after sign-in it fails every check within 1.6 s without using its own relayed
-candidate. Whether a PC behind a real NAT, with a relay elsewhere, does the same is the next thing
-to find out: renters only TURN can reach depend on it.
+`SWIFF_SESSION_RELAY_ONLY=1` puts the renter's browser in a home network of its own too, at a
+private address the image's firewall refuses, so only the relay can carry the stream. In the
+last such run all 55 steps passed: the first boot sealed its provisioning, formatted its
+state, installed Steam and kept it, and was offered 39 s after it started; Steam's first code
+was on the renter's page within a second of the claim; the stream ran on the renter's host
+candidate to the streamer's relayed one, and came back the same way after the reload; the
+second boot found Steam kept and was offered 15 s after it started, 38 s after the session
+ended. Without it all 55 passed too, ICE choosing the renter's server-reflexive candidate to
+the streamer's relayed one.
 
 `SWIFF_SESSION_NO_IOMMU=1` boots the VM without QEMU's virtual IOMMU (`intel-iommu`). That run
 passes only when the boot does not reach `ready` (`systemd-pcrphase.service` never runs),
@@ -682,8 +745,10 @@ never offered.
   key enrolled once as a MOK. The image set adds the shim to the ESP (above); the image's own build
   does not, so its VM test still enrols the test key directly. Swiff's own Microsoft-signed shim is
   deferred.
-- **Steam client persistence.** The Steam client's runtime is downloaded into the ephemeral `/home` on
-  first start of each boot. It moves to the sealed state partition with attestation (stage 3).
+- **The Steam client with real Steam.** The client is kept on the state partition (above, "What
+  runs") and the session test proves it with a stand-in Steam. Still to confirm with Valve's
+  client: which of its folders are per-user (what `steam/client` leaves out), and how long a
+  kept client takes from boot to its sign-in window.
 - **Starting the game directly.** The image's session is the Steam sign-in agent (`steam/`,
   below), which starts the game once Steam signs in. What is still to do is in "Not yet here"
   there.
@@ -743,6 +808,13 @@ and stereo Opus), the same `input-keys` and `input-motion` channels.
   crosses the network in the clear; only a test may override that (`--insecure-signaling`,
   as the VM test does). It registers with the session key, never sees the machine key, and exits whenever the server puts it out (session
   ended, or the key refused after a reconnect); swiff-hostd decides what follows.
+- **The connection, also through the relay.** Each renter connection is a werift peer
+  with the public STUN servers and the TURN relay on the credentials the server minted
+  for this seat (its `peer-joined`, #97), so a renter only the relay reaches still
+  plays. The offer goes before werift gathers, its candidates following as werift finds
+  them: werift's `setLocalDescription` waits for every candidate, up to 5 s for a STUN
+  server that does not answer, and a renter who reconnects joins again every 4 s while
+  no offer has come.
 - **Steam sign-in** (`src/steamLogin.ts`, with `--steam-socket <path>`). The streamer
   carries the renter's signaling, so it drives the Steam agent's socket (`steam/` below):
   as the renter joins it asks for `play <SWIFF_APPID>` and relays Steam's codes,
@@ -881,8 +953,8 @@ mode; a socket on an attested host certificate is rental mode either way.
   a renter who claimed the PC in the instant before, even after the agent's last
   heartbeat, is kept and held through the restart, and served once the PC is back. It
   then ends the host session and reboots. On the way back up it offers the PC again on the same terms.
-  It keeps a small `resume.json` in its state directory to remember that it took the PC
-  off offer itself. Before serving a renter it also notes the current boot id and their
+  It keeps a small `resume.json` in its state directory, on the persistent state, to
+  remember across the reboot that it took the PC off offer itself. Before serving a renter it also notes the current boot id and their
   session. If the agent starts again in a boot where a renter was already served, the
   reboot never happened, so it serves and offers nobody and reboots again. A session the
   server still names after the agent served it (a crash, or ending it failed) is never
@@ -891,7 +963,10 @@ mode; a socket on an attested host certificate is rental mode either way.
   from elsewhere, or when the share-until passes. It puts Windows Boot Manager first in
   the firmware boot order and reboots.
 - **On boot**, it first ends any host session a crash left behind. A session still live
-  is served at once, with a new key.
+  is served at once, with a new key. Otherwise it waits (status `preparing`, during which
+  the owner may take the PC back) for the Steam client to be ready at its sign-in window
+  and kept for the next boot, at most 15 minutes, so no renter waits on a download; then
+  it closes the keeping, before it offers or serves anyone (above, "What runs").
 - **Opens the persistent state only for an untouched system** (report §5.3, the U/V split),
   before anything else on boot. The state is a LUKS2 partition whose key is U XOR V: U is
   sealed to this PC's TPM under Swiff's signed PCR 11 policy (a `systemd-creds` credential
@@ -918,7 +993,10 @@ mode; a socket on an attested host certificate is rental mode either way.
   `state` names the partition (`device`, `mountpoint`), U's credential (`localShare`) and
   `attestCommand`, the attestation client that prints a fresh host certificate as JSON
   (`/usr/libexec/swiff/swiff-attest`, below). A machine whose config has no `state` has no such
-  partition, and skips this.
+  partition, and skips this. In the image the state is the `swiff-state` partition, U's
+  credential is on the keep, and the agent's `stateDir` is on the state; once it is open the
+  agent says so in `/run/swiff/state-open`, for the Steam client's units, which cannot see
+  its sandbox's mount.
 - **Attests with the TPM** (`swiff-attest`, `hostd/src/attest.ts`; the server's verifier is
   `server/src/tpm-verifier.ts`). It talks to `/dev/tpmrm0` with raw TPM 2.0 commands
   (`hostd/src/tpm.ts`, no tpm2-tools), as `server/scripts/tpm-fixtures.mjs` records the
@@ -955,6 +1033,7 @@ npm test -w @swiff/hostd                  # unit tests, and some against the rea
 SWIFF_HOSTD_CONFIG=hostd.json node swiff-os/hostd/src/main.ts      # the agent
 SWIFF_HOSTD_CONFIG=hostd.json node swiff-os/hostd/src/main.ts status
 SWIFF_HOSTD_CONFIG=hostd.json node swiff-os/hostd/src/main.ts return-to-windows
+node swiff-os/hostd/src/main.ts provision     # as root, at boot (swiff-provision.service): this boot's config
 ```
 
 From a checkout the agent runs as TypeScript source on Node 22.18 or later, using Node's own
@@ -964,7 +1043,10 @@ bundled file, `dist/swiff-hostd.mjs` (`npm run build -w @swiff/hostd`, which
 up and the games are checked, and only when its config is there. It runs as root in a
 sandbox of its own (private `/tmp`, `/home` hidden, no new privileges, no kernel modules,
 logs or control groups); the streamer it starts inherits that and drops to its own user. The
-config format is in `hostd/hostd.example.json`, with the image's streamer. `serverUrl` must
+config format is in `hostd/hostd.example.json`, with the image's streamer. In the image
+`swiff-provision` writes it at every boot: the image's own settings (`hostd/hostd.image.json`,
+installed as `/usr/lib/swiff/hostd.json`) with the server and machine id the owner's app
+provisioned (above, "What runs"). `serverUrl` must
 be `wss://`, since the machine key rides on it; plain `ws://` is accepted only for a server
 on this machine. `status` and `return-to-windows` talk to the running agent over its control
 socket, which only root can use.
@@ -1015,15 +1097,9 @@ root. Without a project the file is empty and the session reports nothing.
 
 - The end-of-session steps that come before the reboot: wait for Steam Cloud, upload
   saves that are not in Steam Cloud, log Steam out.
-- Its config on a real PC. The image starts the agent only once `/var/lib/swiff/hostd.json`
-  and the machine key are there, and `/var` is a tmpfs: how the owner's app hands Swiff OS the
-  machine id, key and server is still to decide and build. The session test gives it them on
-  a fixture disk.
-- The persistent state partition in the image (the agent already formats it and enrols
-  its key, sealing U and taking V, the first time the server has no V for the machine). The
-  agent's `stateDir` belongs on it: on the tmpfs `/var` the agent would forget, across its
-  own restart, that it took the PC off offer itself, and go back to Windows. The session
-  test has both on disks of their own.
+- A signed boot policy for each release on the server's `tpm` verifier: the state opens only
+  for an attested boot, so until the server has one, a real PC's agent stays `locked` and the
+  PC is not offered.
 - Hosting on the host certificate `swiff-attest` earns in place of the machine key (the
   server side is merged; `HOSTING_ATTESTATION=optional` serves the machine key at the
   `unattested` tier meanwhile), then re-attesting before each session.
@@ -1040,7 +1116,9 @@ or a desktop. Nobody types a password or a Steam Guard code.
   only program, run as the `renter` user. The agent starts Steam with `-silent`, so
   Steam opens only its sign-in window. The agent serves Plays on a local socket
   (`src/serve.ts`, default `/run/swiff/steam/login.sock`).
-- **Ready before the renter comes.** Steam sits at its sign-in window from boot.
+- **Ready before the renter comes.** Steam sits at its sign-in window from boot, its client
+  kept on the persistent state from the boot before (`steam/client`, above in "What runs"):
+  only the first boot after Windows ran downloads it, and the PC is offered once it is ready.
 - **Play** is `play <appid>` on the socket. The streamer sends it as the renter joins
   (`streamer/src/steamLogin.ts`), since it carries the renter's signaling. The agent reads Steam's QR code off the screen with the stock X
   tools and zbar (`src/x11.ts`) and sends the link it encodes as a `qr` event. Steam
@@ -1120,11 +1198,6 @@ the approval to `signed-in` (and checks the `Success` line), the launch to
 
 - **Play-to-first-frame** on real GPU hardware with a real Steam account, in a
   supervised session with the captain at the PC.
-- **The Steam client installed outside the wiped home.** The image runs `steam/session`
-  as the renter session, but Steam's client is fetched into the renter's home on each
-  boot: every boot would show Ubuntu's installer prompt and then download Steam for about
-  2.5 minutes, before the PC is offered. It moves to the sealed state partition with
-  attestation (stage 3).
 - **Which city to expect.** The report wants the page to say which city Steam's map
   should show, as a phishing check, but the platform has no host location yet.
 - **Phone-only renters** (D7's fallback: password and phone approval through the
