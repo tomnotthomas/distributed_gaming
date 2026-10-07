@@ -132,6 +132,7 @@ export const SCREEN_COPY = {
     "away.live": "Live",
     "away.line": "It kept running when the page closed. Pick it up where you left off.",
     "away.reconnecting": "Reconnecting…",
+    "away.unreachable": "We couldn't reach {host}. Press Reconnect to try again.",
     "queue.finding": "Still finding a machine",
     "queue.reading": "In the queue",
     "queue.held": "Held",
@@ -291,6 +292,8 @@ export const SCREEN_COPY = {
     "away.live": "Läuft",
     "away.line": "Es lief weiter, als die Seite zuging. Mach da weiter, wo du aufgehört hast.",
     "away.reconnecting": "Verbindet neu…",
+    "away.unreachable":
+      "Wir konnten {host} nicht erreichen. Drück auf Neu verbinden, um es noch mal zu versuchen.",
     "queue.finding": "Wir suchen noch einen PC",
     "queue.reading": "In der Warteschlange",
     "queue.held": "Gehalten",

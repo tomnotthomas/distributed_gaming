@@ -165,7 +165,7 @@ function ComeBack(props: ComeBackProps) {
 export function AwayDialog({ swiff }: { swiff: Swiff }) {
   const now = useNow();
   const { t } = useScreenText();
-  const { away, rejoining } = swiff;
+  const { away, rejoining, rejoinFailed } = swiff;
   if (!away) return null;
   const { booking, heldUntil } = away;
   const game = gameOf(swiff, booking.gameId);
@@ -180,7 +180,7 @@ export function AwayDialog({ swiff }: { swiff: Swiff }) {
       reading={heldUntil === null ? t("away.running") : t("away.held")}
       timeTestId="away-held"
       time={heldUntil === null ? t("away.live") : minutesSeconds(heldUntil - now, true)}
-      line={t("away.line")}
+      line={rejoinFailed ? withHost(t("away.unreachable"), host) : t("away.line")}
       primary={{
         label: rejoining ? t("away.reconnecting") : t("back.reconnect"),
         onClick: swiff.reconnect,
