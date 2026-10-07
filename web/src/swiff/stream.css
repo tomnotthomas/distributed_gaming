@@ -1,0 +1,697 @@
+/* The full-screen viewer and the crew's vote over a stream
+   (data/lanterel-design-round, f-stream impeccable): the stream is the page,
+   its controls float on dark glass, and a decision comes as a ticket on the
+   crew pages' paper. Scoped to .sw-stream and .sw-stream-over. */
+
+.sw-stream {
+  --card: #f4f4f2;
+  --no: #a33a2c;
+  --st-gap: clamp(12px, 2.2vw, 24px);
+  --st-bottom: clamp(12px, 2.6vw, 28px);
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: #000;
+  color: var(--paper);
+  font: 300 16px/1.5 var(--f);
+  overflow: hidden;
+}
+.sw-stream button,
+.sw-stream-over button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.sw-stream button:disabled,
+.sw-stream-over button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.sw-stream :focus-visible,
+.sw-stream-over :focus-visible {
+  outline: 2px solid var(--lime);
+  outline-offset: 3px;
+}
+.sw-stream h2,
+.sw-stream p,
+.sw-stream ul,
+.sw-stream-over p {
+  margin: 0;
+  padding: 0;
+}
+.sw-stream .ph,
+.sw-stream-over .ph {
+  flex: none;
+}
+.st-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+.sw-stream::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgb(0 0 0 / 0.55),
+    transparent 22%,
+    transparent 66%,
+    rgb(0 0 0 / 0.65)
+  );
+  pointer-events: none;
+}
+.sw-stream > :not(video) {
+  z-index: 1;
+}
+.st-glass,
+.sw-stream button.st-glass {
+  background: rgb(19 19 19 / 0.72);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgb(232 233 232 / 0.16);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .st-glass,
+  .sw-stream button.st-glass {
+    background: #131313;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+.st-av {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: none;
+  background: var(--paper);
+  color: var(--on-paper);
+  font: 500 14px/1 var(--f);
+  position: relative;
+}
+
+/* Top left: who plays what, on whose PC */
+.st-tl {
+  position: fixed;
+  top: var(--st-gap);
+  left: var(--st-gap);
+  max-width: calc(100vw - 2 * var(--st-gap) - 300px);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px 8px 8px;
+  border-radius: 999px;
+}
+.st-tl p {
+  min-width: 0;
+}
+.st-tl b {
+  display: block;
+  font: 500 15px/1.2 var(--f);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.st-tl p span {
+  display: block;
+  font: 400 13px/1.2 var(--f);
+  color: rgb(232 233 232 / 0.72);
+}
+.st-tl p span:empty {
+  display: none;
+}
+.st-live {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--lime);
+  box-shadow: 0 0 0 3px rgb(212 245 60 / 0.25);
+}
+
+/* Buttons on glass */
+.st-tr {
+  position: fixed;
+  top: var(--st-gap);
+  right: var(--st-gap);
+  display: flex;
+  gap: 8px;
+}
+.sw-stream .st-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 46px;
+  padding: 0 16px 0 13px;
+  border-radius: 999px;
+  font: 500 15px/1 var(--f);
+  color: var(--paper);
+  white-space: nowrap;
+  transition: background-color 0.2s var(--ease);
+}
+.sw-stream .st-btn:hover:not(:disabled),
+.sw-stream button.st-glass:hover {
+  background: rgb(60 60 60 / 0.85);
+}
+.sw-stream .st-btn.off {
+  color: #ffb4a6;
+}
+
+/* The voice chat down the right side */
+.st-voice {
+  position: fixed;
+  right: var(--st-gap);
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 999px;
+}
+.st-voice .st-av {
+  width: 40px;
+  height: 40px;
+  font-size: 15px;
+}
+.st-voice .mute::after {
+  content: "";
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #c2410c;
+  box-shadow: 0 0 0 2px #131313;
+}
+
+/* The bottom bar */
+.st-bar {
+  position: fixed;
+  left: 50%;
+  bottom: var(--st-bottom);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 999px;
+  max-width: calc(100vw - 24px);
+}
+.st-sep {
+  width: 1px;
+  height: 26px;
+  background: rgb(232 233 232 / 0.2);
+  margin: 0 4px;
+}
+.sw-stream .st-bar .main {
+  background: var(--paper);
+  color: var(--on-paper);
+}
+.sw-stream .st-bar .main:hover:not(:disabled) {
+  background: #fff;
+}
+
+/* The crew menu, who is here, and leaving the crew */
+.st-menu {
+  position: fixed;
+  right: var(--st-gap);
+  top: calc(var(--st-gap) + 54px);
+  width: min(300px, calc(100vw - 2 * var(--st-gap)));
+  border-radius: 16px;
+  padding: 8px;
+  display: grid;
+}
+.st-menu > button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 46px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font: 500 15px/1 var(--f);
+  text-align: left;
+}
+.st-menu > button:hover {
+  background: rgb(232 233 232 / 0.08);
+}
+.sw-stream .danger {
+  color: #ffb4a6;
+}
+.st-menu hr {
+  border: 0;
+  border-top: 1px solid rgb(232 233 232 / 0.14);
+  margin: 6px 4px;
+}
+.st-who ul {
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+.st-who li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px;
+}
+.st-who .st-nm {
+  flex: 1;
+  min-width: 0;
+  font: 500 15px/1.2 var(--f);
+}
+.st-who small {
+  display: block;
+  font: 400 12.5px/1.2 var(--f);
+  color: rgb(232 233 232 / 0.65);
+}
+.st-who li button {
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgb(232 233 232 / 0.3);
+  font-size: 13.5px;
+}
+.st-empty {
+  padding: 8px;
+  font-size: 14.5px;
+  color: rgb(232 233 232 / 0.75);
+}
+.st-ask {
+  padding: 16px;
+  gap: 10px;
+}
+.st-ask h2 {
+  font: 500 18px/1.2 var(--f);
+}
+.st-ask p {
+  font-size: 14.5px;
+  color: rgb(232 233 232 / 0.75);
+}
+.st-acts {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.sw-stream .st-solid,
+.sw-stream-over .st-solid,
+.sw-stream .st-plain,
+.sw-stream-over .st-plain {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 999px;
+  font: 500 15px/1 var(--f);
+}
+.sw-stream .st-solid {
+  background: var(--paper);
+  color: var(--on-paper);
+}
+.sw-stream .st-solid.danger {
+  background: #ffb4a6;
+  color: #3a0d06;
+}
+.sw-stream .st-plain {
+  border: 1px solid rgb(232 233 232 / 0.35);
+}
+
+/* Waiting for the picture, or why it is over */
+.st-wait {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 96px 16px;
+}
+.st-card {
+  width: min(460px, 100%);
+  display: grid;
+  gap: 12px;
+  padding: 24px;
+  border-radius: 16px;
+  background: rgb(19 19 19 / 0.86);
+  border: 1px solid rgb(232 233 232 / 0.16);
+}
+.st-card h2 {
+  font: 500 22px/1.2 var(--f);
+}
+.st-card p {
+  color: rgb(232 233 232 / 0.78);
+}
+
+.st-note {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--st-bottom) + 70px);
+  transform: translateX(-50%);
+  max-width: calc(100vw - 24px);
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgb(19 19 19 / 0.86);
+  font-size: 14px;
+}
+
+/* Tickets on paper: the vote, the game pick, the player's countdown */
+.st-vote,
+.st-sheet,
+.st-toast {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--card, #f4f4f2);
+  color: var(--on-paper);
+  border: 1.5px solid var(--on-paper);
+  border-radius: 16px;
+  box-shadow: 0 24px 40px -24px rgb(0 0 0 / 0.8);
+  z-index: 2;
+}
+.st-vote,
+.st-sheet {
+  bottom: calc(var(--st-bottom, 28px) + 70px);
+}
+.st-vote {
+  width: min(460px, calc(100vw - 24px));
+}
+.st-vote .v-top {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 16px 18px 14px;
+}
+.st-vote .v-top img {
+  width: 84px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 8px;
+}
+.st-vote b {
+  display: block;
+  font: 500 17px/1.25 var(--f);
+}
+.st-vote .v-top span {
+  font-size: 14px;
+  color: var(--on-paper-2);
+}
+.st-vote .v-mid {
+  position: relative;
+  border-top: 1.5px dashed var(--pline-2);
+  padding: 14px 18px 16px;
+  display: grid;
+  gap: 12px;
+}
+.st-vote .v-mid::before,
+.st-vote .v-mid::after {
+  content: "";
+  position: absolute;
+  top: -12px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #2a2a2a;
+  border: 1.5px solid var(--on-paper);
+}
+.st-vote .v-mid::before {
+  left: -12px;
+  clip-path: inset(0 0 0 50%);
+}
+.st-vote .v-mid::after {
+  right: -12px;
+  clip-path: inset(0 50% 0 0);
+}
+.v-tally {
+  display: grid;
+  grid-auto-columns: 1fr;
+  grid-auto-flow: column;
+  gap: 6px;
+}
+.v-tally span {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--pline-2);
+}
+.v-tally .y {
+  background: var(--on-paper);
+}
+.v-tally .n {
+  background: repeating-linear-gradient(-45deg, var(--pline-2) 0 3px, transparent 3px 6px);
+}
+.v-tally-t {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font: 500 13px/1.2 var(--mono);
+  color: var(--on-paper-2);
+}
+.v-acts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.st-vote .v-acts button {
+  height: 50px;
+  border-radius: 999px;
+  font: 500 16px/1 var(--f);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--pline-2);
+  background: #fff;
+  color: var(--on-paper);
+}
+.st-vote .v-acts .yes {
+  background: var(--on-paper);
+  color: var(--paper);
+  border-color: var(--on-paper);
+}
+.st-vote .v-acts [aria-pressed="true"] {
+  box-shadow: 0 0 0 3px var(--lime);
+}
+.v-fine {
+  font-size: 13px;
+  color: var(--on-paper-2);
+}
+
+.st-sheet {
+  width: min(620px, calc(100vw - 24px));
+  padding: 18px;
+  display: grid;
+  gap: 12px;
+}
+.st-sheet h2 {
+  font: 500 20px/1.2 var(--f);
+  color: var(--on-paper);
+}
+.st-sheet > p {
+  font-size: 14.5px;
+  color: var(--on-paper-2);
+}
+.st-sheet .st-empty {
+  color: var(--on-paper-2);
+  padding: 0;
+}
+.st-pick {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  list-style: none;
+}
+.st-pick button {
+  width: 100%;
+  display: grid;
+  border: 1px solid var(--pline-2);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+  text-align: left;
+  color: var(--on-paper);
+}
+.st-pick img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  display: block;
+}
+.st-pick b {
+  padding: 8px 10px;
+  font: 500 14px/1.2 var(--f);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.st-pick [aria-pressed="true"] {
+  border: 2px solid var(--on-paper);
+}
+.st-go {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.sw-stream .st-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 50px;
+  padding: 0 6px 0 22px;
+  border-radius: 999px;
+  background: var(--on-paper);
+  color: var(--paper);
+  font: 500 16px/1.1 var(--f);
+  white-space: nowrap;
+}
+.st-pill-c {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid rgb(232 233 232 / 0.6);
+  display: grid;
+  place-items: center;
+}
+.sw-stream .st-txt {
+  color: var(--on-paper);
+  font: 500 15px/1.3 var(--f);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--pline-2);
+}
+
+/* The player's own screen: the vote over their game, and the time to save */
+.sw-stream-over {
+  --card: #f4f4f2;
+  --st-bottom: 96px;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 30;
+  font: 300 16px/1.5 var(--f);
+}
+.sw-stream-over > * {
+  pointer-events: auto;
+}
+.st-toast {
+  top: clamp(12px, 2.2vw, 24px);
+  width: min(520px, calc(100vw - 24px));
+  padding: 16px 18px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 14px;
+  align-items: center;
+}
+.st-clock {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--on-paper);
+  color: var(--lime);
+  font: 500 16px/1 var(--mono);
+}
+.st-toast b {
+  display: block;
+  font: 500 17px/1.25 var(--f);
+}
+.st-toast p > span {
+  display: block;
+  font-size: 14px;
+  color: var(--on-paper-2);
+}
+.st-toast .st-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.sw-stream-over .st-row button {
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--pline-2);
+  font: 500 14px/1 var(--f);
+  background: #fff;
+  color: var(--on-paper);
+}
+.sw-stream-over .st-row .st-solid {
+  background: var(--on-paper);
+  color: var(--paper);
+  border-color: var(--on-paper);
+}
+
+/* Compact: a phone, in landscape too */
+@media (max-width: 900px), (max-height: 500px) {
+  .sw-stream .st-btn .t {
+    display: none;
+  }
+  .sw-stream .st-btn {
+    width: 46px;
+    padding: 0;
+    justify-content: center;
+  }
+  .sw-stream .st-bar .main .t {
+    display: inline;
+  }
+  .sw-stream .st-bar .main {
+    width: auto;
+    padding: 0 16px 0 13px;
+  }
+  .st-voice {
+    display: none;
+  }
+  .st-tl {
+    max-width: calc(100vw - 2 * var(--st-gap) - 112px);
+  }
+  .st-tl p span,
+  .st-tl .st-av {
+    display: none;
+  }
+  .st-tl {
+    padding-left: 16px;
+  }
+  .st-vote,
+  .st-sheet {
+    bottom: 72px;
+  }
+  .st-vote {
+    width: min(420px, calc(100vw - 24px));
+  }
+  .st-vote .v-top {
+    padding: 10px 14px;
+  }
+  .st-vote .v-top img {
+    width: 64px;
+  }
+  .st-vote .v-mid {
+    padding: 10px 14px 12px;
+    gap: 8px;
+  }
+  .st-vote .v-fine {
+    display: none;
+  }
+  .st-vote .v-acts button {
+    height: 42px;
+  }
+  .st-sheet > p {
+    display: none;
+  }
+  .st-sheet {
+    padding: 12px;
+    gap: 8px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sw-stream *,
+  .sw-stream-over * {
+    transition: none !important;
+  }
+}

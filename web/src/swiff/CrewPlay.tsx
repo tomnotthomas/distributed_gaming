@@ -31,7 +31,7 @@ export function playPc(crew: CrewDetail): CrewPc | undefined {
 }
 
 /** Steam's names for games the player's own library does not name, by appid, read once each. */
-function useGameNames(appids: number[], games: Game[]): Map<number, string> {
+export function useGameNames(appids: number[], games: Game[]): Map<number, string> {
   const [read, setRead] = useState<Map<number, string>>(new Map());
   const missing = appids.filter((id) => !games.some((g) => g.appid === id) && !read.has(id));
   const key = [...new Set(missing)].sort().join(",");

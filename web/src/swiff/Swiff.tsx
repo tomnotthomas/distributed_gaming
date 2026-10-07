@@ -11,7 +11,7 @@ import { Profile } from "./Profile";
 import { AwayDialog, MachineLost, QueueBackDialog } from "./Reconnect";
 import { Session } from "./Session";
 import { ScreenLang, screenText } from "./screenCopy";
-import { Watch } from "./Watch";
+import { Watch } from "./Viewer";
 import { EstimateSheet, SharePC } from "./SharePC";
 import { Wall } from "./Wall";
 import { useDisplay } from "./display";

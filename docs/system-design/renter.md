@@ -576,7 +576,11 @@ owner was never in a crew is open to anyone, as before crews. A crew-only PC fro
 crews were groups plays for every crew its owner was in.
 
 A member may leave, and the admin may remove anyone; their PCs leave the crew with them,
-from then on they match none of its PCs, and a match made before goes back at the claim. A
+from then on they match none of its PCs, and a match made before goes back at the claim.
+Someone the admin removed cannot come back by the crew's link of then, only by a new one
+the admin makes (`crew_removals`); one who left by themselves comes back by the same link.
+The crew page offers removing only to the admin, and always asks first; a PC's owner takes
+their PC out of one crew without leaving it (`POST /crews/:id/pc` `off`), also after asking. A
 membership is named by its own random id, never a Steam id, and a member is shown by the
 Steam persona read when they joined.
 
@@ -1003,14 +1007,15 @@ A PC that plays for no crew of the player's has no crew to watch it. Sharing fix
 
 ```
 GET  /crew-live
-  → 200 { live: [{ sessionId, starting, player, gameId, machine, startedAt, sharing, watching, mine }] }
+  → 200 { live: [{ sessionId, starting, player, gameId, machine, startedAt, sharing, watching, mine, crew }] }
   The sessions the signed-in player's crewmates are playing now (claimed or playing), on
   any machine, of those whose crew they are in, never their own: whether the player is still behind Ignition (`starting`:
   the booking still `claimed`, or the game still launching, until the server has relayed the
   PC's `game-started` for the session; not yet to be asked, since no ask reaches a player
   behind Ignition), who plays (`player`, their Steam persona as their crew
   knows it), which game on which machine, whether they share with the crew (`sharing`),
-  how many watch, and this player's own watch on it (`mine`, `{ state }`, or null).
+  how many watch, this player's own watch on it (`mine`, `{ state }`, or null), and the
+  crew it is watched in (`crew`, its id), the viewer's way back to that crew's page.
   → 401 signed out.
 
 POST /crew-live/:sessionId/watch
@@ -1052,6 +1057,34 @@ The watch state (`server/src/watch.ts`) lives in the signaling process beside th
 
 Watching costs the player nothing: no booking, no machine and no minute of theirs. The
 session runs to its own deadline, and the watch ends with it.
+
+Someone watching may ask to play next ("I want to play"), with one of their games on that
+PC, and everyone in the session votes (`server/src/switches.ts`, in the signaling process
+beside the watches and gone with it):
+
+```
+GET  /crew-live/:sessionId/switch
+  → 200 { switch: { id, gameId, proposer, player, mine, playing, voters, yes, no, vote,
+          canVote, endsAt, outcome, switchAt, moreLeft, now } | null }
+  The session's vote, for its player or a crewmate who may watch it; `now` is the server's
+  clock, so a page counts down from it. → 404 for anyone else, or once the session is over.
+POST /crew-live/:sessionId/switch { gameId }
+  → 201 { switch }  Ask, as a crewmate who may watch it (never its player). → 409
+  { code: "open" } while a vote runs, { code: "switching" } once the crew said yes.
+POST /crew-live/:sessionId/vote { yes }
+  → 200 { switch }  → 403 for someone not in the session when it was asked; 409 { code:
+  "closed" } once it is decided.
+POST /crew-live/:sessionId/handover { ask: "now" | "more" }
+  → 200 { switch }  The player, once the crew said yes: saved, switch now, or two more
+  minutes to save (twice at most). → 409 when there is nothing to hand over.
+```
+
+Who votes is fixed when it is asked: the player, everyone watching then, and whoever asks,
+who counts as yes. It is yes once more than half say yes or the player does, no once half
+say no; after 60 s, more yes than no says yes. A yes puts the one who asked first in the
+crew's line with their game and gives the player 3 minutes to save; then the server ends the
+session as the player leaving it would, and the one who asked starts their game from the
+crew page.
 
 The player's page is the hub (`@swiff/rtc` `crewHub.ts`). It receives the PC's stream
 once, as always, and sends it on to each crewmate watching on a connection of its own:

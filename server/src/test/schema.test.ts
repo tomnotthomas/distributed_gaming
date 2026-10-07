@@ -50,6 +50,7 @@ describe("migrations", () => {
         "crew_invites",
         "crew_machines",
         "crew_members",
+        "crew_removals",
         "crews",
         "game_playability",
         "game_requirements",

@@ -680,6 +680,27 @@ describe("crews", () => {
       assert.equal(await platform.crew(crewId, JO), null);
     });
 
+    it("lets someone the admin removed back only by a new link, and one who left by the same one", async () => {
+      const { crewId, inviteId } = await hostJoinsAlex();
+      await platform.joinCrew(inviteId, JO, "Jo");
+      const members = (await platform.crew(crewId, ALEX))!.members;
+      assert.equal(await platform.leaveCrew(members.find((m) => m.name === "Jo")!.id, ALEX), true);
+      assert.deepEqual(await platform.joinCrew(inviteId, JO, "Jo"), { ok: false, reason: "not-found" });
+      assert.equal(await platform.crew(crewId, JO), null);
+
+      // Leaving by themselves keeps the way back open.
+      const sam = members.find((m) => m.name === "Sam")!;
+      assert.equal(await platform.leaveCrew(sam.id, HOST), true);
+      assert.equal((await platform.joinCrew(inviteId, HOST, "Sam")).ok, true);
+
+      // The admin's new link lets Jo in again, and from then on the old removal is gone.
+      assert.ok(await platform.renewCrewLink(crewId, ALEX));
+      const renewed = (await platform.crew(crewId, ALEX))!.inviteId!;
+      assert.notEqual(renewed, inviteId);
+      const back = await platform.joinCrew(renewed, JO, "Jo");
+      assert.equal(back.ok && back.joined, true);
+    });
+
     it("has a member's PC leave with them, and come back only when they bring it again", async () => {
       const { crewId, inviteId } = await hostJoinsAlex();
       await platform.bringPc(crewId, HOST, "yes");
@@ -1470,8 +1491,10 @@ describe("crew API", () => {
     assert.equal((await call("POST", `/api/crew-members/${sam.id}/remove`, ALEX)).status, 200);
     assert.equal((await call("GET", `/api/crews/${crew.id}`, ALEX)).body.crew.size, 1);
 
-    // Back in by the link, the host leaves on their own.
-    await call("POST", `/api/invites/${crew.token}/join`, HOST);
+    // The link they had no longer lets them in; the admin's new one does, and the host leaves on their own.
+    assert.equal((await call("POST", `/api/invites/${crew.token}/join`, HOST)).status, 404);
+    const renewed = await call("POST", `/api/crews/${crew.id}/link`, ALEX);
+    assert.equal((await call("POST", `/api/invites/${renewed.body.crew.token}/join`, HOST)).status, 200);
     const theirs = await call("GET", "/api/crews", HOST);
     assert.equal(theirs.body.crews.length, 1);
     assert.equal(

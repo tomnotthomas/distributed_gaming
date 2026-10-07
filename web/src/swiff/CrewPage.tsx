@@ -42,6 +42,8 @@ import {
 import { crewText, type CopyKey, type Lang } from "./crewCopy";
 import { DateStep, GamesStep, WhoIsComing } from "./CrewPlan";
 import { CrewPlay, playPc } from "./CrewPlay";
+import { MemberMenu, PcCrews } from "./CrewManage";
+import { manageText } from "./manageCopy";
 import { Avatar, LobbyArt, LobbyTitle, PcIcon, Tick, useCrewText, useShare, WhatsAppGlyph } from "./crewUi";
 import { Glyph } from "./Glyph";
 import { inviteLink } from "./invite";
@@ -808,6 +810,32 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
               }
             />
           ) : null}
+
+          {crew.own && crew.size > 1 ? (
+            <section className="gc-who" aria-labelledby="cm-people-h">
+              <h2 id="cm-people-h">{manageText(lang)("rm.people")}</h2>
+              <p className="cm-only">{manageText(lang)("rm.only")}</p>
+              <ul>
+                {crew.members.map((m, i) => (
+                  <li key={m.id} className={m.you ? "me" : undefined}>
+                    <Avatar name={m.name ?? (m.you ? t("cp.you") : null)} index={i} />
+                    <span className="gc-nm">
+                      <span>
+                        {m.you ? (m.name ? t("g.you", { name: m.name }) : t("cp.you")) : (m.name ?? t("cp.anon"))}
+                      </span>
+                    </span>
+                    {m.you ? (
+                      <span />
+                    ) : (
+                      <MemberMenu crew={crew} member={m} say={say} onRemoved={() => load(true)} />
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          {me.pcs > 0 ? <PcCrews crew={crew} say={say} onChanged={setCrew} /> : null}
 
           <details className="gc-more">
             <summary>

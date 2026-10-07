@@ -3,6 +3,7 @@ import { Backdrop, Button, StatusDot, Tag, TopBar } from "@swiff/ui";
 import type { RenterStats } from "@swiff/rtc";
 import { CrewOverlay } from "./Crew";
 import { Reconnecting } from "./Reconnect";
+import { SwitchToast } from "./SwitchToast";
 import { gameArt, gameArtFallbacks, gameTrailer } from "./steam";
 import type { Swiff } from "./useSwiff";
 
@@ -195,6 +196,11 @@ export function Session({ swiff }: { swiff: Swiff }) {
       {/* Crewmates watching, and the voice chat: once the game is on screen. */}
       {real && swiff.crewHub && !behindIgnition ? (
         <CrewOverlay hub={swiff.crewHub} crew={swiff.crew} />
+      ) : null}
+
+      {/* The crew's vote on who plays next, and the time to save once it said yes. */}
+      {real && !behindIgnition ? (
+        <SwitchToast swiff={swiff} sessionId={swiff.claim?.sessionId ?? null} />
       ) : null}
 
       {real ? <Reconnecting swiff={swiff} host={host} /> : null}

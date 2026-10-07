@@ -1764,6 +1764,32 @@ export class Platform {
   }
 
   /**
+   * The crew voted that `userId` plays `gameId` next (switches.ts): they go
+   * first in its line, ahead of anyone waiting, with that game. False unless
+   * they are in it.
+   */
+  queueFirst(crewId: string, userId: string, gameId: number): Promise<boolean> {
+    return this.#transaction(async () => {
+      const now = this.#now();
+      const first = await this.#get<{ at: number | null }>(
+        "SELECT min(next_at) AS at FROM crew_members WHERE crew_id = $1 AND user_id <> $2",
+        crewId,
+        userId,
+      );
+      const at = Math.min(now, first?.at === null || first?.at === undefined ? now : Number(first.at) - 1);
+      return (
+        (await this.#run(
+          "UPDATE crew_members SET next_game = $1, next_at = $2 WHERE crew_id = $3 AND user_id = $4",
+          gameId,
+          at,
+          crewId,
+          userId,
+        )) > 0
+      );
+    });
+  }
+
+  /**
    * Note that `userId` shared the crew's invite with its Zockrunde. Null unless
    * they are in it; "no-session" while it has none ahead or under way, since
    * the invite then carries no date to answer.
@@ -1910,6 +1936,16 @@ export class Platform {
         crew.id,
         userId,
       );
+      // Removed by the admin: the link they had then no longer lets them in, only a new one does.
+      const removed = member
+        ? undefined
+        : await this.#get(
+            "SELECT 1 FROM crew_removals WHERE crew_id = $1 AND user_id = $2 AND invite_id = $3",
+            crew.id,
+            userId,
+            inviteId,
+          );
+      if (removed) return { ok: false, reason: "not-found" };
       if (!member && (await this.#crewCount(userId)) >= MAX_CREWS) return { ok: false, reason: "too-many" };
       const joined =
         (await this.#run(
@@ -1923,6 +1959,7 @@ export class Platform {
           now,
         )) > 0;
       if (joined) {
+        await this.#run("DELETE FROM crew_removals WHERE crew_id = $1 AND user_id = $2", crew.id, userId);
         // They may play on the crew's PCs now: the wall reads again, and the queue is matched anew.
         this.#offerChanged = true;
         await this.#tick(now);
@@ -1945,8 +1982,9 @@ export class Platform {
    * leave the crew with them. An admin who leaves hands the crew to whoever
    * has been in it longest; the last one out archives it. From now on the one
    * gone matches none of the crew's PCs (gate E7), and one matched to them
-   * before goes back at the claim. False when it is not theirs to end, or is
-   * gone already.
+   * before goes back at the claim. Someone the admin removed cannot come back
+   * by the crew's link of then, only by a new one (joinCrew). False when it is
+   * not theirs to end, or is gone already.
    */
   leaveCrew(memberId: string, userId: string): Promise<boolean> {
     return this.#transaction(async () => {
@@ -1957,6 +1995,20 @@ export class Platform {
       );
       if (!member || (member.user_id !== userId && member.owner_id !== userId)) return false;
       const now = this.#now();
+      if (member.user_id !== userId) {
+        const live = await this.#get<{ id: string }>(
+          "SELECT id FROM crew_invites WHERE crew_id = $1 AND revoked_at IS NULL",
+          member.crew_id,
+        );
+        await this.#run(
+          `INSERT INTO crew_removals (crew_id, user_id, invite_id, removed_at) VALUES ($1, $2, $3, $4)
+             ON CONFLICT (crew_id, user_id) DO UPDATE SET invite_id = $3, removed_at = $4`,
+          member.crew_id,
+          member.user_id,
+          live?.id ?? null,
+          now,
+        );
+      }
       await this.#removeMember(memberId, member, now);
       await this.#tick(now);
       return true;
@@ -2356,6 +2408,33 @@ export class Platform {
       }
       return live;
     });
+  }
+
+  /** Session `sessionId` while it is being played, past Ignition; null otherwise. Whose it is, is the caller's to check. */
+  liveSession(sessionId: string): Promise<CrewLiveSession | null> {
+    return this.#read(
+      async () =>
+        (await this.#get<CrewLiveSession>(
+          `${LIVE_SESSIONS} WHERE s.id = $1 AND s.ended_at IS NULL AND b.status = 'playing'`,
+          sessionId,
+        )) ?? null,
+    );
+  }
+
+  /**
+   * End session `sessionId` as its player would, leaving it: the crew voted
+   * someone else plays next (switches.ts). False when it is over already.
+   */
+  async endLiveSession(sessionId: string): Promise<boolean> {
+    const row = await this.#read(() =>
+      this.#get<{ booking_id: string; renter_id: string | null }>(
+        `SELECT s.booking_id, b.renter_id FROM sessions s JOIN bookings b ON b.id = s.booking_id
+           WHERE s.id = $1 AND s.ended_at IS NULL`,
+        sessionId,
+      ),
+    );
+    if (!row) return false;
+    return (await this.endBooking(row.booking_id, row.renter_id)).ok;
   }
 
   /**

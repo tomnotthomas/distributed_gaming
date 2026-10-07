@@ -7,6 +7,8 @@ import "./swiff/swiff.css";
 import "./swiff/crew.css";
 import "./swiff/crewPlan.css";
 import "./swiff/seat.css";
+import "./swiff/stream.css";
+import "./swiff/manage.css";
 import "./posthog";
 
 // Three routes, one bundle. "/" is the product — the live wall, with Share your

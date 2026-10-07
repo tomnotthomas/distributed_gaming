@@ -434,6 +434,18 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     `ALTER TABLE crews ADD COLUMN found_key TEXT`,
     `CREATE UNIQUE INDEX crews_found_key ON crews (owner_id, found_key) WHERE found_key IS NOT NULL`,
   ],
+  [
+    // Who a crew's admin removed (platform.ts, leaveCrew), and the crew's link
+    // that was live then (invite_id, null for none): that link no longer lets
+    // them back in, only a new one does. Joining again clears it.
+    `CREATE TABLE crew_removals (
+      crew_id    TEXT NOT NULL REFERENCES crews (id),
+      user_id    TEXT NOT NULL,
+      invite_id  TEXT,
+      removed_at BIGINT NOT NULL,
+      PRIMARY KEY (crew_id, user_id)
+    )`,
+  ],
 ];
 
 /**

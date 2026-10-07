@@ -21,9 +21,10 @@ import {
   verifyWatchTicket,
   type Access,
 } from "../access.js";
-import { createApi } from "../api.js";
+import { createApi, crewSwitches } from "../api.js";
 import { RequestBudget } from "../budget.js";
 import { Platform } from "../platform.js";
+import type { Switches } from "../switches.js";
 import { MAX_WATCHERS, type SignalMessage } from "../protocol.js";
 import { SESSION_COOKIE } from "../signin.js";
 import { emptyProfile } from "../steam.js";
@@ -196,12 +197,24 @@ describe("watch tickets", () => {
   });
 });
 
+/** Wait until `check` is truthy, a moment at a time, for work a route set off without waiting. */
+async function waitFor(check: () => Promise<unknown>): Promise<void> {
+  for (let i = 0; i < 100; i++) {
+    if (await check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.fail("never came true");
+}
+
 describe("crew live sessions", () => {
   let now: number;
   let platform: Platform;
   let server: Server;
   let origin: string;
   let watches: Watches;
+  let switches: Switches;
+  /** The switches' timers waiting to run. */
+  let timers: (() => void)[] = [];
   let crewLeft = 0;
   /** Whether a TURN relay is configured: watching is relay-only. */
   let relay = true;
@@ -228,6 +241,7 @@ describe("crew live sessions", () => {
         discovery: new RequestBudget({ now: () => now }),
         isFree: async () => true,
         watches,
+        switches,
         watchRelay: async (seat) => {
           mints.push({ seat: seat.id, watches: watches.all().length });
           return relay
@@ -257,6 +271,15 @@ describe("crew live sessions", () => {
       now: () => now,
       owners,
       onAvailabilityChanged: () => availabilityChanged++,
+    });
+    timers = [];
+    switches = crewSwitches({
+      platform,
+      now: () => now,
+      setTimer: (run) => {
+        timers.push(run);
+        return () => (timers = timers.filter((t) => t !== run));
+      },
     });
   });
 
@@ -413,6 +436,51 @@ describe("crew live sessions", () => {
     assert.deepEqual(await platform.watchCrews(sessionId), []);
   });
 
+  it("lets a crewmate ask to play next, the crew vote, and the PC switch once the player saved", async () => {
+    const lea = await maraCrew();
+    const { sessionId, bookingId } = await plays(MARA);
+    const crewId = (await platform.crews(MARA))[0]!.id;
+    const path = `/api/crew-live/${sessionId}`;
+    assert.deepEqual((await call("GET", `${path}/switch`, LEA)).body, { switch: null });
+    assert.equal((await call("GET", `${path}/switch`, STRANGER)).status, 404);
+    assert.equal((await call("POST", `${path}/switch`, MARA, { gameId: 440 })).status, 404);
+    assert.equal((await call("POST", `${path}/switch`, LEA, { gameId: "x" })).status, 400);
+
+    const asked = await call("POST", `${path}/switch`, LEA, { gameId: 440 });
+    assert.equal(asked.status, 201);
+    assert.equal(asked.body.switch.outcome, "open");
+    assert.equal(asked.body.switch.mine, true);
+    assert.equal(asked.body.switch.voters, 2);
+    assert.equal((await call("POST", `${path}/switch`, JON, { gameId: 730 })).body.code, "open");
+    // Jon was not in the session when Lea asked: he does not vote.
+    assert.equal((await call("POST", `${path}/vote`, JON, { yes: true })).status, 403);
+    assert.equal((await call("POST", `${path}/handover`, MARA, { ask: "now" })).status, 409);
+
+    const seen = await call("GET", `${path}/switch`, MARA);
+    assert.equal(seen.body.switch.playing, true);
+    assert.equal(seen.body.switch.proposer, "Lea");
+    const yes = await call("POST", `${path}/vote`, MARA, { yes: true });
+    assert.equal(yes.body.switch.outcome, "yes");
+    assert.equal(yes.body.switch.switchAt, now + 180_000);
+    // Lea goes first in the crew's line with her game.
+    await waitFor(
+      async () => (await platform.crew(crewId, MARA))!.members.find((m) => m.id === lea.id)!.next,
+    );
+    assert.equal(
+      (await platform.crew(crewId, MARA))!.members.find((m) => m.id === lea.id)!.next!.gameId,
+      440,
+    );
+
+    assert.equal((await call("POST", `${path}/handover`, LEA, { ask: "now" })).status, 404);
+    const more = await call("POST", `${path}/handover`, MARA, { ask: "more" });
+    assert.equal(more.body.switch.switchAt, now + 300_000);
+    assert.equal((await call("POST", `${path}/handover`, MARA, { ask: "now" })).status, 200);
+    assert.equal(timers.length, 1);
+    for (const run of timers) run();
+    await waitFor(async () => (await platform.booking(bookingId, MARA))?.status === "ended");
+    assert.equal((await call("GET", `${path}/switch`, LEA)).status, 404);
+  });
+
   it("lists a crewmate's session with whether they share and the viewer's own watch", async () => {
     await maraCrew();
     const { sessionId } = await plays(MARA);
@@ -429,6 +497,7 @@ describe("crew live sessions", () => {
         sharing: false,
         watching: 0,
         mine: null,
+        crew: (await platform.crews(MARA))[0]!.id,
       },
     ]);
     assert.equal((await call("GET", "/api/crew-live")).status, 401);
