@@ -613,7 +613,7 @@ GET  /crews/:id
   → 200 { crew: { id, memberId, name, crewName, own, size, state, pcs, token, session,
                   shared, busy: [{ at, owner, mine }], picks, offered,
                   members: [{ id, name, you, admin, pc, pcs, rsvp, next }],
-                  machines: [{ id, name, owner, mine, state, games, playing }] } }
+                  machines: [{ id, name, owner, mine, crewOnly?, state, games, playing }] } }
   The crew, for someone in it, with its link's token. A PC's `state` is `ready`, `busy`
   or `offline`. `session` is its next Zockrunde, `{ at, yes, no }` (when it starts, Unix
   ms, and how many said yes or no), null until its admin sets one; a member's `rsvp` is
@@ -628,7 +628,8 @@ GET  /crews/:id
   which crew), which the date calendar
   marks; `picks` how many games still on one of its PCs the viewer marked to play;
   `offered` how many games its PCs have installed, so the games step counts as done when
-  there are none to pick. → 404 for anyone else, or none. → 401 signed out.
+  there are none to pick. `crewOnly` is sent only to the PC's owner: whether it plays for
+  its crews alone or is open to anyone too. → 404 for anyone else, or none. → 401 signed out.
 
 POST /crews/:id/name { name }   → 200 { crew }
 POST /crews/:id/link            → 200 { crew }
