@@ -427,7 +427,11 @@ export function createSignups({
         return true;
       }
       const retryAt = await remind(steamId, await readJson(req, MAX_SIGNUP_BODY_BYTES));
-      json(res, 200, retryAt === null ? await reminders(steamId) : { ...(await reminders(steamId)), retryAt });
+      json(
+        res,
+        200,
+        retryAt === null ? await reminders(steamId) : { ...(await reminders(steamId)), retryAt },
+      );
       return true;
     }
     const action = LINK_ACTIONS.find((a) => path === `/api/signups/${a}`);

@@ -570,7 +570,11 @@ describe("marketing site", () => {
     await confirm(await linkToken("confirm"));
     await off();
     const again = JSON.parse((await remind({ email: "fay@example.com" })).body);
-    assert.deepEqual(again, { email: "fay@example.com", confirmed: false, retryAt: sentAt + RESEND_AFTER_MS });
+    assert.deepEqual(again, {
+      email: "fay@example.com",
+      confirmed: false,
+      retryAt: sentAt + RESEND_AFTER_MS,
+    });
     assert.equal((await outbox()).length, 1);
 
     // Stopped, it needs confirming afresh.
@@ -585,8 +589,13 @@ describe("marketing site", () => {
     const statuses = [];
     for (let i = 0; i < CLIENT_BURST + 1; i++)
       statuses.push(
-        (await ask(origin, "/api/signups/reminders/off", { host: APP_HOST, method: "POST", renter: "765611" }))
-          .status,
+        (
+          await ask(origin, "/api/signups/reminders/off", {
+            host: APP_HOST,
+            method: "POST",
+            renter: "765611",
+          })
+        ).status,
       );
     assert.deepEqual(statuses, [...Array<number>(CLIENT_BURST).fill(200), 429]);
   });

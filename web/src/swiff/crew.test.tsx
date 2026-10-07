@@ -1092,7 +1092,9 @@ describe("CrewPage: sharing and reminders", () => {
       "POST /api/signups/reminders": [200, { email: "lena@example.com", confirmed: false, retryAt }],
     });
     render(<CrewPage swiff={atCrew("c1")} />);
-    fireEvent.change(await screen.findByLabelText("Email address"), { target: { value: "lena@example.com" } });
+    fireEvent.change(await screen.findByLabelText("Email address"), {
+      target: { value: "lena@example.com" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Remind me" }));
     expect(
       await screen.findByText(
