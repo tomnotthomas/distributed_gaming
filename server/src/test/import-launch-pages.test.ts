@@ -288,6 +288,22 @@ describe("importing the launch set", () => {
       ),
       'so you need a Windows gaming PC."',
     );
+    assert.equal(
+      neutralWording('deine Steam-Spiele auf deinem Mac, ohne Warteliste."'),
+      'deine Steam-Spiele auf deinem Mac."',
+    );
+    assert.equal(
+      neutralWording('your Steam games on your Mac, no waitlist."'),
+      'your Steam games on your Mac."',
+    );
+    assert.equal(
+      neutralWording("Und ich hab einen Platz für dich, damit sparst du dir die Warteliste. Gilt 14 Tage"),
+      "Und ich hab einen Platz für dich. Gilt 14 Tage",
+    );
+    assert.equal(
+      neutralWording("Got you a seat so you can skip the waitlist. Good for 14 days"),
+      "Got you a seat. Good for 14 days",
+    );
     assert.equal(neutralWording("Frei: meist abends ab 20 Uhr"), "Frei: wenn der PC frei ist");
     assert.equal(
       neutralWording("Eine Crew für unsere Zockabende, zwei Testabende, Testabend 1"),

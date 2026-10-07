@@ -179,6 +179,11 @@ export const CORRECTIONS = [
   // Nor does the Linux answer ask anyone to sign up for news.
   [" Trag dich trotzdem ein, dann erfährst du, wenn sich das ändert.", ""],
   [" Sign up anyway and we'll let you know if that changes.", ""],
+  // A gifted seat skips no waitlist either.
+  [", ohne Warteliste.", "."],
+  [", no waitlist.", "."],
+  [", damit sparst du dir die Warteliste.", "."],
+  [" so you can skip the waitlist.", "."],
 ];
 
 /** `text` with the set's meetup and time-of-day wording put the app's way (MEETUP_WORDING), and its slips corrected. */
