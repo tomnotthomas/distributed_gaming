@@ -625,7 +625,6 @@ body:has(> #root > .sw) {
   font: 400 clamp(40px, 5.6vw, 96px) / 1 var(--wide);
   letter-spacing: 0.01em;
   text-transform: uppercase;
-  overflow-wrap: break-word;
   /* Fitted by measuring (useFitTitle): a size change must land at once. Under
      reduced motion the library gives every element a short transition, which
      would make each step read the old size and shrink the title to nothing. */
