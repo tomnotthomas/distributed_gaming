@@ -35,8 +35,8 @@
     "vitest": "^5.0.1"
   },
   "build": {
-    "appId": "com.swiff.host",
-    "productName": "Swiff Host",
+    "appId": "com.lanterel.host",
+    "productName": "Lanterel Host",
     "directories": {
       "output": "release"
     },
@@ -67,12 +67,12 @@
     ],
     "win": {
       "target": "portable",
-      "artifactName": "SwiffHost-${version}.exe"
+      "artifactName": "LanterelHost-${version}.exe"
     },
     "electronVersion": "33.4.11",
     "npmRebuild": false,
     "compression": "maximum"
   },
-  "description": "Swiff host \u2014 shares this machine's screen with a renter.",
-  "author": "Swiff"
+  "description": "Lanterel Host \u2014 shares this machine's screen with a renter.",
+  "author": "Lanterel"
 }

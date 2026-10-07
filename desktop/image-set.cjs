@@ -63,7 +63,7 @@ function readSigned(dir, files = fs) {
       signature: files.readFileSync(path.join(dir, SIGNATURE)),
     };
   } catch {
-    throw new Error(`No signed Swiff OS image set in ${dir}.`);
+    throw new Error(`No signed Lanterel OS image set in ${dir}.`);
   }
 }
 
@@ -84,7 +84,7 @@ function signedBy(trusted, manifest, signature) {
  */
 function imageSetOf(manifest, signature, trust) {
   const signer = trust.find((t) => signedBy(t, manifest, signature));
-  if (!signer) throw new Error("Swiff did not sign this image set.");
+  if (!signer) throw new Error("Lanterel did not sign this image set.");
   let parsed;
   try {
     parsed = JSON.parse(manifest.toString("utf8"));
@@ -95,7 +95,7 @@ function imageSetOf(manifest, signature, trust) {
   if (typeof version !== "string" || !/^[\w.+-]+$/.test(version))
     throw new Error("The image set has no version.");
   if (!Array.isArray(layout) || layout.length !== SWIFF_OS.partitions.length)
-    throw new Error("The image set lays out other partitions than Swiff OS's.");
+    throw new Error("The image set lays out other partitions than Lanterel OS's.");
   layout.forEach((p, i) => {
     const want = SWIFF_OS.partitions[i];
     if (
@@ -108,7 +108,7 @@ function imageSetOf(manifest, signature, trust) {
       p.name.length > 36 ||
       !/^0x[0-9a-f]{1,16}$/.test(p.attrs)
     )
-      throw new Error(`The image set's partition ${i + 1} is not Swiff OS's ${want.role}.`);
+      throw new Error(`The image set's partition ${i + 1} is not Lanterel OS's ${want.role}.`);
   });
   const need = [...layout.filter((p) => p.split).map((p) => splitFile(p.split, version)), MOK_CERT];
   for (const name of need) {
@@ -120,7 +120,7 @@ function imageSetOf(manifest, signature, trust) {
     if (listed[splitFile(p.split, version)].bytes !== p.bytes)
       throw new Error(`The image set's ${p.role} is not the size of its partition.`);
   if (listed[MOK_CERT].sha256 !== signer.certSha256)
-    throw new Error("The image set's certificate is not Swiff's.");
+    throw new Error("The image set's certificate is not Lanterel's.");
   return {
     version,
     layout: layout.map(({ role, type, bytes, split, id, name, attrs }) => ({
@@ -436,7 +436,7 @@ if (require.main === module) {
       );
     else if (cmd === "verify")
       console.log(
-        `A release build reads Swiff OS ${readImageSet(a, { trust: trustOf({ dev: false }) }).version} in ${a}.`,
+        `A release build reads Lanterel OS ${readImageSet(a, { trust: trustOf({ dev: false }) }).version} in ${a}.`,
       );
     else if (cmd === "manifest") writeManifest(a, b, c).catch(failed);
     else {

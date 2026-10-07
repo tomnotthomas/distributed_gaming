@@ -21,12 +21,12 @@ function statement({ steam, games }: HostView): { title: string; line: string } 
   if (!status.installed)
     return {
       title: "Install Steam",
-      line: "Swiff downloads the Steam installer for you. Click through it like any other install.",
+      line: "Lanterel downloads the Steam installer for you. Click through it like any other install.",
     };
   if (!status.signedIn)
     return {
       title: "Sign in to Steam",
-      line: "Sign in with your own account in the Steam window. Swiff never sees your password.",
+      line: "Sign in with your own account in the Steam window. Lanterel never sees your password.",
     };
   return {
     title: "Steam is ready",

@@ -1,5 +1,5 @@
 [Unit]
-Description=Swiff LAN firewall: allow the current gateway and DNS servers
+Description=Lanterel LAN firewall: allow the current gateway and DNS servers
 After=nftables.service systemd-networkd.service systemd-resolved.service
 Requires=nftables.service
 

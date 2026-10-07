@@ -635,7 +635,11 @@ button: signed out, Steam sign-in comes back to `/invite` (the token waits in th
 address shows `/invite` rather than the token; only with storage blocked does the token stay
 in the path) and joins at once, then the friend lands on the crew's page. The profile and the
 wall carry the player's crews and a way to found one. Their words, in German and English
-kept apart, are in `web/src/swiff/crewCopy.ts`.
+kept apart, are in `web/src/swiff/crewCopy.ts`. The crew screens, the invite, the seat
+invite and the wall (`screenCopy.ts`) speak German to a browser set to German and English
+to everyone else. The other screens are still English only. A screen's language is decided once (`screenLang`) and
+everything shown on it follows: the top bar, the crew card and banner, the come-back dialogs
+and Ignition. The session's own screen is English only. So no screen mixes the two.
 
 ### Friend seats
 

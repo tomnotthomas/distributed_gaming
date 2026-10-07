@@ -221,7 +221,7 @@ export function useRental(): RentalSetup & {
           setRun({
             ...IDLE_RUN,
             status: "failed",
-            failed: { step: "plan", error: "Swiff couldn't plan this again." },
+            failed: { step: "plan", error: "Lanterel couldn't plan this again." },
           });
       });
   };

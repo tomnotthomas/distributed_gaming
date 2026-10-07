@@ -2,23 +2,22 @@
 // lobby look (crew.css): the key art fading into paper, the drafted title, the
 // progress stops, a member's avatar, and sharing a message.
 
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import { initials } from "./Chrome";
-import { crewText, langOf, type CopyKey, type Lang } from "./crewCopy";
+import { crewText, type CopyKey, type Lang } from "./crewCopy";
 import type { CrewView } from "./crews";
 import { GAMES } from "./data";
+import { ScreenLang } from "./screenCopy";
 import { shareTarget, type Channel } from "./invite";
 import { gameArt } from "./steam";
 
 /** The lobby's key art: Counter-Strike 2's, free to play, so nobody is shown a game they cannot have. */
 const ART = GAMES.find((g) => g.id === "cs")!;
 
-/** The words for the crew screens in the browser's language, and that language. */
+/** The crew words in the language of the screen they are on (screenLang), and that language. */
 export function useCrewText(): { lang: Lang; t: ReturnType<typeof crewText> } {
-  return useMemo(() => {
-    const lang = langOf();
-    return { lang, t: crewText(lang) };
-  }, []);
+  const lang = useContext(ScreenLang);
+  return useMemo(() => ({ lang, t: crewText(lang) }), [lang]);
 }
 
 /** The tick the checklist and the progress stops draw. */

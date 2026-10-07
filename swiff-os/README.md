@@ -1,6 +1,6 @@
 # Swiff OS
 
-Swiff OS is the rental mode for host PCs: a locked Linux system that a host PC boots into while it is
+Swiff OS (shown to owners and in the boot menu as Lanterel OS) is the rental mode for host PCs: a locked Linux system that a host PC boots into while it is
 shared. The renter's Steam session runs on an immutable, measured OS that the owner has no admin rights
 on. The design is in the rental-mode report (§5–§8, staged plan in §11). This directory is built up
 stage by stage.

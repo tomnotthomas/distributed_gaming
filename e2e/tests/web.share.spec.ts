@@ -44,7 +44,7 @@ test.describe("share your PC", () => {
 
     await page.getByRole("button", { name: "How we got this number" }).click();
     const sheet = page.getByRole("dialog");
-    await expect(sheet).toContainText("for an Enthusiast rig");
+    await expect(sheet).toContainText("for an Enthusiast PC");
     await expect(page.getByRole("button", { name: "Close" })).toBeFocused();
 
     await sheet.getByLabel("Hours away per day").fill("8");
@@ -82,7 +82,7 @@ test.describe("share your PC", () => {
     await expect(page).toHaveURL(/\/share#trust$/);
     const trust = page.locator("#trust");
     await expect(trust).toBeInViewport();
-    await expect(trust).toContainText("Swiff never reads, sends or keeps it");
+    await expect(trust).toContainText("Lanterel never reads, sends or keeps it");
     await expect(trust).toContainText("One click starts its removal");
     await expect(trust).toContainText(HOST ? HOST.sha256 : "SHA-256 is published here with it");
     await expect(page.getByTestId("share")).toBeVisible();

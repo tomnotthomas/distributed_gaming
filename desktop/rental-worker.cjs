@@ -491,7 +491,7 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
   /** Swiff OS's loader: shim, on Swiff OS's own boot partition. */
   const swiffLoader = () => {
     const esp = state.get().partitions.find((p) => p.role === "esp");
-    must(esp, "Swiff OS has no boot partition.");
+    must(esp, "Lanterel OS has no boot partition.");
     return { partition: esp.id, path: BOOT_PATH };
   };
 
@@ -505,10 +505,10 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
    */
   const addEntry = async (disk) => {
     const esp = state.get().partitions.find((p) => p.role === "esp");
-    must(esp, "Swiff OS has no boot partition.");
+    must(esp, "Lanterel OS has no boot partition.");
     const partition = await withDisk(disk, async (_disk, gpt) => {
       const e = gpt.entries.find((x) => x.id === esp.id);
-      must(e && e.type === TYPE.esp, "Swiff OS's boot partition is not on the disk.");
+      must(e && e.type === TYPE.esp, "Lanterel OS's boot partition is not on the disk.");
       return { number: e.index + 1, first: e.first, sectors: e.last - e.first + 1, id: e.id };
     });
     const names = Array.from({ length: 256 }, (_, i) => efi.bootName(i));
@@ -544,7 +544,7 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
   /** Swiff OS's boot entry, wherever the firmware has it now, or added again when it is gone. */
   const ourEntry = async () => {
     const { disk } = state.get();
-    must(disk !== null && state.get().bootEntry !== null, "Swiff OS has no boot entry.");
+    must(disk !== null && state.get().bootEntry !== null, "Lanterel OS has no boot entry.");
     return (await findEntry()) ?? (await addEntry(disk));
   };
 
@@ -582,6 +582,7 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
     });
   }
 
+  /** Checks `op` against what this worker allows, then carries it out, reporting progress for long writes. */
   async function apply(op, progress = () => {}) {
     checkOp(op);
     const s = state.get();
@@ -672,17 +673,17 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
             k.from === op.size,
           "The install did not shrink that drive by that much.",
         );
-        must(!s.partitions.length, "Swiff OS's partitions are still in the way.");
+        must(!s.partitions.length, "Lanterel OS's partitions are still in the way.");
         await run(op);
         state.save({ shrink: null });
         return {};
       }
       case "gpt-add": {
-        must(!s.partitions.length, "Swiff OS's partitions are already there.");
-        must(s.disk === null || s.disk === op.disk, "Swiff OS's room is on another disk.");
+        must(!s.partitions.length, "Lanterel OS's partitions are already there.");
+        must(s.disk === null || s.disk === op.disk, "Lanterel OS's room is on another disk.");
         // Exactly the image's partitions, back to back: nothing else may be added.
         const { layout } = imageSet();
-        must(op.partitions.length === layout.length, "Those are not Swiff OS's partitions.");
+        must(op.partitions.length === layout.length, "Those are not Lanterel OS's partitions.");
         op.partitions.forEach((p, i) => {
           const want = layout[i];
           must(
@@ -696,7 +697,7 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
           );
           must(
             i === 0 || p.offset === op.partitions[i - 1].offset + op.partitions[i - 1].bytes,
-            "Swiff OS's partitions are not back to back.",
+            "Lanterel OS's partitions are not back to back.",
           );
         });
         await withDisk(op.disk, async (disk, gpt) => {
@@ -733,8 +734,8 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
         return {};
       }
       case "gpt-remove": {
-        must(s.disk === op.disk, "Swiff OS is not on that disk.");
-        must(s.bootEntry === null, "Take Swiff OS out of the boot menu first.");
+        must(s.disk === op.disk, "Lanterel OS is not on that disk.");
+        must(s.bootEntry === null, "Take Lanterel OS out of the boot menu first.");
         must(
           op.partitions.length === s.partitions.length &&
             op.partitions.every(
@@ -768,7 +769,7 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
         const layout = part && imageSet().layout.find((p) => p.role === part.role);
         must(
           s.disk === op.disk && layout && layout.split === op.source,
-          "That is not one of Swiff OS's partitions.",
+          "That is not one of Lanterel OS's partitions.",
         );
         const source = sourceOf(imageSet(), op.source);
         must(source.bytes === op.bytes, "The file is not the size of its partition.");
@@ -813,14 +814,17 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
       }
       case "boot-entry": {
         const esp = s.partitions.find((p) => p.role === "esp");
-        must(s.disk === op.disk && esp && esp.offset === op.offset, "That is not Swiff OS's boot partition.");
+        must(
+          s.disk === op.disk && esp && esp.offset === op.offset,
+          "That is not Lanterel OS's boot partition.",
+        );
         if (s.bootEntry !== null) return { entry: await ourEntry() };
         // Written and checked: the boot partition becomes an ESP now, before the firmware is pointed at it.
         const retyped = await withDisk(op.disk, async (disk, gpt) => {
           const e = gpt.entries.find((x) => x.id === esp.id);
           must(
             e && (e.type === TYPE.esp || e.type === STAGING),
-            "Swiff OS's boot partition is not on the disk.",
+            "Lanterel OS's boot partition is not on the disk.",
           );
           if (e.type === TYPE.esp) return false;
           disk.write(gptWrites(withRetyped(gpt, e.index, TYPE.esp)));
@@ -906,7 +910,7 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
         });
         must(
           !left.length,
-          `Swiff OS is still in the boot menu: ${left.map((n) => efi.bootName(n)).join(", ")}.`,
+          `Lanterel OS is still in the boot menu: ${left.map((n) => efi.bootName(n)).join(", ")}.`,
         );
         const next = (await win.firmware([{ get: "BootNext", guid: efi.GLOBAL }])).BootNext;
         must(
@@ -921,7 +925,7 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
         if (op.disk !== null)
           await withDisk(op.disk, async (_disk, gpt) => {
             const still = gpt.entries.filter((e) => op.ids.includes(e.id));
-            must(!still.length, `Swiff OS's partitions are still on disk ${op.disk}.`);
+            must(!still.length, `Lanterel OS's partitions are still on disk ${op.disk}.`);
           });
         return {};
       }
@@ -939,13 +943,13 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
         return {};
       }
       case "installed":
-        must(s.partitions.length && s.bootEntry !== null, "Swiff OS is not on this PC yet.");
+        must(s.partitions.length && s.bootEntry !== null, "Lanterel OS is not on this PC yet.");
         state.save({ complete: true });
         return {};
       case "forget":
         must(
           s.bootEntry === null && !s.partitions.length && !s.shrink,
-          "Part of Swiff OS is still on this PC.",
+          "Part of Lanterel OS is still on this PC.",
         );
         state.forget();
         return {};

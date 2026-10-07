@@ -3,6 +3,7 @@ import { Backdrop } from "@swiff/ui";
 import type { Game } from "./data";
 import { Glyph } from "./Glyph";
 import { RECONNECT_GRACE_MS } from "./play";
+import { useScreenText } from "./screenCopy";
 import { gameArt, gameArtFallbacks } from "./steam";
 import type { Swiff } from "./useSwiff";
 
@@ -41,6 +42,18 @@ function useNow(): number {
   return now;
 }
 
+/** `text` with its `{host}` slot filled by `host` in bold. */
+export function withHost(text: string, host: string): ReactNode {
+  const [before = "", after = ""] = text.split("{host}");
+  return (
+    <>
+      {before}
+      <b>{host}</b>
+      {after}
+    </>
+  );
+}
+
 /** The game with Steam appid `appid`, as the wall knows it. */
 const gameOf = (swiff: Swiff, appid: number) => swiff.games.find((g) => g.appid === appid) ?? null;
 
@@ -72,6 +85,7 @@ type ComeBackProps = {
  */
 function ComeBack(props: ComeBackProps) {
   const { game, primary, secondary } = props;
+  const { t } = useScreenText();
   const root = useRef<HTMLDivElement>(null);
   const first = useRef<HTMLButtonElement>(null);
   const hasPrimary = Boolean(primary);
@@ -103,10 +117,10 @@ function ComeBack(props: ComeBackProps) {
           />
         ) : null}
         <div className="ig-shade" />
-        <span className="wm ig-wm">Swiff</span>
+        <span className="wm ig-wm">Lanterel</span>
         <div className="ig-copy">
           <div className="mono">{props.kicker}</div>
-          <div className="ig-title">{game?.title ?? "Your game"}</div>
+          <div className="ig-title">{game?.title ?? t("game.Yours")}</div>
           {props.where ? <div className="ig-where">{props.where}</div> : null}
         </div>
       </div>
@@ -150,52 +164,50 @@ function ComeBack(props: ComeBackProps) {
 /** Screen A: the session the page left is still running on the PC. */
 export function AwayDialog({ swiff }: { swiff: Swiff }) {
   const now = useNow();
+  const { t } = useScreenText();
   const { away, rejoining } = swiff;
   if (!away) return null;
   const { booking, heldUntil } = away;
   const game = gameOf(swiff, booking.gameId);
-  const host = booking.machine?.name || "your machine";
+  const host = booking.machine?.name || t("away.yourMachine");
   return (
     <ComeBack
       testId="away"
-      label={`${game?.title ?? "Your game"} is still yours`}
+      label={t("away.label", { game: game?.title ?? t("game.Yours") })}
       game={game}
-      kicker="Still yours"
-      where={
-        <>
-          on <b>{host}</b>
-        </>
-      }
-      reading={heldUntil === null ? "Still running" : "Held for you"}
+      kicker={t("away.kicker")}
+      where={withHost(t("back.on"), host)}
+      reading={heldUntil === null ? t("away.running") : t("away.held")}
       timeTestId="away-held"
-      time={heldUntil === null ? "Live" : minutesSeconds(heldUntil - now, true)}
-      line="It kept running when the page closed. Pick it up where you left off."
+      time={heldUntil === null ? t("away.live") : minutesSeconds(heldUntil - now, true)}
+      line={t("away.line")}
       primary={{
-        label: rejoining ? "Reconnecting…" : "Reconnect",
+        label: rejoining ? t("away.reconnecting") : t("back.reconnect"),
         onClick: swiff.reconnect,
         disabled: rejoining,
       }}
-      secondary={{ label: "End session", onClick: swiff.endAway }}
+      secondary={{ label: t("back.end"), onClick: swiff.endAway }}
     />
   );
 }
 
 /** Screen C: a queued booking picked up on a page load, still waiting for a machine. */
 export function QueueBackDialog({ swiff }: { swiff: Swiff }) {
+  const { t } = useScreenText();
   const { queueBack, booking } = swiff;
   if (!queueBack || booking?.status !== "queued") return null;
   return (
     <ComeBack
       testId="queue-back"
-      label="Still finding a machine"
+      label={t("queue.finding")}
       game={gameOf(swiff, booking.gameId)}
-      kicker="Still finding a machine"
-      reading="In the queue"
+      kicker={t("queue.finding")}
+      reading={t("queue.reading")}
       timeTestId="queue-back-held"
-      time="Held"
-      line="Your place in the queue is held while Swiff stays open, and kept for 2 minutes if you close it. Your game starts by itself the moment a machine is free."
-      primary={{ label: "Keep waiting", onClick: swiff.keepQueue }}
-      secondary={{ label: "Leave the queue", onClick: swiff.leaveQueue }}
+      time={t("queue.held")}
+      line={t("queue.line")}
+      primary={{ label: t("queue.keep"), onClick: swiff.keepQueue }}
+      secondary={{ label: t("queue.leave"), onClick: swiff.leaveQueue }}
     />
   );
 }
@@ -207,31 +219,24 @@ export function QueueBackDialog({ swiff }: { swiff: Swiff }) {
  */
 export function Reconnecting({ swiff, host }: { swiff: Swiff; host: string }) {
   const now = useNow();
+  const { t } = useScreenText();
   const { lostAt, droppedAt, gaveUp } = swiff.play ?? {};
   if (lostAt == null || droppedAt == null) return null;
   return (
     <ComeBack
       testId="reconnecting"
-      label={gaveUp ? `Can't reach ${host}` : `Reconnecting to ${host}`}
+      label={gaveUp ? t("rc.cantReach", { host }) : t("rc.label", { host })}
       game={swiff.game}
-      kicker={gaveUp ? "Connection lost" : "Reconnecting"}
-      where={
-        <>
-          on <b>{host}</b>
-        </>
-      }
-      reading={gaveUp ? "Held for you" : "Time away"}
+      kicker={gaveUp ? t("rc.lost") : t("rc.kicker")}
+      where={withHost(t("back.on"), host)}
+      reading={gaveUp ? t("away.held") : t("rc.timeAway")}
       timeTestId="reconnecting-time"
       time={
         gaveUp ? minutesSeconds(droppedAt + RECONNECT_GRACE_MS - now, true) : minutesSeconds(now - lostAt)
       }
-      line={
-        gaveUp
-          ? `Your game is still running on ${host}. Try again while it is held.`
-          : "Your game keeps running while we get you back."
-      }
-      primary={gaveUp ? { label: "Reconnect", onClick: swiff.retryConnection } : undefined}
-      secondary={{ label: "End session", onClick: swiff.endSession }}
+      line={gaveUp ? t("rc.gaveUp", { host }) : t("rc.line")}
+      primary={gaveUp ? { label: t("back.reconnect"), onClick: swiff.retryConnection } : undefined}
+      secondary={{ label: t("back.end"), onClick: swiff.endSession }}
     />
   );
 }
@@ -245,43 +250,28 @@ export function Reconnecting({ swiff, host }: { swiff: Swiff; host: string }) {
  */
 export function MachineLost({ swiff }: { swiff: Swiff }) {
   const now = useNow();
+  const { t } = useScreenText();
   const { lost, bookingFailed } = swiff;
   if (!lost) return null;
   const game = gameOf(swiff, lost.booking.gameId);
-  const title = game?.title ?? "your game";
-  const what = lost.taken ? `${lost.host} was taken back` : `${lost.host} went offline`;
+  const title = game?.title ?? t("game.yours");
+  const what = t(lost.taken ? "lost.taken" : "lost.offline", { host: lost.host });
   const failed = lost.failed || (bookingFailed && lost.next !== null);
   const waiting = !failed && lost.next?.status === "queued";
   const away = minutesSeconds(now - lost.at);
-  const stop = { label: "Stop for now", onClick: swiff.stopLost };
+  const stop = { label: t("lost.stop"), onClick: swiff.stopLost };
   return (
     <ComeBack
       testId="machine-lost"
-      label={`${what}. ${failed ? "No machine to move to" : "Moving you to another machine"}`}
+      label={`${what}. ${failed ? t("lost.none") : t("lost.moving")}`}
       game={game}
-      kicker={lost.taken ? "Taken back" : "Machine lost"}
-      where={
-        lost.taken ? (
-          <>
-            <b>{lost.host}</b>&rsquo;s owner took it back
-          </>
-        ) : (
-          <>
-            <b>{lost.host}</b> went offline
-          </>
-        )
-      }
-      reading={failed ? "Couldn't move you" : waiting ? "Waiting for a machine" : "Finding another machine"}
+      kicker={lost.taken ? t("lost.takenKicker") : t("lost.kicker")}
+      where={withHost(t(lost.taken ? "lost.ownerTook" : "lost.offline"), lost.host)}
+      reading={failed ? t("lost.cantMove") : waiting ? t("lost.waiting") : t("lost.finding")}
       timeTestId="machine-lost-time"
       time={failed ? undefined : away}
-      line={
-        failed
-          ? `No other machine could carry ${title} on. Choose one yourself, or stop for now.`
-          : waiting
-            ? `Every machine with ${title} is busy. You keep your place, and it starts by itself the moment one is free.`
-            : `Your session carries on by itself on the best other machine with ${title}.`
-      }
-      primary={failed ? { label: "Choose a machine", onClick: swiff.chooseMachine } : undefined}
+      line={t(failed ? "lost.failedLine" : waiting ? "lost.waitingLine" : "lost.movingLine", { title })}
+      primary={failed ? { label: t("lost.choose"), onClick: swiff.chooseMachine } : undefined}
       secondary={stop}
     />
   );

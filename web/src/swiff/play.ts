@@ -46,6 +46,7 @@
 
 import { startRenterSession, type RenterSession, type RenterStats, type SteamLogin } from "@swiff/rtc";
 import type { Claim } from "./booking";
+import type { ScreenText } from "./screenCopy";
 
 /** Ignition's steps, in order. */
 export const IGNITION_STEPS = ["reserving", "waking", "negotiating", "launching"] as const;
@@ -68,13 +69,17 @@ export const RECONNECT_AUTO_MS = 15_000;
 /** How long the PC holds the session for a renter who dropped (server/src/grace.ts). */
 export const RECONNECT_GRACE_MS = 120_000;
 
-/** Ignition's legend: each step as the renter reads it, for this host and game. */
-export function ignitionLabels(host: string | null | undefined, game: string | null | undefined): string[] {
+/** Ignition's legend: each step as the renter reads it in `t`'s language, for this host and game. */
+export function ignitionLabels(
+  t: ScreenText,
+  host: string | null | undefined,
+  game: string | null | undefined,
+): string[] {
   return [
-    "Reserving a machine",
-    `Waking ${host || "the machine"}`,
-    "Negotiating stream",
-    `Launching ${game || "your game"}`,
+    t("ig.reserving"),
+    host ? t("ig.waking", { host }) : t("ig.wakingAny"),
+    t("ig.negotiating"),
+    game ? t("ig.launching", { game }) : t("ig.launchingAny"),
   ];
 }
 

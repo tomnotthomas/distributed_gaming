@@ -1,4 +1,5 @@
 import { Glyph } from "./Glyph";
+import { useScreenText } from "./screenCopy";
 import type { Screen } from "./useSwiff";
 
 type Props = {
@@ -12,7 +13,7 @@ type Props = {
   live?: string | undefined;
   /** A machine just freed up: the live dot rings. */
   freed?: boolean;
-  /** Signed in: who, and how long they have tonight. Absent signed out. */
+  /** Signed in: who, and how much play time they have. Absent signed out. */
   renter?: { persona: string; session: { label: string; onCycle: () => void } };
 };
 
@@ -27,6 +28,7 @@ export function initials(persona: string): string {
  * paper account cell, on the same 300 / 1fr / 400 columns as the band below.
  */
 export function Chrome({ screen, onHome, onProfile, onShare, onBack, live, freed, renter }: Props) {
+  const { t } = useScreenText();
   return (
     <header className="bar">
       <div className="bar-brand">
@@ -35,27 +37,27 @@ export function Chrome({ screen, onHome, onProfile, onShare, onBack, live, freed
             type="button"
             className="bar-home"
             onClick={onBack}
-            aria-label="Back to all games"
-            title="All games · Esc"
+            aria-label={t("bar.back")}
+            title={t("bar.backTitle")}
           >
             <Glyph name="back" size={20} />
-            <span className="wm">Swiff</span>
+            <span className="wm">Lanterel</span>
           </button>
         ) : (
-          <button type="button" className="bar-home" onClick={onHome} aria-label="Home">
-            <span className="wm">Swiff</span>
+          <button type="button" className="bar-home" onClick={onHome} aria-label={t("bar.home")}>
+            <span className="wm">Lanterel</span>
           </button>
         )}
       </div>
-      <nav className="bar-nav" aria-label="Swiff">
+      <nav className="bar-nav" aria-label="Lanterel">
         <button type="button" aria-current={screen === "home" ? "page" : undefined} onClick={onHome}>
-          Home
+          {t("bar.home")}
         </button>
         <button type="button" aria-current={screen === "profile" ? "page" : undefined} onClick={onProfile}>
-          Profile
+          {t("bar.profile")}
         </button>
         <button type="button" aria-current={screen === "share" ? "page" : undefined} onClick={onShare}>
-          Share your PC
+          {t("bar.share")}
         </button>
         {/* The cell stays when there is no count, so the nav keeps its four columns. */}
         <span className={freed ? "bar-live freed" : "bar-live"}>
@@ -74,21 +76,21 @@ export function Chrome({ screen, onHome, onProfile, onShare, onBack, live, freed
               type="button"
               className="acct"
               onClick={onProfile}
-              aria-label={`Profile, ${renter.persona || "signed in"}`}
+              aria-label={t("bar.profileOf", { who: renter.persona || t("bar.signedInLower") })}
             >
               <span className="acct-avatar">{renter.persona ? initials(renter.persona) : "?"}</span>
               <span className="acct-who">
-                <b>{renter.persona || "Signed in"}</b>
-                <span>Steam connected</span>
+                <b>{renter.persona || t("bar.signedIn")}</b>
+                <span>{t("bar.steam")}</span>
               </span>
             </button>
             <button
               type="button"
               className="acct-session"
               onClick={renter.session.onCycle}
-              title="How long do you have tonight? Ready means a machine is free for the whole time."
+              title={t("bar.playTimeTitle")}
             >
-              <span className="mono">Tonight</span>
+              <span className="mono">{t("bar.playTime")}</span>
               <b>{renter.session.label}</b>
             </button>
           </>
@@ -98,9 +100,9 @@ export function Chrome({ screen, onHome, onProfile, onShare, onBack, live, freed
             type="button"
             className="acct acct-out"
             onClick={onProfile}
-            aria-label="Profile, not signed in"
+            aria-label={t("bar.profileOut")}
           >
-            <span className="mono">Not signed in</span>
+            <span className="mono">{t("bar.notSignedIn")}</span>
           </button>
         )}
       </div>

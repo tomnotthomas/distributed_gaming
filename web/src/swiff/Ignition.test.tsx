@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { GAMES, MACHINES } from "./data";
 import { Ignition } from "./Ignition";
 import { ignitionLabels } from "./play";
+import { screenText } from "./screenCopy";
 import type { Swiff } from "./useSwiff";
 
 /** Just the slice of the hook Ignition reads, at step `ignitionIndex`. */
@@ -12,7 +13,7 @@ const swiffAt = (progress: number, ignitionIndex: number, more: Partial<Swiff> =
     game: GAMES[0],
     picked: MACHINES.glass,
     progress,
-    ignitionSteps: ignitionLabels(MACHINES.glass!.name, GAMES[0]!.title),
+    ignitionSteps: ignitionLabels(screenText("en"), MACHINES.glass!.name, GAMES[0]!.title),
     ignitionIndex,
     slow: false,
     goHome: () => {},

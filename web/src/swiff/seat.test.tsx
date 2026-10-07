@@ -6,6 +6,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { withoutInviteTokens } from "./invite";
 import { pathOf, screenAt } from "./route";
+import { ScreenLang, screenLang } from "./screenCopy";
 import { daysLeft, seatTokenAt, signInForSeat, takeSeat, type Seat } from "./seat";
 import { SeatInvite } from "./SeatInvite";
 import type { Swiff } from "./useSwiff";
@@ -61,6 +62,13 @@ const at = (path: string) => history.replaceState(null, "", path);
 function inGerman() {
   vi.spyOn(navigator, "languages", "get").mockReturnValue(["de-DE", "de"]);
 }
+
+/** The seat screen in the language Swiff.tsx gives it. */
+const onSeatScreen = (swiff: Swiff) => (
+  <ScreenLang.Provider value={screenLang("seat")}>
+    <SeatInvite swiff={swiff} />
+  </ScreenLang.Provider>
+);
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -146,7 +154,7 @@ describe("SeatInvite", () => {
     inGerman();
     at(`/seat/${TOKEN}`);
     fetchFrom({ [`/api/seats/${TOKEN}`]: [200, { seat: seatOf({ host: "Jonas", friend: "Mia" }) }] });
-    render(<SeatInvite swiff={fakeSwiff({ signedIn: false })} />);
+    render(onSeatScreen(fakeSwiff({ signedIn: false })));
     expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent(
       "Jonas hält dir einen Platz am Gaming-PC frei.",
     );
@@ -182,7 +190,7 @@ describe("SeatInvite", () => {
     fetchFrom({
       [`/api/seats/${TOKEN}`]: [200, { seat: seatOf({ host: null, pc: { ...seatOf().pc, name: null } }) }],
     });
-    render(<SeatInvite swiff={fakeSwiff({ signedIn: false })} />);
+    render(onSeatScreen(fakeSwiff({ signedIn: false })));
     expect(await screen.findByRole("heading", { name: "Der Gaming-PC" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "So zockst du an dem Gaming-PC" })).toBeInTheDocument();
     expect(screen.getByText(/Auf dem Gaming-PC läuft Lanterel OS/)).toBeInTheDocument();

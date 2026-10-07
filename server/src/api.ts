@@ -202,7 +202,7 @@ const UNLICENSED_MESSAGE = {
 } as const;
 
 /** What a game Swiff cannot run (playable.ts) answers, with code not-playable. */
-const NOT_PLAYABLE = { error: "Swiff cannot run this game", code: "not-playable" } as const;
+const NOT_PLAYABLE = { error: "Lanterel cannot run this game", code: "not-playable" } as const;
 
 /** Answer with a JSON body that no cache keeps. */
 function reply(
@@ -743,7 +743,7 @@ export function createApi({
       const crew = inviteId
         ? await platform.invite(inviteId, renterSessionOf(req, sessionSecret)?.steamId)
         : null;
-      if (!crew) throw new HttpError(404, "this invite link is not valid any more");
+      if (!crew) throw new HttpError(404, "this crew link is not valid any more");
       reply(res, 200, { crew });
       return true;
     }
@@ -758,7 +758,7 @@ export function createApi({
         reply(res, 409, { error: `you are in ${MAX_CREWS} crews already`, code: "too-many-crews" });
         return true;
       }
-      if (!joined?.ok) throw new HttpError(404, "this invite link is not valid any more");
+      if (!joined?.ok) throw new HttpError(404, "this crew link is not valid any more");
       reply(res, 200, { id: joined.id, crew: joined.crew, joined: joined.joined });
       return true;
     }

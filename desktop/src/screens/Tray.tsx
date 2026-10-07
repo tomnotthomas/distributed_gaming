@@ -18,6 +18,7 @@ const ICONS: Record<TrayAction, GlyphName> = {
   retry: "refresh",
 };
 
+/** The tray glance: what this PC is doing, with the actions that fit it and a way into the app. */
 export function TrayGlance({
   glance,
   onAction,
@@ -28,7 +29,7 @@ export function TrayGlance({
   return (
     <div className="glance">
       <div className="ph1">
-        <span className="wm">SWIFF</span>
+        <span className="wm">LANTEREL</span>
         <span className="mono">
           {glance.live ? <span className="live" /> : null}
           {glance.status}
@@ -60,7 +61,7 @@ export function TrayGlance({
       ) : null}
       <div className="pf mono">
         <button type="button" className="lnk" onClick={() => onAction("open")}>
-          Open Swiff
+          Open Lanterel
         </button>
         <span>{glance.foot}</span>
       </div>
@@ -79,7 +80,7 @@ export function TrayWindow() {
           <TrayGlance glance={glance} onAction={(action) => trayBridge()?.trayAction(action)} />
         </ArtContext.Provider>
       ) : (
-        <p className="glance soft">Open Swiff to go live.</p>
+        <p className="glance soft">Open Lanterel to go live.</p>
       )}
     </div>
   );

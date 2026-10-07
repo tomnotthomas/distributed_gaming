@@ -235,7 +235,7 @@ disk = [{k: p.get(k) for k in keys} for p in parts(sys.argv[2])][4:]
 print("same" if img == disk else f"image {img}\ndisk {disk}")
 EOF
 )
-expect partitions-as-image "6 Swiff OS partitions after Windows' 4, as in the image" test "$compare" = same
+expect partitions-as-image "6 Lanterel OS partitions after Windows' 4, as in the image" test "$compare" = same
 read_c
 kept=$(on_c ntfscat {} /windows-marker.txt 2> /dev/null || true)
 expect windows-files-kept "C: still holds its file after the shrink and both boots" test "$kept" = "$marker"
@@ -243,22 +243,22 @@ expect windows-volume-clean "C:'s NTFS needs no repair" on_c ntfsfix -n {}
 games_label=$(on_c ntfslabel {} 2> /dev/null || true)
 expect games-drive-named "C: is labelled ${games_label:-?}" test "$games_label" = SWIFFGAMES
 expect install-adds-last "after install: $(head -n1 "$run/vars-installed.log")" \
-	grep -q "^BootOrder: $B 'Windows Boot Manager', $B 'Swiff OS'$" "$run/vars-installed.log"
+	grep -q "^BootOrder: $B 'Windows Boot Manager', $B 'Lanterel OS'$" "$run/vars-installed.log"
 expect install-restarts-to-swiff "after install: $(sed -n 2p "$run/vars-installed.log")" \
-	grep -q "^BootNext: $B 'Swiff OS'$" "$run/vars-installed.log"
+	grep -q "^BootNext: $B 'Lanterel OS'$" "$run/vars-installed.log"
 expect install-queues-mok "after install: $(sed -n 3p "$run/vars-installed.log")" \
 	grep -q "^MOK request: MokNew $((44 + $(stat -c %s "$set/swiffos-key.cer"))) bytes, MokAuth 32 bytes$" "$run/vars-installed.log"
-expect mok-confirmed "the owner confirmed Swiff's key at MokManager with the install's code" test "$mok_confirmed" = 1
-expect mok-enrolled "MokList holds Swiff's certificate" \
+expect mok-confirmed "the owner confirmed Lanterel's key at MokManager with the install's code" test "$mok_confirmed" = 1
+expect mok-enrolled "MokList holds Lanterel's certificate" \
 	grep -q "^MokList: .*$(od -An -v -tx1 "$set/swiffos-key.cer" | tr -d ' \n')" "$run/vars-confirmed.log"
 expect start-sets-order "start: $(head -n1 "$run/vars-started.log")" \
-	grep -q "^BootOrder: $B 'Swiff OS', $B 'Windows Boot Manager'" "$run/vars-started.log"
+	grep -q "^BootOrder: $B 'Lanterel OS', $B 'Windows Boot Manager'" "$run/vars-started.log"
 expect start-sets-bootnext "start: $(sed -n 2p "$run/vars-started.log")" \
-	grep -q "^BootNext: $B 'Swiff OS'$" "$run/vars-started.log"
-expect boot1-starts-swiff "boot 1 started: $(started 1)" test "$(started 1)" = "Swiff OS"
+	grep -q "^BootNext: $B 'Lanterel OS'$" "$run/vars-started.log"
+expect boot1-starts-swiff "boot 1 started: $(started 1)" test "$(started 1)" = "Lanterel OS"
 expect bootnext-consumed "after boot 1: $(sed -n 2p "$run/vars-after-boot1.log")" \
 	grep -q "^BootNext: none$" "$run/vars-after-boot1.log"
-expect boot1-selftest-done "Swiff OS's self-test ran to its end" bash -c "grep -aq 'SWIFF-SELFTEST DONE' '$run/serial-1.log'"
+expect boot1-selftest-done "Lanterel OS's self-test ran to its end" bash -c "grep -aq 'SWIFF-SELFTEST DONE' '$run/serial-1.log'"
 # Known, and not this test's to fix: a renter's write through the games overlay
 # needs the lower drive's directories writable by the renter, which an NTFS
 # drive mounted with ntfs3's defaults (owner root, 0755) is not. The stage 1
@@ -274,9 +274,9 @@ while read -r status name detail; do
 done < <(serial 1 | sed -n 's/^.*SWIFF-SELFTEST \(PASS\|FAIL\) /\1 /p')
 # The firmware appends its own entries (its setup app, network boot) on the first boot.
 expect stop-sets-order "stop: $(head -n1 "$run/vars-stopped.log" | cut -c1-80)" \
-	grep -q "^BootOrder: $B 'Windows Boot Manager', $B 'Swiff OS'" "$run/vars-stopped.log"
+	grep -q "^BootOrder: $B 'Windows Boot Manager', $B 'Lanterel OS'" "$run/vars-stopped.log"
 expect boot2-starts-windows "boot 2 started: $(started 2)" test "$(started 2)" = "Windows Boot Manager"
-expect boot2-no-swiff "Swiff OS did not start on boot 2" bash -c "[ -s '$run/serial-2.log' ] && ! grep -aq 'SWIFF-SELFTEST' '$run/serial-2.log'"
+expect boot2-no-swiff "Lanterel OS did not start on boot 2" bash -c "[ -s '$run/serial-2.log' ] && ! grep -aq 'SWIFF-SELFTEST' '$run/serial-2.log'"
 
 echo
 if [ "$fail" = 0 ]; then

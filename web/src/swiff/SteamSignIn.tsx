@@ -3,6 +3,7 @@ import { encode } from "uqr";
 import { STEAM_SIGN_IN_MS } from "@swiff/rank";
 import { Glyph } from "./Glyph";
 import type { SignInFailure } from "./play";
+import { useScreenText, type ScreenText } from "./screenCopy";
 
 /** Steam's sign-in QR codes encode a link like https://s.team/q/1/1234567890123456789. */
 const SIGN_IN_URL = /^https:\/\/s\.team\/q\/[0-9]+\/[0-9]+$/;
@@ -20,6 +21,7 @@ const QUIET = 4;
  * scanners expect.
  */
 export function SteamSignIn({ url }: { url: string }) {
+  const { t } = useScreenText();
   const { size, path } = useMemo(() => {
     const qr = encode(url, { ecc: "M", border: 0 });
     let d = "";
@@ -37,30 +39,24 @@ export function SteamSignIn({ url }: { url: string }) {
         className="ig-qr-code"
         viewBox={`0 0 ${size} ${size}`}
         role="img"
-        aria-label="Steam sign-in QR code"
+        aria-label={t("qr.code")}
         shapeRendering="crispEdges"
       >
         <rect width={size} height={size} fill="#fff" />
         <path d={path} fill="#131313" />
       </svg>
       <div className="ig-qr-copy">
-        <h2 id="ig-qr-title">Sign in to Steam</h2>
-        <p>Scan this with the Steam app on your phone and approve. Your game starts as soon as you do.</p>
-        <p className="ig-qr-note">
-          Steam shows where the PC is on a map. Approve only while this screen is open.
-        </p>
+        <h2 id="ig-qr-title">{t("qr.title")}</h2>
+        <p>{t("qr.scan")}</p>
+        <p className="ig-qr-note">{t("qr.note")}</p>
       </div>
     </section>
   );
 }
 
 /** The failed panel's title, which Ignition also announces. */
-export const signInFailedTitle = (reason: SignInFailure): string =>
-  reason === "launch-timeout"
-    ? "Your game didn't start"
-    : reason === "time-up"
-      ? "Sign-in time ran out"
-      : "Sign-in didn't work";
+export const signInFailedTitle = (t: ScreenText, reason: SignInFailure): string =>
+  t(reason === "launch-timeout" ? "qr.launchFailed" : reason === "time-up" ? "qr.timeUp" : "qr.failed");
 
 /**
  * The PC's Steam sign-in stopped short, in the code's place: the game is not
@@ -82,31 +78,32 @@ export function SteamSignInFailed({
   onTryAnother: () => void;
   onBookAgain: () => void;
 }) {
+  const { t } = useScreenText();
   const action = useRef<HTMLButtonElement>(null);
   useEffect(() => action.current?.focus(), [reason]);
   const way =
     reason === "launch-timeout"
       ? {
-          text: "Steam signed you in, but your game didn't come up on this machine.",
-          label: "Try another machine",
+          text: t("qr.launchFailedText"),
+          label: t("ig.tryAnother"),
           onClick: onTryAnother,
         }
       : reason === "time-up"
         ? {
-            text: `Your ${STEAM_SIGN_IN_MS / 60_000} minutes to sign in to Steam ran out, so this machine went back.`,
-            label: "Book again",
+            text: t("qr.timeUpText", { n: STEAM_SIGN_IN_MS / 60_000 }),
+            label: t("qr.bookAgain"),
             onClick: onBookAgain,
           }
         : {
-            text: "Steam didn't finish signing you in, so your game hasn't started. Try again for a new code.",
-            label: "Try again",
+            text: t("qr.failedText"),
+            label: t("qr.retry"),
             onClick: onRetry,
           };
 
   return (
     <section className="ig-qr" aria-labelledby="ig-qr-failed-title" data-testid="steam-sign-in-failed">
       <div className="ig-qr-copy">
-        <h2 id="ig-qr-failed-title">{signInFailedTitle(reason)}</h2>
+        <h2 id="ig-qr-failed-title">{signInFailedTitle(t, reason)}</h2>
         <p>{way.text}</p>
         <div className="ig-qr-actions">
           <button type="button" className="lpill" onClick={way.onClick} ref={action}>

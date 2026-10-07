@@ -30,8 +30,8 @@ export function AppShell({ onHome, onProfile, onBack, session, avatar, tint, flo
         start={
           <>
             <button type="button" className="brand" onClick={onHome} aria-label="Home">
-              <span className="brand-mark">S</span>
-              <span>Swiff</span>
+              <span className="brand-mark">L</span>
+              <span>Lanterel</span>
             </button>
             {onBack ? (
               <IconButton

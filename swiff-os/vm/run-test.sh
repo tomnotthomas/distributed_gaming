@@ -119,7 +119,7 @@ if [ ! -e "$image_dir/mkosi.key" ]; then
 	(
 		umask 077
 		openssl req -new -x509 -newkey rsa:2048 -sha256 -nodes -days 3650 \
-			-subj "/CN=Swiff OS VM test Secure Boot key/" \
+			-subj "/CN=Lanterel OS VM test Secure Boot key/" \
 			-keyout "$image_dir/mkosi.key" -out "$image_dir/mkosi.crt"
 	)
 fi

@@ -237,23 +237,23 @@ describe("demo", () => {
     "rental-preview": "Write down this code",
     "rental-run-check": "Checking the Secure Boot keys",
     "rental-run-shrink": "Making room",
-    "rental-run-write": "Writing Swiff OS",
-    "rental-run-late": "Writing Swiff OS",
+    "rental-run-write": "Writing Lanterel OS",
+    "rental-run-late": "Writing Lanterel OS",
     "rental-restart": "Restart to confirm the key",
     "rental-restarting": "Restarting",
     "rental-ask": "Did the blue screen take your code?",
-    "rental-key": "Confirm Swiff's key",
+    "rental-key": "Confirm Lanterel's key",
     "rental-key-code": "Write down this code",
     "rental-installed": "Rental mode is ready",
     "rental-back": "You were live 21:00 to 23:40",
     "rental-recovery": "Save your BitLocker recovery key",
     "rental-remove-code": "Write down this code",
-    "rental-remove-finish": "Finishing removing Swiff OS",
+    "rental-remove-finish": "Finishing removing Lanterel OS",
     "rental-remove-continue": "Waiting for Windows",
     "rental-remove-check": "Restart to check Windows",
-    "rental-removed": "Swiff OS is off this PC",
+    "rental-removed": "Lanterel OS is off this PC",
     "rental-fail-admin": "Windows didn't give permission",
-    "rental-fail-write": "Writing Swiff OS stopped",
+    "rental-fail-write": "Writing Lanterel OS stopped",
     "rental-fail-space": "Not enough space on C:",
     "rental-nokey": "The key didn't go in",
     "rental-ca": "Allow the 3rd-party UEFI CA",
@@ -588,7 +588,7 @@ describe("this PC's screens", () => {
       until: evening(1),
       registered: true,
     });
-    expect(screen.getByText(/gaming-pc-1 is connected to Swiff\./)).toBeInTheDocument();
+    expect(screen.getByText(/gaming-pc-1 is connected to Lanterel\./)).toBeInTheDocument();
     expect(screen.queryByText("Near you now")).not.toBeInTheDocument();
     expect(screen.queryByText(/You earn/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Pause" }));
@@ -773,7 +773,7 @@ describe("this PC's screens", () => {
       lastContact: evening(21, 40),
       until: null,
     });
-    expect(screen.getByText("No connection to Swiff since 21:42")).toBeInTheDocument();
+    expect(screen.getByText("No connection to Lanterel since 21:42")).toBeInTheDocument();
     expect(screen.getByText("21:40")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(acts.retry).toHaveBeenCalledOnce();
@@ -801,7 +801,7 @@ describe("getting Steam ready", () => {
       steam({ status: { installed: false, running: false, signedIn: false } }),
     );
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Install Steam");
-    expect(screen.getByText(/Swiff downloads the Steam installer for you/)).toBeInTheDocument();
+    expect(screen.getByText(/Lanterel downloads the Steam installer for you/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Get Steam/ }));
     expect(acts.installSteam).toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Steam Not installed" })).toBeInTheDocument();
@@ -1015,10 +1015,10 @@ describe("rental mode", () => {
     expect(screen.getByRole("button", { name: "Secure Boot won't turn on?" })).toBeInTheDocument();
   });
 
-  it("keeps the passing checks behind What Swiff checked, the ones the install checks included", () => {
+  it("keeps the passing checks behind What Lanterel checked, the ones the install checks included", () => {
     renderReal("rental", off, rental({ read: read((raw) => ({ ...raw, securityProperties: [1, 2] })) }));
     expect(screen.queryByText("Microsoft UEFI CA 2011")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "What Swiff checked" }));
+    fireEvent.click(screen.getByRole("button", { name: "What Lanterel checked" }));
     expect(screen.getByText("Microsoft UEFI CA 2011").closest(".krow")).toHaveTextContent(
       "Read when you install",
     );
@@ -1052,19 +1052,19 @@ describe("rental mode", () => {
     expect(h1()).toHaveTextContent("Almost ready");
     expect(pills()).toHaveLength(0);
     expect(document.querySelector(".plate")).toHaveTextContent("Waiting for");
-    expect(document.querySelector(".plate")).toHaveTextContent("Graphics card supportSwiff OS update");
+    expect(document.querySelector(".plate")).toHaveTextContent("Graphics card supportLanterel OS update");
     expect(screen.getByRole("button", { name: "Rental mode Not on NVIDIA yet" })).toBeInTheDocument();
   });
 
-  it("says Swiff OS's files on this PC were not signed by Swiff, and offers one thing: check again", () => {
+  it("says Lanterel OS's files on this PC were not signed by Lanterel, and offers one thing: check again", () => {
     const actions = renderReal(
       "rental",
       off,
       rental({ read: { ...read(), image: null, imageRefused: true } }),
     );
-    expect(h1()).toHaveTextContent("Swiff OS's files didn't pass the check");
-    expect(screen.getByText(/aren't the ones Swiff signed/)).toBeInTheDocument();
-    expect(document.querySelector(".plate")).toHaveTextContent("Not signed by Swiff");
+    expect(h1()).toHaveTextContent("Lanterel OS's files didn't pass the check");
+    expect(screen.getByText(/aren't the ones Lanterel signed/)).toBeInTheDocument();
+    expect(document.querySelector(".plate")).toHaveTextContent("Not signed by Lanterel");
     expect(pills()).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Check again" }));
     expect(actions.checkRental).toHaveBeenCalled();
@@ -1098,12 +1098,12 @@ describe("rental mode", () => {
       rental({ read: read((raw) => ({ ...raw, disks: [...raw.disks, second] })) }),
     );
     expect(h1()).toHaveTextContent("Install rental mode");
-    expect(screen.getByText(/Swiff OS goes on 24 GB of free space on disk 1/)).toBeInTheDocument();
+    expect(screen.getByText(/Lanterel OS goes on 24 GB of free space on disk 1/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Use C: instead" }));
     expect(acts.chooseRentalTarget).toHaveBeenCalledWith("shrink:C");
     fireEvent.click(screen.getByRole("button", { name: /See the install/ }));
     expect(acts.previewRental).toHaveBeenCalledWith("install");
-    expect(subStep()).toBe("Install Swiff OS");
+    expect(subStep()).toBe("Install Lanterel OS");
     expectNoDemoData();
   });
 
@@ -1121,7 +1121,7 @@ describe("rental mode", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Install/ }));
     expect(acts.runRental).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "What the install does, 9 steps" }));
-    expect(screen.getByText("Copy Swiff OS onto them")).toBeInTheDocument();
+    expect(screen.getByText("Copy Lanterel OS onto them")).toBeInTheDocument();
   });
 
   it("tells the owner to look for Windows' prompt while it is up", () => {
@@ -1169,7 +1169,7 @@ describe("rental mode", () => {
         },
       }),
     );
-    expect(h1()).toHaveTextContent("Writing Swiff OS");
+    expect(h1()).toHaveTextContent("Writing Lanterel OS");
     expect(screen.getByText(/About 3 minutes left\. Keep the PC on\./)).toBeInTheDocument();
     expect(screen.getByText(/Step 5 of 9, running for 2:1\d/)).toBeInTheDocument();
     expect(document.querySelector(".plate")).toHaveTextContent("Root");
@@ -1199,7 +1199,7 @@ describe("rental mode", () => {
 
   it("says a plan is being got ready, instead of a button that seems to do nothing", () => {
     renderReal("rental", off, rental({ read: installed({ state: "missed", code: null }), planning: true }));
-    expect(h1()).toHaveTextContent("Confirm Swiff's key");
+    expect(h1()).toHaveTextContent("Confirm Lanterel's key");
     // Announced to screen readers too: it replaces the button they were on.
     expect(screen.getByRole("status")).toHaveTextContent("Getting it ready. This can take up to a minute.");
     expect(pills()).toHaveLength(0);
@@ -1217,7 +1217,7 @@ describe("rental mode", () => {
 
   it("confirms the key again with a new code, with the blue screen on the plate", () => {
     const acts = renderReal("rental", off, rental({ read: installed({ state: "missed", code: null }) }));
-    expect(h1()).toHaveTextContent("Confirm Swiff's key");
+    expect(h1()).toHaveTextContent("Confirm Lanterel's key");
     expect(document.querySelector(".plate")).toHaveTextContent("Perform MOK management");
     expect(screen.getByRole("region", { name: "After the restart, on the blue screen" })).toBeInTheDocument();
     fireEvent.click(within(screen.getByRole("main")).getByRole("button", { name: /Confirm the key/ }));
@@ -1233,10 +1233,10 @@ describe("rental mode", () => {
     expect(screen.getByText("Rental mode, installed")).toBeInTheDocument();
     fireEvent.click(within(screen.getByRole("main")).getByRole("button", { name: /^Go live/ }));
     expect(go).toHaveBeenCalledWith("live");
-    fireEvent.click(screen.getByRole("button", { name: "Remove Swiff OS" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Lanterel OS" }));
     expect(host.actions.previewRental).toHaveBeenCalledWith("remove");
-    // One way off: the key and the disk are Remove Swiff OS's two parts, never two links.
-    expect(screen.queryByRole("button", { name: "Remove Swiff's key" })).not.toBeInTheDocument();
+    // One way off: the key and the disk are Remove Lanterel OS's two parts, never two links.
+    expect(screen.queryByRole("button", { name: "Remove Lanterel's key" })).not.toBeInTheDocument();
     expect(document.querySelectorAll(".psub .done")).toHaveLength(3);
   });
 
@@ -1262,14 +1262,14 @@ describe("rental mode", () => {
 
     acts = renderReal("live", off, failedAt("once", "bcdedit failed: exit code 5"));
     expect(screen.queryByText(/Saved at/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Send details to Swiff" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send details to Lanterel" }));
     expect(acts.reportRental).toHaveBeenCalledOnce();
     expect(acts.retryRental).not.toHaveBeenCalled();
     cleanup();
 
     renderReal("live", off, failedAt("once", "bcdedit failed: exit code 5", evening(21, 6)));
     expect(
-      screen.getByText(/Saved at 21:06 for Swiff: the error, the step and this PC's checks\./),
+      screen.getByText(/Saved at 21:06 for Lanterel: the error, the step and this PC's checks\./),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Try again/ })).toBeInTheDocument();
   });
@@ -1293,9 +1293,9 @@ describe("rental mode", () => {
       off,
       rental({ read: installed(), preview: uninstallPlan(installed()) }),
     );
-    expect(h1()).toHaveTextContent("Remove Swiff OS");
-    expect(screen.getByText("Take Swiff OS out of the boot menu")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /^Remove Swiff OS/ }));
+    expect(h1()).toHaveTextContent("Remove Lanterel OS");
+    expect(screen.getByText("Take Lanterel OS out of the boot menu")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Remove Lanterel OS/ }));
     expect(acts.runRental).toHaveBeenCalledOnce();
   });
 
@@ -1311,7 +1311,7 @@ describe("rental mode", () => {
       }),
     );
     expect(h1()).toHaveTextContent("Save your BitLocker recovery key");
-    expect(screen.getByText(/Swiff never reads, sends or keeps your key/)).toBeInTheDocument();
+    expect(screen.getByText(/Lanterel never reads, sends or keeps your key/)).toBeInTheDocument();
     // Where the key can be, and Windows' own way there.
     expect(document.querySelector(".plate")).toHaveTextContent(/Microsoft account.*A file.*Paper/);
     expect(screen.getByText("Back up your recovery key")).toBeInTheDocument();
@@ -1345,7 +1345,7 @@ describe("rental mode", () => {
     expect(screen.queryByRole("button", { name: /^Go live/ })).not.toBeInTheDocument();
   });
 
-  it("removes Swiff OS from one click: the key's code first, the rest by itself, then Windows checked", () => {
+  it("removes Lanterel OS from one click: the key's code first, the rest by itself, then Windows checked", () => {
     const code = renderReal(
       "rental",
       off,
@@ -1353,7 +1353,9 @@ describe("rental mode", () => {
     );
     expect(h1()).toHaveTextContent("Write down this code");
     expect(screen.getByText("Rental mode, removing")).toBeInTheDocument();
-    expect(screen.getByText(/open Swiff: it takes Swiff OS off the disk by itself/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/open Lanterel: it takes Lanterel OS off the disk by itself/),
+    ).toBeInTheDocument();
     expect(screen.getByText("Choose Delete MOK")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Remove the key/ }));
     expect(code.runRental).toHaveBeenCalledOnce();
@@ -1364,8 +1366,8 @@ describe("rental mode", () => {
       off,
       rental({ read: { ...installed(), removal: { state: "finish" } } }),
     );
-    expect(h1()).toHaveTextContent("Finishing removing Swiff OS");
-    expect(screen.getByText(/Swiff now takes Swiff OS off the disk by itself/)).toBeInTheDocument();
+    expect(h1()).toHaveTextContent("Finishing removing Lanterel OS");
+    expect(screen.getByText(/Lanterel now takes Lanterel OS off the disk by itself/)).toBeInTheDocument();
     expect(
       within(screen.getByRole("main")).queryByRole("button", { name: /Finish|Remove|Check again|Try again/ }),
     ).toBeNull();
@@ -1379,7 +1381,7 @@ describe("rental mode", () => {
       off,
       rental({ read: { ...installed(), removal: { state: "finish" } }, removalTried: true, planning: true }),
     );
-    expect(screen.getByText(/Swiff now takes Swiff OS off the disk by itself/)).toBeInTheDocument();
+    expect(screen.getByText(/Lanterel now takes Lanterel OS off the disk by itself/)).toBeInTheDocument();
     expect(within(screen.getByRole("main")).queryByRole("button", { name: /Try again/ })).toBeNull();
     cleanup();
 
@@ -1394,7 +1396,7 @@ describe("rental mode", () => {
       }),
     );
     expect(
-      screen.getByText("Swiff OS is still on the disk. Press Try again to remove it."),
+      screen.getByText("Lanterel OS is still on the disk. Press Try again to remove it."),
     ).toBeInTheDocument();
     expect(screen.queryByText(/by itself/)).not.toBeInTheDocument();
     fireEvent.click(within(screen.getByRole("main")).getByRole("button", { name: /Try again/ }));
@@ -1413,7 +1415,7 @@ describe("rental mode", () => {
     );
     expect(h1()).toHaveTextContent("Waiting for Windows");
     expect(
-      screen.getByText(/Windows asks once more for permission, to take Swiff OS off the disk/),
+      screen.getByText(/Windows asks once more for permission, to take Lanterel OS off the disk/),
     ).toBeInTheDocument();
     cleanup();
 
@@ -1434,7 +1436,7 @@ describe("rental mode", () => {
       off,
       rental({ read: { ...read(), removal: { state: "checked", ok: false, checks, at: 1 } } }),
     );
-    expect(h1()).toHaveTextContent("Swiff OS is off, but check this");
+    expect(h1()).toHaveTextContent("Lanterel OS is off, but check this");
     expect(screen.getByText("976 GB, not its 1000 GB")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Done/ }));
     expect(done.seenRemoval).toHaveBeenCalledOnce();
@@ -1458,7 +1460,7 @@ describe("rental mode", () => {
       const acts = renderReal(
         "rental",
         off,
-        failedAt("elevate", "Windows did not give Swiff Host administrator rights."),
+        failedAt("elevate", "Windows did not give Lanterel Host administrator rights."),
       );
       expect(h1()).toHaveTextContent("Windows didn't give permission");
       expect(screen.getByText("Nothing on this PC has changed.")).toBeInTheDocument();
@@ -1484,7 +1486,7 @@ describe("rental mode", () => {
           },
         }),
       );
-      expect(h1()).toHaveTextContent("Writing Swiff OS stopped");
+      expect(h1()).toHaveTextContent("Writing Lanterel OS stopped");
       expect(
         screen.getByText("The drive reported an error while checking Root, after 3.0 of 8.6 GB."),
       ).toBeInTheDocument();
@@ -1494,20 +1496,20 @@ describe("rental mode", () => {
       expect(screen.queryByText(error)).not.toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "What happened, in detail" }));
       expect(screen.getByText(error)).toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: "Send details to Swiff" }));
+      fireEvent.click(screen.getByRole("button", { name: "Send details to Lanterel" }));
       expect(acts.reportRental).toHaveBeenCalledOnce();
       fireEvent.click(screen.getByRole("button", { name: /Try again/ }));
       expect(acts.retryRental).toHaveBeenCalledOnce();
-      expect(subStep()).toBe("Install Swiff OS");
+      expect(subStep()).toBe("Install Lanterel OS");
     });
 
     it("sends an unknown error's details as its one action, then says what was sent", () => {
       const acts = renderReal("rental", off, failedAt("fast-startup", "reg failed: exit code 1"));
       expect(h1()).toHaveTextContent("The install stopped");
       expect(
-        screen.getByText(/while turning off Fast Startup, and Swiff doesn't know this error yet/),
+        screen.getByText(/while turning off Fast Startup, and Lanterel doesn't know this error yet/),
       ).toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: /Send details to Swiff/ }));
+      fireEvent.click(screen.getByRole("button", { name: /Send details to Lanterel/ }));
       expect(acts.reportRental).toHaveBeenCalledOnce();
       cleanup();
       renderReal(
@@ -1516,7 +1518,7 @@ describe("rental mode", () => {
         failedAt("fast-startup", "reg failed: exit code 1", { reportedAt: evening(21, 6) }),
       );
       expect(
-        screen.getByText(/Saved at 21:06 for Swiff: the error, the step and this PC's checks\./),
+        screen.getByText(/Saved at 21:06 for Lanterel: the error, the step and this PC's checks\./),
       ).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /Try again/ })).toBeInTheDocument();
     });
@@ -1524,7 +1526,7 @@ describe("rental mode", () => {
     it("puts the space failure on step 1, with the drives' free space on the plate", () => {
       renderReal("rental", off, failedAt("room", "C: cannot shrink by 24 GB."));
       expect(h1()).toHaveTextContent("Not enough space on C:");
-      expect(document.querySelector(".plate")).toHaveTextContent("Free now, Swiff OS needs 24 GB");
+      expect(document.querySelector(".plate")).toHaveTextContent("Free now, Lanterel OS needs 24 GB");
       expect(subStep()).toBe("Get the PC ready");
     });
   });
@@ -1602,7 +1604,7 @@ describe("the rail", () => {
     renderReal("rental", off);
     expect([...document.querySelectorAll(".psub li")].map((li) => li.textContent)).toEqual([
       "Get the PC ready",
-      "Install Swiff OS",
+      "Install Lanterel OS",
       "Confirm the key",
     ]);
     cleanup();

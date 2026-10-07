@@ -42,7 +42,7 @@ function memoryFs(files: Record<string, Buffer | string> = {}, times: Record<str
   } as unknown as typeof import("node:fs") & { map: Map<string, Buffer> };
 }
 
-describe("Swiff's key, as the app knows it", () => {
+describe("Lanterel's key, as the app knows it", () => {
   const queued = { code: "48217730", queuedAt: 1000, answer: null };
 
   it("waits for the restart while the request is newer than this start, with its code", () => {
@@ -62,7 +62,7 @@ describe("Swiff's key, as the app knows it", () => {
     expect(keyOf({ code: null, queuedAt: null, answer: "no" }, 0)).toEqual({ state: "missed", code: null });
   });
 
-  it("reads from this start's log whether the key works: shim started Swiff's loader, or fell into Windows", () => {
+  it("reads from this start's log whether the key works: shim started Lanterel's loader, or fell into Windows", () => {
     // MokManager, then Continue boot without the key: Windows in the same power-on.
     expect(
       keyOf(queued, 2000, trail(2500, { shim: true, mokManager: 2, windowsAfterShim: true }))?.state,
@@ -172,9 +172,9 @@ describe("this start's measured-boot log", () => {
     });
   });
 
-  it("sees a clean start as one, Swiff OS's boot entry and all, and no log as nothing to say", () => {
+  it("sees a clean start as one, Lanterel OS's boot entry and all, and no log as nothing to say", () => {
     const files = memoryFs(
-      { "/mb/1.log": tcgLog([bootVariable(1, "Swiff OS", SHIM), started(WINDOWS)]) },
+      { "/mb/1.log": tcgLog([bootVariable(1, "Lanterel OS", SHIM), started(WINDOWS)]) },
       { "/mb/1.log": 5 },
     );
     expect(bootTrail("/mb", files)).toMatchObject({ at: 5, shim: false, mokManager: 0, loader: false });

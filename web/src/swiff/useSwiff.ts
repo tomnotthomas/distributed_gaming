@@ -48,6 +48,7 @@ import { questionOf, useLive } from "./useLive";
 import { CREWS_PATH, crewRouteAt, fetchCrews, seeReady, unseenReady } from "./crews";
 import type { Channel } from "./invite";
 import { pathOf, screenAt } from "./route";
+import { screenLang, screenText } from "./screenCopy";
 import { fetchMedia, fetchPopular, type Popular } from "./catalog";
 import {
   applySteam,
@@ -1188,9 +1189,13 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     return () => window.clearInterval(timer);
   }, [goHome]);
 
+  // The language of the screen shown, and of everything on it: the top bar, Ignition, the dialogs.
+  const lang = screenLang(screen);
+  const t = screenText(lang);
+
   // Ignition: the demo's beats, or where the real launch stands on its connection.
   // A machine carried on to may not be on the list the game's page last read.
-  const labels = ignitionLabels(picked?.name ?? booking?.machine?.name, game?.title);
+  const labels = ignitionLabels(t, picked?.name ?? booking?.machine?.name, game?.title);
   let ignition: { ignitionSteps: string[]; ignitionIndex: number; progress: number; slow: boolean };
   if (demo) {
     ignition = {
@@ -1213,18 +1218,19 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   let liveLine: string | undefined;
   if (seesAvailability) {
     if (screen === "game") {
-      if (!machinesLoading) liveLine = `${machines.filter((m) => !m.busy).length} free for this game`;
+      if (!machinesLoading) liveLine = t("live.game", { n: machines.filter((m) => !m.busy).length });
     } else if (demo) {
-      liveLine = `${Object.values(pool).filter((m) => !m.busy && !m.self).length} free near you`;
+      liveLine = t("live.near", { n: Object.values(pool).filter((m) => !m.busy && !m.self).length });
     } else if (spots.size) {
       const ready = games.filter((g) => readyFor(spots, g) > 0).length;
-      liveLine = `${ready} ${ready === 1 ? "game" : "games"} ready now`;
+      liveLine = ready === 1 ? t("live.ready1") : t("live.ready", { n: ready });
     }
   }
 
   return {
     demo,
     screen,
+    lang,
     phase,
     booking,
     claim,

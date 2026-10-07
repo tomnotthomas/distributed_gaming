@@ -6,7 +6,7 @@
 # shutdown, after the renter's session has stopped, it promotes the updates
 # that were sealed and still verify onto the library.
 [Unit]
-Description=Swiff games library (verify, then mount the renter's view)
+Description=Lanterel games library (verify, then mount the renter's view)
 After=home.mount systemd-tmpfiles-setup.service tpm2.target
 # The mounts the service makes itself: at shutdown it stops (and promotes)
 # before systemd unmounts them.

@@ -1,6 +1,6 @@
 # Backstop for route changes the path unit does not see.
 [Unit]
-Description=Periodic Swiff LAN firewall update
+Description=Periodic Lanterel LAN firewall update
 
 [Timer]
 OnBootSec=5s

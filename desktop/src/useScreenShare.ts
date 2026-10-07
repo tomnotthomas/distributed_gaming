@@ -132,7 +132,7 @@ export function useScreenShare(events: ShareEvents = {}) {
         eventsRef.current.onClaimOver?.();
       },
       onDenied: () => {
-        setError("Swiff didn't accept this machine ID and key. Check both and try again.");
+        setError("Lanterel didn't accept this machine ID and key. Check both and try again.");
         stream.getTracks().forEach((t) => t.stop());
         setStream(null);
       },

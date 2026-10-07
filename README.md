@@ -1,6 +1,7 @@
 # distributed_gaming
 
-Swiff: rent an idle gaming PC and play it in a browser.
+Lanterel (formerly Swiff): rent an idle gaming PC and play it in a browser. Code identifiers
+(`swiff-os/`, `@swiff/*`, `web/src/swiff/`) keep the old name.
 
 Owners install a small host app on their Windows gaming PC. Renters pick a game on the
 website, get matched to a free PC, and play it over a WebRTC stream straight from that
@@ -41,7 +42,7 @@ makes a join link without a booking.
 game's minimum and recommended hardware, read from Steam; `server/src/requirements-overrides.json`
 overrides it per game.
 
-Renters are shown, and may book, only games Swiff can run (`server/src/playable.ts`). The server
+Renters are shown, and may book, only games Lanterel can run (`server/src/playable.ts`). The server
 checks each game by fixed rules against Steam's store data, Valve's SteamOS rating and
 AreWeAntiCheatYet, on its own and daily, and demotes a game whose launches keep failing. The one
 hand-kept input is whether a publisher allows or objects to cloud play, per game in the same
@@ -63,10 +64,10 @@ Code: `web/`, `server/`, `packages/`.
 ```bash
 npm run desktop        # run the Electron app locally
 npm run desktop:demo   # the same app on labelled demo data, to walk every screen
-npm run desktop:pack   # build desktop/release/SwiffHost-<version>.exe
+npm run desktop:pack   # build desktop/release/LanterelHost-<version>.exe
 ```
 
-The download page (`/share`) publishes the SHA-256 of the installer and of the Swiff OS image
+The download page (`/share`) publishes the SHA-256 of the installer and of the Lanterel OS image
 set as text, to check with `Get-FileHash` before running it. The release step writes them:
 CI's package job leaves `SHA256SUMS` beside each installer, `swiff-os/image-set.sh` beside the
 image set, and `node desktop/checksums.cjs release web/src/swiff/release.json --host <exe>
@@ -74,10 +75,10 @@ image set, and `node desktop/checksums.cjs release web/src/swiff/release.json --
 
 Code: `desktop/`, `packages/`.
 
-## Rental mode (Swiff OS)
+## Rental mode (Lanterel OS)
 
 The locked Linux system a shared PC boots into, built in stages: [`swiff-os/`](swiff-os/README.md).
-Remove Swiff OS takes one click to start and one confirmation on a blue screen during a restart;
+Remove Lanterel OS takes one click to start and one confirmation on a blue screen during a restart;
 the app then finishes on its own (Windows may ask once more for permission).
 
 ## Checks

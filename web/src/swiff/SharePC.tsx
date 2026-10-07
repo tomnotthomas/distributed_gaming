@@ -31,7 +31,7 @@ export type Release = {
 
 /**
  * Where the host installer is downloaded from, or null while none is published:
- * CI's package-desktop job builds SwiffHost-<version>.exe but keeps it only as a
+ * CI's package-desktop job builds LanterelHost-<version>.exe but keeps it only as a
  * three-day workflow artifact. Until release.json names an address the button
  * says Coming soon and goes nowhere; with one, the button is the download link.
  */
@@ -205,7 +205,7 @@ export function Trust({ release }: { release: Release }) {
         <Glyph name="key" />
         <h2 id="trust-title">Your BitLocker key stays yours</h2>
         <p>
-          Before anything changes how your PC starts, the app has you save your recovery key. Swiff never
+          Before anything changes how your PC starts, the app has you save your recovery key. Lanterel never
           reads, sends or keeps it.
         </p>
       </div>
@@ -214,8 +214,8 @@ export function Trust({ release }: { release: Release }) {
         <h2>One click starts its removal</h2>
         <p>
           You confirm once on a blue screen during a restart, and the app finishes on its own (Windows may ask
-          once more for permission). The boot entry, the partitions and Swiff&rsquo;s key come off, the space
-          goes back to Windows, and the app checks Windows starts as before.
+          once more for permission). The boot entry, the partitions and Lanterel&rsquo;s key come off, the
+          space goes back to Windows, and the app checks Windows starts as before.
         </p>
       </div>
       <div className="share-cell share-sums">
@@ -235,7 +235,7 @@ export function Trust({ release }: { release: Release }) {
         )}
         {image ? (
           <details className="sums-more">
-            <summary className="mono">Swiff OS {image.version}, file by file</summary>
+            <summary className="mono">Lanterel OS {image.version}, file by file</summary>
             <dl className="sums">
               {image.files.map((f) => (
                 <div key={f.name}>
@@ -359,7 +359,7 @@ export function EstimateSheet({ swiff }: { swiff: Swiff }) {
             <span className="op">×</span>
             <span>
               <Eur n={t.rate} decimals={2} />
-              /h for {withArticle(t.name)} rig
+              /h for {withArticle(t.name)} PC
             </span>
             <b>
               <Eur n={e.gross} />
@@ -425,8 +425,8 @@ export function EstimateSheet({ swiff }: { swiff: Swiff }) {
             </div>
           ))}
           <p>
-            An example {t.name} rig. The app on your PC reads its real hardware and sets your exact rate.
-            Hosts keep 100% of the tier rate. Your own play time is never shared.
+            An example {t.name} PC. The app on your PC reads its real hardware and sets your exact rate. Hosts
+            keep 100% of the tier rate. Your own play time is never shared.
           </p>
         </details>
       </section>
