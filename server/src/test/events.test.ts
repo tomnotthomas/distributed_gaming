@@ -39,11 +39,11 @@ type Stream = {
 const settle = (ms = 30) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Wait until `check` holds, for at most 5 s: a change reaches a stream after
+ * Wait until `check` holds, for at most `ms`: a change reaches a stream after
  * the platform reads the booking again, later on a loaded machine.
  */
-async function until(check: () => boolean): Promise<void> {
-  for (const end = Date.now() + 5_000; !check() && Date.now() < end;) await settle(10);
+async function until(check: () => boolean, ms = 5_000): Promise<void> {
+  for (const end = Date.now() + ms; !check() && Date.now() < end;) await settle(10);
 }
 
 describe("renter event stream", () => {
@@ -68,6 +68,7 @@ describe("renter event stream", () => {
   });
 
   let api: ReturnType<typeof createApi>;
+  let events: RenterEvents;
   beforeEach(async () => {
     now = Date.UTC(2026, 8, 30, 12);
     // Wired as index.ts wires it: every booking and availability change goes to the streams.
@@ -77,7 +78,7 @@ describe("renter event stream", () => {
       onBookingChanged: (id) => void events.bookingChanged(id),
       onAvailabilityChanged: () => events.availabilityChanged(),
     });
-    const events = createRenterEvents(platform, { keepAliveMs: 20, maxStreams: 8, maxStreamsPerRenter: 5 });
+    events = createRenterEvents(platform, { keepAliveMs: 20, maxStreams: 8, maxStreamsPerRenter: 5 });
     api = createApi({
       platform,
       access: { secret: null, machines: new Map(), owners: new Map() },
@@ -265,31 +266,44 @@ describe("renter event stream", () => {
   /** The availability events the stream has sent so far. */
   const availability = (s: Stream) => s.events.filter((e) => e.event === "availability");
 
+  /**
+   * Wait until the wall's stream `s` has read all that was sent to it so far: a
+   * stream is written in order, so a crew event sent now arrives after all of it.
+   */
+  async function caughtUp(s: Stream): Promise<void> {
+    const crew = () => s.events.filter((e) => e.event === "crew").length;
+    const before = crew();
+    events.crewChanged();
+    await until(() => crew() > before, 30_000);
+    assert.ok(crew() > before, "the wall's stream did not catch up within 30 s");
+  }
+
   it("tells the wall each time a machine is offered, taken, freed or taken back, and nothing else", async () => {
     const s = await stream("");
     assert.equal(s.status, 200);
-    assert.equal(s.events.length, 0, "nothing until something changes");
+    await caughtUp(s);
+    assert.equal(availability(s).length, 0, "nothing until something changes");
 
     await platform.setAvailability("pc-1", true, REPORT);
-    await settle();
+    await caughtUp(s);
     assert.deepEqual(availability(s), [{ event: "availability", data: {} }]);
 
     // A heartbeat that changes nothing on offer is not news.
     await platform.heartbeat("pc-1");
-    await settle();
+    await caughtUp(s);
     assert.equal(availability(s).length, 1);
 
     // Matched to someone's booking: busy. Their booking is not this stream's to tell.
     const { bookingId } = await platform.book(730, 30, OTHER);
-    await settle();
+    await caughtUp(s);
     assert.equal(availability(s).length, 2);
     assert.ok(
-      s.events.every((e) => e.event === "availability"),
+      s.events.every((e) => e.event !== "booking"),
       "no booking on the wall's stream",
     );
 
     await platform.setAvailability("pc-1", false);
-    await settle();
+    await caughtUp(s);
     assert.equal(availability(s).length, 3, "taken back");
     assert.equal((await platform.viewBooking(bookingId))!.status, "queued");
     s.close();
@@ -297,7 +311,7 @@ describe("renter event stream", () => {
 
   it("sends keep-alives on the wall's stream too, and refuses it signed out", async () => {
     const s = await stream("");
-    await settle(60);
+    await until(() => s.comments.includes("keep-alive"));
     assert.ok(s.comments.includes("keep-alive"));
     s.close();
     assert.equal((await stream("", {}, null)).status, 401);
