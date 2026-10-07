@@ -78,7 +78,10 @@ export const MEETUP_WORDING = [
   // German
   ["So läuft ein Crew-Abend", "So läuft eine Zockrunde"],
   ["Erinnerung vor Crew-Abenden per Mail?", "Erinnerung vor Zockrunden per Mail?"],
-  ["an eure Crew-Abende (zum Beispiel, wenn ein Abend angesagt wird,", "an eure Zockrunden (zum Beispiel, wenn eine Zockrunde angesagt wird,"],
+  [
+    "an eure Crew-Abende (zum Beispiel, wenn ein Abend angesagt wird,",
+    "an eure Zockrunden (zum Beispiel, wenn eine Zockrunde angesagt wird,",
+  ],
   ["an eure Crew-Abende zu erinnern", "an eure Zockrunden zu erinnern"],
   ["Erinnerungen an Crew-Abende", "Erinnerungen an Zockrunden"],
   ["an Crew-Abende erinnert werden", "an Zockrunden erinnert werden"],
@@ -100,7 +103,10 @@ export const MEETUP_WORDING = [
   // English
   ["How a crew night works", "How a gaming session works"],
   ["Reminders before crew nights, by email?", "Reminders before gaming sessions, by email?"],
-  ["your crew nights (for example, when a night is planned", "your gaming sessions (for example, when a session is planned"],
+  [
+    "your crew nights (for example, when a night is planned",
+    "your gaming sessions (for example, when a session is planned",
+  ],
   ["reminders about your crew nights", "reminders about your gaming sessions"],
   ["crew night reminders", "session reminders"],
   ["invited you to a crew night", "invited you to a gaming session"],
