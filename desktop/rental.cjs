@@ -8,7 +8,8 @@
 //                  Fast Startup, and what an install has done so far.
 //   installPlan    the exact steps that install Swiff OS next to Windows:
 //                  suspend BitLocker, shrink a drive (or use free space), add
-//                  Swiff OS's partitions, write it, add its UEFI boot entry, name
+//                  Swiff OS's partitions, write it (and the project Lanterel Host
+//                  reports errors to, onto its ESP), add its UEFI boot entry, name
 //                  the games drive, then queue Swiff's key for the owner to
 //                  confirm once at the PC (MOK) and restart into that confirmation.
 //   uninstallPlan  the steps that take it all back off, from what the install
@@ -105,6 +106,36 @@ const SHIM_CA = "Microsoft Corporation UEFI CA 2011";
 
 /** BitLocker stays suspended this many restarts: the MOK confirmation's, Windows' after it, and one to spare. */
 const BITLOCKER_RESTARTS = 3;
+
+/**
+ * The file the install leaves in the root folder of Lanterel OS's ESP for its
+ * error reports: the project Lanterel Host reports to (swiff-os/README.md,
+ * "Error reports"). Written by esp-file.cjs.
+ */
+const ERROR_REPORTS_FILE = "LANTEREL.ENV";
+
+/**
+ * LANTEREL.ENV's lines for `project`, or null unless it is a PostHog project
+ * key and an https origin on posthog.com, as Lanterel OS takes them: the same
+ * rule as projectOf in packages/error-tracking, which this CommonJS file
+ * cannot import (rental.test.ts checks the two agree on its project-cases.json). The key is PostHog's
+ * public client token, which the web app ships to every visitor, never a
+ * personal API key: only phc_ keys are written.
+ */
+function errorReportsFile({ key, host }) {
+  if (typeof key !== "string" || typeof host !== "string") return null;
+  let url;
+  try {
+    url = new URL(host.trim());
+  } catch {
+    return null;
+  }
+  const onPosthog = url.hostname === "posthog.com" || url.hostname.endsWith(".posthog.com");
+  const bare =
+    !url.username && !url.password && !url.port && url.pathname === "/" && !url.search && !url.hash;
+  if (!/^phc_\w{1,100}$/.test(key.trim()) || url.protocol !== "https:" || !onPosthog || !bare) return null;
+  return `LANTEREL_POSTHOG_KEY=${key.trim()}\nLANTEREL_POSTHOG_HOST=${url.origin}\n`;
+}
 
 /** Where the install records what it changed, for the switch, the uninstall and a recovery to find. */
 const INSTALL_FILE = String.raw`$env:ProgramData\Swiff\rental-install.json`;
@@ -627,6 +658,14 @@ function commandsOf(op) {
       return [
         `# Write ${splitFile(op.source)} to disk ${op.disk} at offset ${op.offset} (${op.bytes} bytes), then read it back against its SHA-256`,
       ];
+    case "esp-file":
+      return [
+        `# Write ${ERROR_REPORTS_FILE} into the root folder of the boot partition at offset ${op.offset}, as its FAT has it: where Lanterel OS reports its errors`,
+        ...errorReportsFile(op)
+          .trimEnd()
+          .split("\n")
+          .map((line) => `#   ${line}`),
+      ];
     case "boot-entry":
       return [
         `# Lanterel Host's GPT writer: the boot partition at offset ${op.offset} gets the EFI system partition type, then Update-Disk -Number ${op.disk}`,
@@ -684,9 +723,14 @@ const step = (id, title, ops, confirm = null) => ({
 /**
  * The steps that install Swiff OS next to Windows, for the target the owner
  * chose (an id from targetsOf). `layout` is the image set's (image-set.cjs);
- * without it the ids and names show as the image's.
+ * without it the ids and names show as the image's. `errorReports`, the
+ * project Lanterel Host reports to (null when its build has none or the PC
+ * says DO_NOT_TRACK), goes onto Lanterel OS's ESP for it to report to as well.
  */
-function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT, code = mokCode() } = {}) {
+function installPlan(
+  rental,
+  { target: targetId, layout = PREVIEW_LAYOUT, code = mokCode(), errorReports = null } = {},
+) {
   const { facts, games } = rental;
   // An install that stopped after adding its partitions goes on in them: their room is made and
   // laid out already, so trying again writes Swiff OS into them from the start.
@@ -767,9 +811,15 @@ function installPlan(rental, { target: targetId, layout = PREVIEW_LAYOUT, code =
     step(
       "write",
       "Copy Lanterel OS onto them",
-      parts
-        .filter((p) => p.split)
-        .map((p) => ({ op: "write", disk, offset: p.offset, bytes: p.bytes, source: p.split })),
+      [
+        ...parts
+          .filter((p) => p.split)
+          .map((p) => ({ op: "write", disk, offset: p.offset, bytes: p.bytes, source: p.split })),
+        // After the ESP is written and read back, and before it is typed ESP, which Windows would mount.
+        ...(errorReports && errorReportsFile(errorReports)
+          ? [{ op: "esp-file", disk, offset: esp.offset, key: errorReports.key, host: errorReports.host }]
+          : []),
+      ],
       "Lanterel OS is written into its new partitions, and read back to check it. Nothing outside them is touched.",
     ),
   );
@@ -1073,6 +1123,7 @@ module.exports = {
   SHIM_CA,
   BOOT_PATH,
   BOOT_TITLE,
+  ERROR_REPORTS_FILE,
   BITLOCKER_RESTARTS,
   BOOT_CHANGES,
   SCRIPT,
@@ -1099,6 +1150,7 @@ module.exports = {
   bitlockerDrives,
   shellOf,
   commandsOf,
+  errorReportsFile,
   installPlan,
   uninstallPlan,
   switchPlan,

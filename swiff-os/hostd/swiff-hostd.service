@@ -8,13 +8,19 @@
 # server, streamer).
 [Unit]
 Description=Lanterel rental-mode agent
-Wants=network-online.target
-After=network-online.target nftables.service swiff-hwcheck.service swiff-games.service
+Wants=network-online.target swiff-esp.service
+After=network-online.target nftables.service swiff-hwcheck.service swiff-games.service swiff-esp.service
 Requires=nftables.service swiff-games.service
 ConditionPathExists=/var/lib/swiff/hostd.json
 
 [Service]
 Environment=SWIFF_HOSTD_CONFIG=/var/lib/swiff/hostd.json
+# Error reports to PostHog: LANTEREL_POSTHOG_KEY and LANTEREL_POSTHOG_HOST, in
+# the file Lanterel Host writes onto Lanterel OS's ESP at install, never in the
+# image source (README, "Error reports"); swiff-esp.service mounts the ESP. The
+# agent reads only those two names from it, and checks them: without the file
+# it reports nothing. Not an EnvironmentFile: Windows can write the ESP.
+Environment=LANTEREL_ERROR_TRACKING_FILE=/run/swiff/esp/LANTEREL.ENV
 ExecStart=/usr/bin/node /usr/lib/swiff/hostd/swiff-hostd.mjs
 Restart=on-failure
 RestartSec=5

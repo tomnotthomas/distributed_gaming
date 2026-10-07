@@ -19,6 +19,8 @@
 //   secondsSinceInput                 how long since the keyboard or mouse was used
 //   setGlance                         the tray glance's snapshot, to the tray
 //   onTrayAction                      a named action the tray glance sends back
+//   reportError                       an error nothing caught in the window, for main to report
+//   setErrorProject                   the Lanterel server asked, then its error-reports project (or null), for main
 //
 // The tray glance has its own, smaller preload (tray-preload.cjs).
 
@@ -30,6 +32,18 @@ function subscribe(channel, listener) {
   ipcRenderer.on(channel, forward);
   return () => ipcRenderer.removeListener(channel, forward);
 }
+
+/**
+ * An error report as plain strings: nothing else crosses to main. A sandboxed
+ * preload cannot require a local file, so tray-preload.cjs has its own copy;
+ * keep the two the same.
+ */
+const windowError = (report) => ({
+  name: String(report?.name ?? ""),
+  message: String(report?.message ?? ""),
+  stack: String(report?.stack ?? ""),
+  mechanism: String(report?.mechanism ?? ""),
+});
 
 contextBridge.exposeInMainWorld("swiffHost", {
   loadMachineKey: () => ipcRenderer.invoke("machine-key:load"),
@@ -56,4 +70,17 @@ contextBridge.exposeInMainWorld("swiffHost", {
   secondsSinceInput: () => ipcRenderer.invoke("pc:idle"),
   setGlance: (glance) => ipcRenderer.send("glance:set", glance),
   onTrayAction: (listener) => subscribe("tray:action", listener),
+  reportError: (report) => ipcRenderer.send("errors:report", windowError(report)),
+  setErrorProject: (origin, project) =>
+    ipcRenderer.send("errors:project", {
+      origin: String(origin ?? ""),
+      ...(project === undefined
+        ? {}
+        : {
+            project:
+              project === null
+                ? null
+                : { key: String(project?.key ?? ""), host: String(project?.host ?? "") },
+          }),
+    }),
 });

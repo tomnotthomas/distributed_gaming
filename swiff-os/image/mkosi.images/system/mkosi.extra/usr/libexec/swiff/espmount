@@ -1,0 +1,12 @@
+#!/bin/sh
+# Mounts Lanterel OS's own ESP at /run/swiff/esp, read-only and root's alone:
+# the one place Lanterel Host can leave the OS something at install
+# (LANTEREL.ENV, the error-tracking project swiff-hostd reads). The ESP is the
+# one systemd-boot started from (LoaderDevicePartUUID), never Windows' or
+# another disk's.
+set -eu
+var=/sys/firmware/efi/efivars/LoaderDevicePartUUID-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f
+# UTF-16 after four attribute bytes: only the id's own characters are kept.
+uuid=$(tr -dc '0-9A-Fa-f-' <"$var" | tr 'A-F' 'a-f')
+mkdir -p /run/swiff/esp
+mount -t vfat -o ro,nosuid,nodev,noexec,umask=0077 "/dev/disk/by-partuuid/$uuid" /run/swiff/esp

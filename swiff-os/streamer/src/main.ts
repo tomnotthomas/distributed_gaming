@@ -10,21 +10,27 @@
 //      30 s (FIRST_VIDEO_TIMEOUT_MS), or a setting is wrong
 //
 // swiff-hostd treats every exit alike and decides from the session what comes
-// next, so the codes are for the journal, not for it.
+// next, so the codes are for the journal, not for it. An exit 1 is also an
+// error report, when hostd passed the error-tracking variables on (errors.ts).
 
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startCapture, type Capture } from "./capture";
 import { ConfigError, parseGrant, readConfig } from "./config";
+import { streamerTracker } from "./errors";
 import { steamLoginForwarder } from "./steamLogin";
 import { startStreamer, type Streamer } from "./streamer";
 import { startVirtualInput } from "./uinput";
+import { trackProcess } from "../../../packages/error-tracking/src/index.ts";
 
 /** The longest the exit waits for a capture that was still starting. */
 const CLEANUP_LIMIT_MS = 5_000;
 
 /** The grant is one short line; anything past this is not hostd talking. */
 const MAX_GRANT_BYTES = 4096;
+
+const tracker = streamerTracker(process.env);
+trackProcess(tracker, process);
 
 async function readStdin(): Promise<string> {
   let text = "";
@@ -88,6 +94,7 @@ async function main(): Promise<number> {
     return 0;
   } catch (cause) {
     console.error(`[swiff-streamer] ${cause instanceof Error ? cause.message : cause}`);
+    tracker.capture(cause);
     return 1;
   } finally {
     // A capture still starting is aborted: its check is killed and no helper starts.
@@ -104,9 +111,14 @@ async function main(): Promise<number> {
 }
 
 main().then(
-  (code) => process.exit(code),
-  (cause: unknown) => {
+  async (code) => {
+    await tracker.flush();
+    process.exit(code);
+  },
+  async (cause: unknown) => {
     console.error(`[swiff-streamer] ${cause instanceof Error ? cause.message : cause}`);
+    tracker.capture(cause);
+    await tracker.flush();
     process.exit(1);
   },
 );

@@ -1,0 +1,12 @@
+# Lanterel OS's own ESP at /run/swiff/esp, read-only and root's alone, for
+# swiff-hostd, which pulls this in. Without it the agent reports no errors.
+[Unit]
+Description=Lanterel OS boot partition, read-only
+ConditionPathExists=/sys/firmware/efi/efivars/LoaderDevicePartUUID-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f
+After=systemd-udevd.service local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/swiff/espmount
+ExecStop=-/usr/bin/umount /run/swiff/esp

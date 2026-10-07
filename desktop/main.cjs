@@ -47,6 +47,43 @@ const { openSteamInstaller, readSteam } = require("./steam.cjs");
 const { TRAY_ICON_SIZE, trayIconPixels } = require("./tray-icon.cjs");
 const { windowsShareAllowed } = require("./share-gate.cjs");
 
+/** The signed-in user's name, never sent in an error report; "" where the OS will not say. */
+function userName() {
+  try {
+    return os.userInfo().username;
+  } catch {
+    return "";
+  }
+}
+
+// Error reports to PostHog (src/mainErrors.ts), built into dist/ beside the
+// window, to the project the Lanterel server names (kept in the app's data
+// between starts). A PC with DO_NOT_TRACK set sends none; and an unbuilt
+// checkout has no dist/ to load, so it runs without them.
+/** The project Lanterel Host reports to now, for Lanterel OS's ESP too: null when there is none. */
+let errorProject = () => null;
+try {
+  const errorProjectFile = () => path.join(app.getPath("userData"), "error-reports.json");
+  errorProject = require("./dist/main-errors.cjs").startErrorTracking({
+    app,
+    ipcMain,
+    proc: process,
+    env: process.env,
+    fromWindow: (event) =>
+      (win !== null && event.sender === win.webContents) ||
+      (glance !== null && event.sender === glance.webContents),
+    secrets: [os.homedir(), userName()],
+    // The project's key is PostHog's public client token, never a personal API
+    // key: projectOf (packages/error-tracking) takes only phc_ keys.
+    store: {
+      read: () => JSON.parse(fs.readFileSync(errorProjectFile(), "utf8")),
+      write: (kept) => fs.writeFileSync(errorProjectFile(), `${JSON.stringify(kept)}\n`),
+    },
+  }).project;
+} catch {
+  // No reports, then; the app is the same without them.
+}
+
 const INDEX = path.join(__dirname, "dist", "index.html");
 // Each window gets only its own calls: the app window its preload, the tray
 // glance one that can show a snapshot and send back a named action, nothing else.
@@ -245,6 +282,7 @@ ipcMain.handle("rental:plan", async (event, ask) => {
           : installPlan(rental, {
               target: typeof ask.target === "string" ? ask.target : null,
               layout: imageSet().layout,
+              errorReports: errorProject(),
             });
     }
   } catch {

@@ -3,13 +3,19 @@
 //   node src/main.ts                     run the agent for this boot
 //   node src/main.ts status              ask the running agent where it stands
 //   node src/main.ts return-to-windows   ask for the PC back (honoured only when idle: D8)
+//   node src/main.ts session-env <file>  write the renter session's error-tracking
+//                                        project to <file> (swiff-error-tracking.service)
 //
-// The config file is SWIFF_HOSTD_CONFIG, or /var/lib/swiff/hostd.json.
+// The config file is SWIFF_HOSTD_CONFIG, or /var/lib/swiff/hostd.json. A run
+// of the agent reports what nothing caught to PostHog, when its environment or
+// the file LANTEREL_ERROR_TRACKING_FILE names a project (errors.ts); the two
+// commands do not.
 
 import { createAgent } from "./agent.ts";
 import { createHostApi } from "./api.ts";
 import { DEFAULT_CONFIG_PATH, HARDWARE_FLOOR, loadConfig, OWNER_TAKEOVER, readMachineKey } from "./config.ts";
 import { COMMANDS, sendControl, serveControl, type Command } from "./control.ts";
+import { errorTrackingEnv, errorTrackingFile, hostdTracker, writeSessionEnv } from "./errors.ts";
 import { fileResumeStore } from "./resume.ts";
 import { openMachineSocket } from "./socket.ts";
 import {
@@ -22,9 +28,32 @@ import {
 } from "./state-key.ts";
 import { streamerLauncher } from "./streamer.ts";
 import { linuxSystem, run, runWithin } from "./system.ts";
+import { trackProcess } from "../../../packages/error-tracking/src/index.ts";
+
+const command = process.argv[2];
+// Before the config: it needs only the error-tracking file, and runs before the agent.
+if (command === "session-env") {
+  const out = process.argv[3];
+  if (!out) {
+    console.error("usage: swiff-hostd session-env <file>");
+    process.exit(2);
+  }
+  await writeSessionEnv(out, {
+    ...process.env,
+    ...(await errorTrackingFile(process.env.LANTEREL_ERROR_TRACKING_FILE)),
+  });
+  process.exit(0);
+}
+// Cut from every report: the machine id and key, once they are read.
+const secrets: string[] = [];
+const env =
+  command === undefined
+    ? { ...process.env, ...(await errorTrackingFile(process.env.LANTEREL_ERROR_TRACKING_FILE)) }
+    : process.env;
+if (command === undefined) trackProcess(hostdTracker(env, secrets), process);
 
 const config = await loadConfig(process.env.SWIFF_HOSTD_CONFIG ?? DEFAULT_CONFIG_PATH);
-const command = process.argv[2];
+secrets.push(config.machineId);
 
 if (command !== undefined) {
   if (!(COMMANDS as readonly string[]).includes(command)) {
@@ -34,11 +63,14 @@ if (command !== undefined) {
   console.log(JSON.stringify(await sendControl(config.controlSocket, command as Command)));
 } else {
   const machineKey = await readMachineKey(config.machineKeyFile);
+  secrets.push(machineKey);
   const agent = createAgent({
     api: createHostApi({ serverUrl: config.serverUrl, machineId: config.machineId, machineKey }),
     openSocket: (onEvent) =>
       openMachineSocket({ url: config.serverUrl, hostId: config.machineId, machineKey, onEvent }),
-    launchStreamer: streamerLauncher(config.streamer, config.serverUrl, config.machineId),
+    launchStreamer: streamerLauncher(config.streamer, config.serverUrl, config.machineId, {
+      env: errorTrackingEnv(env),
+    }),
     system: linuxSystem(HARDWARE_FLOOR),
     resume: fileResumeStore(config.stateDir),
     ...(config.state && {

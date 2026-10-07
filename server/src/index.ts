@@ -54,6 +54,7 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import { sessionSpanMs } from "@swiff/rank";
+import { errorTrackingFromEnv } from "./error-tracking.js";
 import { relayFromEnv } from "./ice.js";
 import {
   accessFromEnv,
@@ -236,6 +237,7 @@ const serveApi = createApi({
   watchRelay: async (seat) => relayServers(await turn.relay.credentials(seat)),
   onCrewLeft: () => void checkWatches(),
   checkCrew: (sessionId) => currentCrews(sessionId),
+  errorTracking: errorTrackingFromEnv(process.env),
 });
 
 // The public marketing site (marketing.ts) and its sign-ups (signups.ts), only

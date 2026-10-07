@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as efi from "../efi.cjs";
 import { emptyGpt, gptWrites, readGpt, withPartitions, withResized, type Gpt } from "../gpt.cjs";
 import { testBuild } from "../build-kind.cjs";
+import { fat32Volume, readRootFile } from "./test/fat32.ts";
 import { copyChecked, MANIFEST, SIGNATURE, readImageSet, trustOf } from "../image-set.cjs";
 import { channelOf, clientOf, dryRun, handshake, runPlan, startWorker } from "../rental-exec.cjs";
 import { checkOp, createWorker, diskPath, serve, type Windows } from "../rental-worker.cjs";
@@ -702,6 +703,33 @@ describe("the elevated worker", () => {
     await expect(worker.apply({ op: "forget" })).resolves.toEqual({});
   });
 
+  it("leaves the project Lanterel Host reports to on Lanterel OS's ESP, written while Windows cannot mount it", async () => {
+    const { pc, worker, layout } = await setup();
+    const project = { key: "phc_test", host: "https://eu.i.posthog.com" };
+    const plan = installPlan(rentalOf(pc.facts(), []), { layout, code: "48217730", errorReports: project });
+    const espTypes: string[] = [];
+    const outcome = await runPlan(plan, {
+      apply: async (op) => {
+        // The image's ESP stands in for its 1 GiB write: a fresh FAT32, as the image set has it.
+        if (op.op === "write" && op.source === "esp") pc.disk.write(fat32Volume(op.offset));
+        if (op.op === "esp-file") espTypes.push(pc.gpt().entries.find((e) => e.id === ID(0))!.type);
+        return skipping(worker.apply)(op);
+      },
+    });
+    expect(outcome).toMatchObject({ status: "done" });
+    expect(espTypes).toEqual([TYPE.linux]);
+    const esp = installOf(worker.state())!.partitions.find((p) => p.role === "esp")!;
+    expect(pc.gpt().entries.find((e) => e.id === ID(0))!.type).toBe(TYPE.esp);
+    const { file } = readRootFile(pc.disk.read, esp.offset, "LANTEREL.ENV");
+    expect(file!.content.toString()).toBe(
+      "LANTEREL_POSTHOG_KEY=phc_test\nLANTEREL_POSTHOG_HOST=https://eu.i.posthog.com\n",
+    );
+    // Only into Lanterel OS's own boot partition.
+    await expect(
+      worker.apply({ op: "esp-file", disk: 0, offset: esp.offset + esp.bytes, ...project }),
+    ).rejects.toThrow(/not Lanterel OS's boot partition/);
+  });
+
   /** Lanterel OS installed up to its boot entry, Boot0001. */
   async function withEntry() {
     const set = await setup();
@@ -834,6 +862,18 @@ describe("the elevated worker", () => {
 
   it("refuses operations it does not know, or that carry the wrong things", () => {
     expect(() => checkOp({ op: "format" })).toThrow(/Not an operation this installer knows/);
+    const espFile = {
+      op: "esp-file",
+      disk: 0,
+      offset: 0,
+      key: "phc_x",
+      host: "https://eu.i.posthog.com",
+    } as const;
+    expect(() => checkOp(espFile)).not.toThrow();
+    expect(() => checkOp({ ...espFile, key: "phc_x\nNODE_OPTIONS=--require /x" })).toThrow(
+      /bad error-reports file/,
+    );
+    expect(() => checkOp({ ...espFile, host: "https://evil.example" })).toThrow(/bad error-reports file/);
     expect(() => checkOp({ op: "bitlocker-suspend", letter: "C:", restarts: 3 })).toThrow();
     expect(() =>
       checkOp({ op: "boot-entry", disk: 0, offset: 0, path: "\\EFI\\evil.efi", title: "Lanterel OS" }),

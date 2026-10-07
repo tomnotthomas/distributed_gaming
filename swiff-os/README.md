@@ -63,7 +63,8 @@ drive BitLocker protects later asks again. The install:
 3. turns off Fast Startup, shrinks C: by 24 GB (`Resize-Partition`), or uses free space
 4. adds Swiff OS's six partitions with the image's ids, names and attributes (`gpt.cjs`
    on `\\.\GLOBALROOT\Device\HarddiskN\Partition0`, then `Update-Disk`)
-5. writes the ESP and slot A, hashing as it writes and reading back
+5. writes the ESP and slot A, hashing as it writes and reading back, then, when the host app
+   has an error-reports project, `LANTEREL.ENV` onto the ESP ("Error reports" below)
 6. adds a `Boot####` entry for `\EFI\swiff\shimx64.efi` on Swiff OS's ESP, last in BootOrder
    (`desktop/efi.cjs`, through `SetFirmwareEnvironmentVariableEx`: bcdedit cannot name a
    second ESP without a drive letter)
@@ -798,7 +799,8 @@ mode; a socket on an attested host certificate is rental mode either way.
   and only root can read (mode 600); the agent refuses any other. For each renter
   session the agent gets a 5-minute session key (`POST /api/machines/:id/session`) and
   hands it to the streamer on stdin. The streamer runs as its own unprivileged user. Its
-  environment carries only `SWIFF_SERVER_URL`, `SWIFF_HOST_ID` and `SWIFF_APPID`.
+  environment carries only `SWIFF_SERVER_URL`, `SWIFF_HOST_ID` and `SWIFF_APPID`, and
+  the error-tracking variables when the agent has them ("Error reports" below).
 - **One renter at a time.** While the PC is offered, the agent holds the room with the
   machine-key socket and hears `session-claimed`. It then starts that session's host
   session and the streamer. It sends a heartbeat every 5 s, and learns the session is
@@ -886,6 +888,48 @@ config format is in `hostd/hostd.example.json`, with the image's streamer. `serv
 be `wss://`, since the machine key rides on it; plain `ws://` is accepted only for a server
 on this machine. `status` and `return-to-windows` talk to the running agent over its control
 socket, which only root can use.
+
+### Error reports
+
+The agent, the streamer and `swiff-steam-login` report their failures to PostHog's error
+tracking (`packages/error-tracking`): what nothing caught, which still ends the program
+as Node would have, the streamer's exit 1, and Steam that does not start. A report is an
+error's type, message and stack, the program's name, and nothing about who: a random id
+for the run, no person profile, no location, and every string scrubbed of Steam IDs,
+e-mail and IP addresses, user names in paths, invite links, keys and tokens, and the
+machine id and key by name. Each program sends the same failure once per run, and 50
+reports at most.
+
+Reports are off unless the program's environment names a project, and off whenever
+`DO_NOT_TRACK` is set (to anything but `0`):
+
+| Variable                | Value                                                      |
+| ----------------------- | ---------------------------------------------------------- |
+| `LANTEREL_POSTHOG_KEY`  | the project's public key (`phc_...`), never committed      |
+| `LANTEREL_POSTHOG_HOST` | its ingestion host, `https://eu.i.posthog.com`; https only |
+
+The root is read-only and `/var` a tmpfs, so they come from the one place Lanterel Host
+writes that Lanterel OS can read: its ESP. Installers carry no key: the hosted Lanterel
+server serves its own `VITE_POSTHOG_KEY` and `VITE_POSTHOG_HOST` (the web app's project,
+built by the same Render service) at runtime at `GET /api/error-tracking`, and a dev build
+may override them with its own. When the host app has a project from either and the
+PC does not set `DO_NOT_TRACK`, the install writes `LANTEREL.ENV` (`NAME=value` lines) into
+the ESP's root directory, after the ESP is written and read back against its SHA-256
+(`desktop/esp-file.cjs`); without them it writes none, and a new install writes the ESP
+afresh, so no file is left from before. In Lanterel OS `swiff-esp.service` mounts the ESP
+systemd-boot started from (`LoaderDevicePartUUID`) read-only and root's alone at
+`/run/swiff/esp`, and `swiff-hostd.service` points the agent at the file
+(`LANTEREL_ERROR_TRACKING_FILE`). Windows can write the ESP, so the agent treats the file
+as untrusted: it takes only those two names from it, never as an `EnvironmentFile`, and
+only a `phc_` project key and an `https` host on `posthog.com`; anything else leaves
+reports off. Each streamer it starts gets the error-tracking variables the agent has
+(`LANTEREL_POSTHOG_KEY`, `LANTEREL_POSTHOG_HOST` and `DO_NOT_TRACK`, each only when set),
+beside its own `SWIFF_SERVER_URL`, `SWIFF_HOST_ID` and `SWIFF_APPID`, and none of the agent's
+other settings. `swiff-steam-login` runs in the renter's session, not under the agent, and the file
+is root's alone, so `swiff-error-tracking.service` checks it the same way at boot
+(`swiff-hostd session-env`) and writes the project alone to `/run/swiff/error-tracking/session.env`,
+root's alone too; `swiff-session.service` reads that as an `EnvironmentFile`, which systemd opens as
+root. Without a project the file is empty and the session reports nothing.
 
 **Not yet here.** These come in later stages:
 

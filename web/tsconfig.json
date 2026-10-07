@@ -9,7 +9,8 @@
     "paths": {
       "@swiff/ui": ["../packages/ui/src/index.ts"],
       "@swiff/rtc": ["../packages/rtc/src/index.ts"],
-      "@swiff/rank": ["../packages/rank/src/index.ts"]
+      "@swiff/rank": ["../packages/rank/src/index.ts"],
+      "@swiff/error-tracking": ["../packages/error-tracking/src/index.ts"]
     },
     "baseUrl": "."
   },

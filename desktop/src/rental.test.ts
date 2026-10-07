@@ -5,6 +5,7 @@
 // partition after it.
 
 import { createHash } from "node:crypto";
+import { projectOf } from "@swiff/error-tracking";
 import { describe, expect, it, vi } from "vitest";
 import { emptyGpt, withPartitions } from "../gpt.cjs";
 import { drivesOff, recoveryOf, recoveryStore } from "../recovery-key.cjs";
@@ -14,6 +15,7 @@ import {
   bitlockerDrives,
   bitlockerState,
   BOOT_CHANGES,
+  errorReportsFile,
   factsOf,
   freeSpans,
   gamesDriveOf,
@@ -63,6 +65,7 @@ import {
   waitingFor,
   windowsTodos,
 } from "./rental";
+import PROJECT_CASES from "../../packages/error-tracking/src/project-cases.json";
 import FACTS from "./test/rental-facts.json";
 
 const MiB = 1024 * 1024;
@@ -376,6 +379,45 @@ describe("the install plan", () => {
       "Restart once to confirm the key",
     ]);
   });
+
+  it("puts the project Lanterel Host reports errors to onto Lanterel OS's ESP, once it is written and before it is typed ESP", () => {
+    const project = { key: "phc_test", host: "https://eu.i.posthog.com" };
+    const plan = installPlan(pc(), { errorReports: project });
+    const add = plan.steps.find((s) => s.id === "partitions")!.ops[0]!;
+    if (add.op !== "gpt-add") throw new Error("not gpt-add");
+    const write = plan.steps.find((s) => s.id === "write")!;
+    expect(write.ops.map((o) => o.op)).toEqual(["write", "write", "write", "esp-file"]);
+    expect(write.ops.at(-1)).toEqual({
+      op: "esp-file",
+      disk: 0,
+      offset: add.partitions[0]!.offset,
+      ...project,
+    });
+    expect(write.commands).toContain("#   LANTEREL_POSTHOG_KEY=phc_test");
+    expect(write.commands).toContain("#   LANTEREL_POSTHOG_HOST=https://eu.i.posthog.com");
+    // A build without a project, a PC that says DO_NOT_TRACK (both null), or a project Lanterel OS would refuse: no file.
+    for (const errorReports of [
+      null,
+      { key: "phx_personal", host: project.host },
+      { key: project.key, host: "https://evil.example" },
+    ])
+      expect(
+        installPlan(pc(), { errorReports })
+          .steps.flatMap((s) => s.ops)
+          .map((o) => o.op),
+      ).not.toContain("esp-file");
+  });
+
+  it.each(PROJECT_CASES)(
+    "takes the same projects for LANTEREL.ENV as @swiff/error-tracking's projectOf: $what",
+    ({ key, host, origin }) => {
+      const shared = projectOf({ key, host });
+      expect(shared).toEqual(origin === null ? null : { key, host: origin });
+      expect(errorReportsFile({ key, host })).toBe(
+        shared && `LANTEREL_POSTHOG_KEY=${shared.key}\nLANTEREL_POSTHOG_HOST=${shared.host}\n`,
+      );
+    },
+  );
 
   it("goes on in the partitions a stopped install already made: no shrink, no new partitions, the same offsets", () => {
     const first = installPlan(pc());

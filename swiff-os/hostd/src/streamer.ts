@@ -7,6 +7,8 @@
 //   SWIFF_SERVER_URL  ws:// or wss:// origin of the signaling server
 //   SWIFF_HOST_ID     the machine id, its room
 //   SWIFF_APPID       the Steam game booked, when the agent knows it
+//   LANTEREL_POSTHOG_KEY, LANTEREL_POSTHOG_HOST, DO_NOT_TRACK
+//                     where its error reports go, when the agent's own are on (errors.ts)
 //
 //   stdin             one JSON line { "sessionKey": "...", "expiresAt": <Unix s> }, then closed
 //
@@ -35,7 +37,14 @@ export function streamerLauncher(
   config: StreamerConfig,
   serverUrl: string,
   hostId: string,
-  stopGraceMs = STOP_GRACE_MS,
+  {
+    env = {},
+    stopGraceMs = STOP_GRACE_MS,
+  }: {
+    /** More of its environment: the error-tracking variables (errors.ts), never a secret. */
+    env?: Record<string, string>;
+    stopGraceMs?: number;
+  } = {},
 ): LaunchStreamer {
   return (grant, appid) => {
     const child = spawn(config.command, config.args, {
@@ -43,6 +52,7 @@ export function streamerLauncher(
       gid: config.gid,
       stdio: ["pipe", "inherit", "inherit"],
       env: {
+        ...env,
         PATH: process.env.PATH ?? "/usr/bin:/bin",
         SWIFF_SERVER_URL: serverUrl,
         SWIFF_HOST_ID: hostId,

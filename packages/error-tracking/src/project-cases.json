@@ -1,0 +1,37 @@
+[
+  {
+    "what": "a project",
+    "key": "phc_test",
+    "host": "https://eu.i.posthog.com",
+    "origin": "https://eu.i.posthog.com"
+  },
+  {
+    "what": "an upper-case host",
+    "key": "phc_test",
+    "host": "https://EU.i.PostHog.com",
+    "origin": "https://eu.i.posthog.com"
+  },
+  {
+    "what": "a trailing slash",
+    "key": "phc_test",
+    "host": "https://eu.i.posthog.com/",
+    "origin": "https://eu.i.posthog.com"
+  },
+  { "what": "http", "key": "phc_test", "host": "http://eu.i.posthog.com", "origin": null },
+  { "what": "another domain", "key": "phc_test", "host": "https://posthog.com.evil.example", "origin": null },
+  { "what": "a path", "key": "phc_test", "host": "https://eu.i.posthog.com/x", "origin": null },
+  { "what": "a port", "key": "phc_test", "host": "https://eu.i.posthog.com:8443", "origin": null },
+  {
+    "what": "a newline in the key",
+    "key": "phc_test\nNODE_OPTIONS=x",
+    "host": "https://eu.i.posthog.com",
+    "origin": null
+  },
+  {
+    "what": "a newline in the host",
+    "key": "phc_test",
+    "host": "https://eu.i.posthog.com/\nNODE_OPTIONS=x",
+    "origin": null
+  },
+  { "what": "a personal API key", "key": "phx_personal", "host": "https://eu.i.posthog.com", "origin": null }
+]

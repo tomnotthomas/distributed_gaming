@@ -56,7 +56,8 @@ describe("the streamer", () => {
       fs.writeFileSync(${JSON.stringify(out)}, JSON.stringify({
         stdin: input, argv: process.argv.slice(1),
         env: { url: process.env.SWIFF_SERVER_URL, host: process.env.SWIFF_HOST_ID, appid: process.env.SWIFF_APPID,
-               leaked: Object.keys(process.env).filter((k) => /KEY|SECRET/.test(k)) },
+               posthog: process.env.LANTEREL_POSTHOG_HOST,
+               leaked: Object.keys(process.env).filter((k) => /KEY|SECRET/.test(k) && k !== "LANTEREL_POSTHOG_KEY") },
       }));
     });
     setInterval(() => {}, 1000);
@@ -68,6 +69,7 @@ describe("the streamer", () => {
       { command: process.execPath, args: ["-e", script(out)], ...self },
       "wss://swiff.example",
       "pc-1",
+      { env: { LANTEREL_POSTHOG_KEY: "phc_public", LANTEREL_POSTHOG_HOST: "https://eu.i.posthog.com" } },
     );
     const streamer = launch(
       { sessionId: "s1", sessionKey: "the-session-key", expiresAt: 1_700_000_300 },
@@ -83,7 +85,13 @@ describe("the streamer", () => {
     }
     expect(JSON.parse(seen!.stdin)).toEqual({ sessionKey: "the-session-key", expiresAt: 1_700_000_300 });
     expect(seen!.argv.join(" ")).not.toContain("the-session-key");
-    expect(seen!.env).toEqual({ url: "wss://swiff.example", host: "pc-1", appid: "730", leaked: [] });
+    expect(seen!.env).toEqual({
+      url: "wss://swiff.example",
+      host: "pc-1",
+      appid: "730",
+      posthog: "https://eu.i.posthog.com",
+      leaked: [],
+    });
     await streamer.stop();
     await streamer.exited;
   });

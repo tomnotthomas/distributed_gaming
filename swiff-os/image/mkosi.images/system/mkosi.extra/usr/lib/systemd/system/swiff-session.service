@@ -7,7 +7,8 @@
 # without the verified games view.
 [Unit]
 Description=Lanterel renter session (gamescope + Steam sign-in)
-After=systemd-user-sessions.service systemd-logind.service home.mount swiff-games.service nftables.service swiff-vtlock.service
+After=systemd-user-sessions.service systemd-logind.service home.mount swiff-games.service nftables.service swiff-vtlock.service swiff-error-tracking.service
+Wants=swiff-error-tracking.service
 Requires=home.mount nftables.service swiff-vtlock.service swiff-games.service
 Conflicts=getty@tty1.service
 
@@ -23,6 +24,10 @@ StandardError=journal
 UtmpIdentifier=tty1
 UtmpMode=user
 WorkingDirectory=~
+# Where the Steam sign-in agent reports its errors, when Lanterel OS was given a
+# project (swiff-error-tracking.service): read by systemd as root, so the
+# renter never reads the file itself.
+EnvironmentFile=-/run/swiff/error-tracking/session.env
 # Steam's own UI lets whoever is at it start programs, so from here on
 # nothing in the games library view can be trusted for promotion (report §8).
 ExecStartPre=+/usr/libexec/swiff/verify close-seal

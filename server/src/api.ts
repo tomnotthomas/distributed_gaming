@@ -41,6 +41,7 @@
 //   GET  /api/events?booking=:id[&to=end]  (event stream, events.ts)
 //   GET  /api/events              (availability events, events.ts)
 //   GET  /api/ping           (signed out)
+//   GET  /api/error-tracking (signed out, any origin: error-tracking.ts)
 //
 // The two reads of what can be played where (candidates.ts) are signed in
 // only: working them out for every visitor would cost too much. For the same
@@ -113,6 +114,7 @@ import { createAttestation, looksLikeHostCert, type Attestation, type Credential
 import { RequestBudget } from "./budget.js";
 import { availabilityFor, machinesFor, type MachineCandidate, type RenterAsk } from "./candidates.js";
 import { popularGames } from "./catalog.js";
+import type { ErrorTracking } from "./error-tracking.js";
 import { everyGamePlayable, type PlayableGames } from "./playable.js";
 import type { RenterEvents } from "./events.js";
 import { storeFreeToPlay, unlicensed, type FreeToPlay } from "./licence.js";
@@ -213,6 +215,8 @@ export type ApiOptions = {
   onCrewLeft?: () => void;
   /** Before an ask: drop the crew picked for the session when it may watch it no more (index.ts currentCrews). */
   checkCrew?: (sessionId: string) => Promise<unknown>;
+  /** The PostHog project the host app and Lanterel OS report errors to (error-tracking.ts); null: none. */
+  errorTracking?: ErrorTracking | null;
 };
 
 /** What a 403 for a game the renter may not play says, by its `code`. */
@@ -502,6 +506,7 @@ export function createApi({
   watchRelay,
   onCrewLeft,
   checkCrew,
+  errorTracking = null,
 }: ApiOptions) {
   const playable = (appid: number) => playability.playable(appid);
   const bookable = games ?? (() => popularBookable(playable));
@@ -600,6 +605,13 @@ export function createApi({
     if (resource === "ping" && !id && method === "GET") {
       res.writeHead(204, { "cache-control": "no-store" });
       res.end();
+      return true;
+    }
+
+    // The host app asks from its own window, so any origin may read it: it is
+    // a public client key, or null when this server has no project.
+    if (resource === "error-tracking" && !id && method === "GET") {
+      reply(res, 200, errorTracking, HOST_CORS);
       return true;
     }
 
