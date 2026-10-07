@@ -17,9 +17,9 @@ import type { Machine } from "./report";
 /**
  * Why the EK did not register: the app has no machine key to ask with, the
  * server knows no such PC, refused the machine key, or does not trust the
- * TPM's maker; or it did not answer.
+ * TPM's maker; it answered but could not check the TPM; or it did not answer.
  */
-export type EkError = "no-machine" | "unknown-machine" | "bad-key" | "untrusted" | "failed";
+export type EkError = "no-machine" | "unknown-machine" | "bad-key" | "untrusted" | "unavailable" | "failed";
 
 /** Registered now, already registered, or a server that takes no EKs (its verifier attests without one). */
 export type EkResult =
@@ -40,7 +40,7 @@ function refusal(status: number, body: unknown): EkError {
   if (status === 404) return "unknown-machine";
   const detail = (body as { detail?: unknown } | null)?.detail;
   if (status === 403 && (detail === "ek-untrusted" || detail === "ek-unsupported")) return "untrusted";
-  return "failed";
+  return "unavailable";
 }
 
 /** Register `ek` as `machine`'s, unless the server has it already. Nothing it does throws. */

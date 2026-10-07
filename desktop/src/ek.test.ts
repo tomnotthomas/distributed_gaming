@@ -67,8 +67,9 @@ describe("registering the TPM's EK", () => {
       ok: false,
       error: "untrusted",
     });
-    expect(await refused(400, { error: "bad-request" })).toEqual({ ok: false, error: "failed" });
-    expect(await refused(503, { error: "verifier-unavailable" })).toEqual({ ok: false, error: "failed" });
+    expect(await refused(400, { error: "bad-request" })).toEqual({ ok: false, error: "unavailable" });
+    expect(await refused(500, null)).toEqual({ ok: false, error: "unavailable" });
+    expect(await refused(503, { error: "verifier-unavailable" })).toEqual({ ok: false, error: "unavailable" });
     // The machine key refused on the first ask: nothing goes up.
     const fetch = vi.fn(async () => json(401, { error: "unauthorized" }));
     expect(await registerEk(MACHINE, CHAIN, fetch)).toEqual({ ok: false, error: "bad-key" });

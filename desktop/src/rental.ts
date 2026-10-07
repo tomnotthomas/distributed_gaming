@@ -965,12 +965,20 @@ function ekFailure(setup: RentalSetup, error: string, stoppedAt: string): Failur
       "The server doesn't trust this TPM yet",
       "The server doesn't know this TPM's maker, so this PC can't host yet: send the details to Lanterel, so it can be added.",
     ],
+    unavailable: [
+      "The server couldn't check the TPM",
+      "The Lanterel server couldn't check this PC's TPM right now: try again later.",
+    ],
     failed: [
       "Couldn't reach the server",
       "Lanterel couldn't register this PC's TPM with the server: check the internet connection, then try again.",
     ],
+    read: [
+      "Couldn't read the TPM",
+      "Reading this PC's TPM failed: try Go live again, or restart the PC if it fails again.",
+    ],
   };
-  const [title, line] = why[/no endorsement key certificate/i.test(error) ? "none" : error] ?? why.failed!;
+  const [title, line] = why[/no endorsement key certificate/i.test(error) ? "none" : error] ?? why.read!;
   if (error === "untrusted" && run.reportedAt === null)
     return { ...base, title, why: line, action: "send", label: "Send details to Lanterel" };
   return { ...base, title, why: line };
