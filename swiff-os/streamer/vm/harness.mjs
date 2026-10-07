@@ -343,7 +343,11 @@ async function wakeHud(page) {
 
 /** The renter plays on the Swiff page; their crewmate asks to watch from the wall, the renter says yes; they talk. */
 async function watching(browser, rtc) {
-  // The renter founds a crew; its link brings in the VM's owner, who brings the VM, and the friend.
+  // The renter goes back to their session on the Lanterel page first. (Resuming
+  // while the PC is already in one of their crews leaves the page blank today:
+  // the game is not in its game list, so the session view draws nothing.)
+  const page = await swiffPlayer(browser, rtc);
+  // Then the renter founds a crew; its link brings in the VM's owner, who brings the VM, and the friend.
   const founded = await call("POST", "/api/crews", RENTER, {});
   if (founded.status !== 201) throw new Error(`founding the crew answered ${founded.status}`);
   const { id: crewId, token } = founded.body.crew;
@@ -353,7 +357,6 @@ async function watching(browser, rtc) {
   }
   const brought = await call("POST", `/api/crews/${crewId}/pc`, OWNER, { pc: "yes" });
   if (brought.status !== 200) throw new Error(`bringing the VM to the crew answered ${brought.status}`);
-  const page = await swiffPlayer(browser, rtc);
   const before = await call("GET", `/api/bookings/${session.bookingId}`, RENTER);
 
   const context = await browser.newContext({ permissions: ["microphone"] });
