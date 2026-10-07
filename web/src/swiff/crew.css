@@ -1195,6 +1195,8 @@
   color: var(--on-paper-2);
 }
 .crew-lobby .crew-name {
+  /* the title wraps (the player app's .crew-name keeps to one line) */
+  white-space: normal;
   overflow-wrap: anywhere;
 }
 .crew-lobby .crew-rename {
@@ -1368,4 +1370,142 @@
 .crew-lobby .fa-why + .lb-join,
 .crew-lobby .crew-list + .lb-join {
   margin-top: 20px;
+}
+
+/* Responsive layout beyond the phone: the launch set's breakpoints (lobby-impeccable.css,
+   "Responsive layout beyond the phone"), on the app's lobby markup. Tablet portrait (700-999):
+   the crew under the lead, closer. Laptop and up (1000+): two columns, the lead left, the crew
+   right; the share block, its message preview and the reminder share one grid so no column
+   runs empty. Large screens (1600+): a wider frame, a larger crew name. */
+
+/* The reminder field never clips its button */
+.crew-lobby .rem-row {
+  flex-wrap: nowrap;
+  align-items: stretch;
+  min-width: 0;
+}
+.crew-lobby .rem-row .name-in {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+}
+.crew-lobby .rem-row .lpill {
+  flex: none;
+}
+
+@media (min-width: 700px) and (max-width: 999px) {
+  .crew-lobby .lb-in {
+    gap: 32px;
+  }
+  .crew-lobby .nx {
+    max-width: none;
+  }
+}
+
+@media (min-width: 1000px) {
+  /* The crew page: the lead left, the crew, its note and its progress right */
+  .crew-lobby .lb-in:has(> .slots-note) {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    grid-template-rows: auto auto auto 1fr;
+    gap: 24px clamp(40px, 5vw, 80px);
+    align-items: start;
+  }
+  .crew-lobby .lb-in:has(> .slots-note) > div:first-child {
+    grid-column: 1;
+    grid-row: 1 / -1;
+  }
+  .crew-lobby .lb-in:has(> .slots-note) > :not(:first-child) {
+    grid-column: 2;
+  }
+  .crew-lobby .lb-in:has(> .slots-note) > .lb-slots {
+    margin-top: 26px;
+  }
+  /* The invite: the lead, the three steps and the join left, the crew and its progress right */
+  .crew-lobby .lb-in:has(> .jn-three) {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    grid-template-rows: auto auto 1fr;
+    gap: 32px clamp(40px, 5vw, 80px);
+    align-items: start;
+  }
+  .crew-lobby .lb-in:has(> .jn-three) > :is(div:first-child, .jn-three, .lb-join) {
+    grid-column: 1;
+  }
+  .crew-lobby .lb-in:has(> .jn-three) > .jn-three {
+    grid-template-columns: 1fr;
+    max-width: 460px;
+  }
+  .crew-lobby .lb-in:has(> .jn-three) > .lb-slots {
+    grid-column: 2;
+    grid-row: 1;
+    margin-top: 26px;
+  }
+  .crew-lobby .lb-in:has(> .jn-three) > .lb-prog {
+    grid-column: 2;
+    grid-row: 2;
+  }
+  .crew-lobby .lb-in:is(:has(> .slots-note), :has(> .jn-three)) > .lb-slots {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* One grid for share, preview and reminder */
+  .crew-lobby > .lb-wrap:has(> .lb-path) {
+    display: grid;
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+    column-gap: clamp(32px, 5vw, 80px);
+    align-items: start;
+  }
+  .crew-lobby > .lb-wrap:has(> .lb-path) > * {
+    grid-column: 1 / -1;
+  }
+  .crew-lobby > .lb-wrap > .lb-path {
+    display: contents;
+  }
+  .crew-lobby > .lb-wrap > .lb-path > div {
+    grid-column: 1;
+    padding-top: clamp(40px, 5vw, 64px);
+  }
+  .crew-lobby > .lb-wrap > .lb-path > .lb-phone {
+    grid-column: 2;
+    grid-row: span 2;
+    margin-top: clamp(40px, 5vw, 64px);
+    justify-self: end;
+    width: 100%;
+  }
+  .crew-lobby > .lb-wrap > .lb-remind {
+    grid-column: 1;
+    grid-template-columns: 1fr;
+    margin-top: 40px;
+    padding-bottom: clamp(48px, 6vw, 80px);
+  }
+}
+
+@media (min-width: 1280px) {
+  .crew-lobby .lb-wrap {
+    max-width: 1280px;
+  }
+  .crew-lobby .lb-in:is(:has(> .slots-note), :has(> .jn-three)) {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  }
+}
+
+@media (min-width: 1600px) {
+  .crew-lobby .lb-wrap {
+    max-width: 1440px;
+  }
+  .crew-lobby .lb-art {
+    height: min(30vw, 560px);
+  }
+  .crew-lobby .lb-in:is(:has(> .slots-note), :has(> .jn-three)) {
+    padding-top: 200px;
+    column-gap: 96px;
+  }
+  .crew-lobby .lb-title h1:not(.lb-prose) {
+    font-size: clamp(64px, 5vw, 104px);
+  }
+  .crew-lobby .lb-in:is(:has(> .slots-note), :has(> .jn-three)) > .lb-slots {
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  }
+  .crew-lobby .lb-phone {
+    max-width: 460px;
+  }
 }
