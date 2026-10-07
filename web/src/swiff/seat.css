@@ -369,3 +369,26 @@
   line-height: 1.5;
   color: var(--on-paper-2);
 }
+
+/* Responsive layout beyond the phone: the launch set's breakpoints (lobby-impeccable.css,
+   "Responsive layout beyond the phone"), on the seat page. Laptop and up (1000+): two columns,
+   the lead left, the PC right. Large screens (1600+): a wider frame. */
+@media (min-width: 700px) and (max-width: 999px) {
+  .seat-lobby .st-grid {
+    gap: 32px;
+  }
+}
+@media (min-width: 1280px) {
+  .seat-lobby .st-grid {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  }
+}
+@media (min-width: 1600px) {
+  .seat-lobby .st-art {
+    height: min(30vw, 560px);
+  }
+  .seat-lobby .st-grid {
+    padding-top: 200px;
+    gap: 96px;
+  }
+}
