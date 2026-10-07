@@ -1,7 +1,7 @@
-// Crews end to end, on the real server: a player founds a crew in one tap,
-// a friend without a PC opens its link and joins, the friend brings a gaming
-// PC later, and the crew is ready to play, which the founder's page shows by
-// itself, with the first-PC celebration.
+// Crews end to end, on the real server: a player founds a crew in one tap and
+// sets its Zockrunde, a friend opens its link, joins and says yes, brings a
+// gaming PC later, and the crew is ready to play, which the founder's page
+// shows by itself, with the first-PC celebration.
 
 import { expect, test, type APIRequestContext } from "@playwright/test";
 import { E2E_CREW_PC, E2E_CREW_PC_KEY, E2E_CREW_PC_OWNER, signIn } from "./credentials";
@@ -43,48 +43,47 @@ test("found a crew, a friend joins without a PC, brings one later, and the crew 
   const founder = await founderContext.newPage();
   const founderErrors = failOnPageError(founder, "founder");
 
-  // One tap: the crew exists at once, with its link, and asks nobody about a PC.
+  // One tap: the crew exists at once, with its link, and asks for the date first.
   await founder.goto("/crews?found=1");
   await expect(founder).toHaveURL(/\/crews\/[\w-]{22}$/);
   const crewId = new URL(founder.url()).pathname.split("/").pop()!;
-  await expect(founder.getByText("Almost ready.", { exact: true })).toBeVisible();
-  await expect(founder.getByRole("heading", { name: "Get your people into the crew" })).toBeVisible();
-  await expect(founder.getByRole("button", { name: "Share on WhatsApp" }).first()).toBeVisible();
+  await expect(founder.getByRole("heading", { name: "When are you playing?" })).toBeVisible();
   const { crew } = await (await founder.request.get(`/api/crews/${crewId}`)).json();
   expect(crew.token).toMatch(/^[\w-]{44}$/);
-  await expect(founder.locator(".lb-link code")).toContainText(`/invite/${crew.token}`);
 
-  // The friend opens the link, signed in already, and joins with one tap.
+  // The founder sets the date (tomorrow, 10 pm), and the next step sends it out.
+  await founder.getByRole("button", { name: /^Tomorrow/ }).click();
+  await founder.getByRole("button", { name: "10:00 pm" }).click();
+  await founder.getByRole("button", { name: /^Set Tomorrow, 10 pm/ }).click();
+  await expect(founder.getByRole("heading", { name: "Now get your people in" })).toBeVisible();
+  await expect(founder.locator(".gc-bubble")).toContainText(`/invite/${crew.token}`);
+  await expect(founder.locator(".gc-bubble")).toContainText("Who's got a gaming PC?");
+  await founder.getByRole("button", { name: "Copy the crew link" }).click();
+  await expect(founder.getByRole("heading", { name: "Who brings the gaming PC?" })).toBeVisible();
+
+  // The friend opens the link, signed in already, sees the date, and joins with one tap.
   const friendContext = await browser.newContext();
   await signIn(friendContext, baseURL!, E2E_CREW_PC_OWNER);
   const friend = await friendContext.newPage();
   const friendErrors = failOnPageError(friend, "friend");
   await friend.goto(`/invite/${crew.token}`);
-  await expect(friend.getByText("Almost ready. A gaming PC is still missing.")).toBeVisible();
+  await expect(friend.getByText(/^Session on /)).toBeVisible();
   await expect(friend).toHaveURL(/\/invite$/);
   await friend.getByRole("button", { name: "Join", exact: true }).first().click();
   await expect(friend).toHaveURL(new RegExp(`/crews/${crewId}$`));
 
-  // Joined, the friend sees the same page as everyone in the crew: no card pushed on them, no "later".
-  const card = friend.getByTestId("pc-card");
-  await expect(friend.getByRole("heading", { name: "Get your people into the crew" })).toBeVisible();
-  await expect(card).toBeHidden();
-  await expect(friend.getByRole("button", { name: /later/i })).toHaveCount(0);
-
-  // The founder's page shows the friend without a reload.
-  await expect(founder.getByText("2 in").first()).toBeVisible();
+  // Joined, the friend says yes, and the founder sees it without a reload.
+  await friend.getByRole("button", { name: "I'm in" }).click();
+  await expect(friend.getByRole("heading", { name: "Who brings the gaming PC?" })).toBeVisible();
+  await expect(founder.getByText("2 in", { exact: true })).toBeVisible();
 
   // Weeks later the friend's PC is on: it plays for no crew until they bring it.
   await offerCrewPc(request, true);
-  await expect(friend.getByText("Almost ready.", { exact: true })).toBeVisible();
+  await expect(friend.getByRole("heading", { name: "Who brings the gaming PC?" })).toBeVisible();
 
-  // They bring it with the one button on the PC card, and the crew is ready, on both pages.
-  await friend.getByRole("button", { name: "I've got a gaming PC" }).click();
-  await expect(card.getByText("The crew doesn't see")).toBeVisible();
-  await card.getByRole("button", { name: "Get the app on your PC" }).click();
-  await expect(friend.getByText("Ready to play!", { exact: true })).toBeVisible();
-  await expect(friend.getByText("Your PC plays for")).toBeVisible();
-  await expect(founder.getByText("Ready to play!", { exact: true })).toBeVisible();
+  // They bring it, and the crew is ready, on both pages.
+  await friend.getByRole("button", { name: "Yes: put the app on my PC" }).click();
+  await expect(friend.getByRole("heading", { name: "You're ready to play!" })).toBeVisible();
   await expect(founder.getByRole("heading", { name: "You're ready to play!" })).toBeVisible();
   await expect(founder.getByText("Jos PC is in. You're ready to play!")).toBeVisible();
 
