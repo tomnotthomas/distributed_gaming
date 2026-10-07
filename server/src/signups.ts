@@ -16,8 +16,9 @@
 //
 // Nothing changes on a GET: mail scanners open every link in a mail, and only
 // a click on the button proves a person did. A player keeps one address; a
-// new one needs confirming again. A player gets one confirm mail a while,
-// whichever address it goes to. Each client may send a few at a time.
+// new one needs confirming again. Each address a player gives gets one
+// confirm mail a while; one held back says when to ask again. Each client may
+// send a few at a time.
 //
 // The server has no way to send mail yet, so every mail is rendered into
 // marketing_outbox and stays there.
@@ -37,7 +38,7 @@ const MAX_SIGNUP_BODY_BYTES = 4 * 1024;
 const MAX_EMAIL_LENGTH = 254;
 /** The same check the crew page makes, so nothing it lets through is refused here. */
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-/** A player gets another confirm mail, to any address, no sooner than this. */
+/** A player gets another confirm mail to the same address no sooner than this. */
 export const RESEND_AFTER_MS = 60 * 60_000;
 /** A confirm link works for this long after its mail. */
 export const CONFIRM_TTL_MS = 7 * 24 * 60 * 60_000;
@@ -184,14 +185,16 @@ type ReminderRow = {
   unsubscribe: string;
   email: string;
   lang: Lang;
-  confirm_hash: string;
   confirm_sent_at: number;
   confirmed_at: number | null;
   unsubscribed_at: number | null;
 };
 
-/** A player's reminders as the crew page shows them: the address they go to, and whether it confirmed. */
-export type Reminders = { email: string | null; confirmed: boolean };
+/**
+ * A player's reminders as the crew page shows them: the address they go to,
+ * whether it confirmed, and, when its confirm mail was held back, when to ask again.
+ */
+export type Reminders = { email: string | null; confirmed: boolean; retryAt?: number };
 
 /**
  * The reminders of the app's players on `database`, with their mails
@@ -239,22 +242,39 @@ export function createSignups({
 
   /**
    * Send `steamId`'s reminders to `body.email` once that address confirms. A
-   * new address starts over, unconfirmed, with its own unsubscribe link; the
-   * same one, confirmed, needs nothing. Whatever changed, the player's next
-   * confirm mail goes out only RESEND_AFTER_MS after their last one.
+   * new address, or one stopped, starts over, unconfirmed; a new one with its
+   * own unsubscribe link. The same one, confirmed, needs nothing. An address
+   * gets its next confirm mail only RESEND_AFTER_MS after its last one: until
+   * then, when to ask again.
    */
-  async function remind(steamId: string, body: Json): Promise<void> {
+  async function remind(steamId: string, body: Json): Promise<number | null> {
     const email = signupEmail(body.email);
     if (!email) throw new HttpError(400, "email is not an email address");
     const lang: Lang = body.lang === "en" ? "en" : "de";
     const at = now();
     const confirm = token();
-    await database.transaction(async (tx) => {
+    const address = hash(email);
+    return database.transaction(async (tx) => {
       const { rows } = await tx.query<ReminderRow>(
         `SELECT * FROM marketing_signups WHERE steam_id = $1 FOR UPDATE`,
         [steamId],
       );
       const known = rows[0];
+      await tx.query(`DELETE FROM marketing_confirm_sends WHERE sent_at <= $1`, [at - RESEND_AFTER_MS]);
+      const last = await tx.query<{ sent_at: number }>(
+        `SELECT sent_at FROM marketing_confirm_sends WHERE steam_id = $1 AND email_hash = $2`,
+        [steamId, address],
+      );
+      const retryAt = last.rows[0] ? last.rows[0].sent_at + RESEND_AFTER_MS : null;
+      /** Queue the confirm mail and keep when it went to this address. */
+      const mail = async (unsubscribe: string) => {
+        await sendConfirm(tx, { email, lang, unsubscribe }, confirm);
+        await tx.query(
+          `INSERT INTO marketing_confirm_sends (steam_id, email_hash, sent_at) VALUES ($1, $2, $3)
+           ON CONFLICT (steam_id, email_hash) DO UPDATE SET sent_at = $3`,
+          [steamId, address, at],
+        );
+      };
       if (!known) {
         const unsubscribe = token();
         // Another request for the same player may have just made it: then that one mails.
@@ -265,24 +285,24 @@ export function createSignups({
            ON CONFLICT (steam_id) DO NOTHING`,
           [newId(), email, steamId, lang, newId(), hash(confirm), unsubscribe, at],
         );
-        if (made.rowCount) await sendConfirm(tx, { email, lang, unsubscribe }, confirm);
-        return;
+        if (made.rowCount) await mail(unsubscribe);
+        return null;
       }
-      const changed = known.email !== email;
-      if (!changed && known.unsubscribed_at === null && known.confirmed_at !== null) return;
-      const send = at - known.confirm_sent_at >= RESEND_AFTER_MS;
-      // A new address starts over: nothing goes to it until it confirms, and no link
-      // mailed to the old one works for it. Until the player may get another mail, it
-      // waits with a confirm link nobody holds.
-      const unsubscribe = changed ? token() : known.unsubscribe;
-      const confirmHash = send ? hash(confirm) : changed ? hash(token()) : known.confirm_hash;
+      const asked = known.email === email && known.unsubscribed_at === null;
+      if (asked && known.confirmed_at !== null) return null;
+      // Still waiting for the link it was mailed, which works.
+      if (asked && retryAt !== null) return retryAt;
+      // Starting over: nothing goes to it until it confirms, and no link mailed before
+      // works for it. Held back, it waits with a confirm link nobody holds.
+      const unsubscribe = known.email === email ? known.unsubscribe : token();
       await tx.query(
         `UPDATE marketing_signups SET email = $2, lang = $3, confirm_hash = $4, confirm_sent_at = $5,
            unsubscribe = $6, confirmed_at = NULL, unsubscribed_at = NULL
          WHERE id = $1`,
-        [known.id, email, lang, confirmHash, send ? at : known.confirm_sent_at, unsubscribe],
+        [known.id, email, lang, hash(retryAt === null ? confirm : token()), at, unsubscribe],
       );
-      if (send) await sendConfirm(tx, { email, lang, unsubscribe }, confirm);
+      if (retryAt === null) await mail(unsubscribe);
+      return retryAt;
     });
   }
 
@@ -400,9 +420,13 @@ export function createSignups({
       }
       if (method !== "POST") return false;
       if (overBudget(req, res)) return true;
-      if (path === "/api/signups/reminders/off") await stop(steamId);
-      else await remind(steamId, await readJson(req, MAX_SIGNUP_BODY_BYTES));
-      json(res, 200, await reminders(steamId));
+      if (path === "/api/signups/reminders/off") {
+        await stop(steamId);
+        json(res, 200, await reminders(steamId));
+        return true;
+      }
+      const retryAt = await remind(steamId, await readJson(req, MAX_SIGNUP_BODY_BYTES));
+      json(res, 200, retryAt === null ? await reminders(steamId) : { ...(await reminders(steamId)), retryAt });
       return true;
     }
     const action = LINK_ACTIONS.find((a) => path === `/api/signups/${a}`);

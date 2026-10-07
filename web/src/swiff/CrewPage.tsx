@@ -907,7 +907,7 @@ function CrewReminders() {
   const [reminders, setReminders] = useState<Reminders | null>(null);
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState<{ key: CopyKey; alert?: boolean } | null>(null);
+  const [note, setNote] = useState<{ key: CopyKey; alert?: boolean; time?: string } | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -931,7 +931,14 @@ function CrewReminders() {
       return;
     }
     setReminders(answer);
-    if (next !== null && !answer.confirmed) setNote({ key: "rem.sent" });
+    if (next !== null && answer.retryAt !== undefined) {
+      const time = new Intl.DateTimeFormat(lang === "de" ? "de-DE" : "en-GB", {
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: lang === "en",
+      }).format(answer.retryAt);
+      setNote({ key: "rem.held", time });
+    } else if (next !== null && !answer.confirmed) setNote({ key: "rem.sent" });
   };
 
   const submit = (event: FormEvent) => {
@@ -977,7 +984,7 @@ function CrewReminders() {
         </form>
       )}
       <p className="cp-toast" role={note?.alert ? "alert" : "status"} hidden={!note}>
-        {note ? t(note.key, { email: reminders.email ?? email.trim() }) : null}
+        {note ? t(note.key, { email: reminders.email ?? email.trim(), time: note.time ?? "" }) : null}
       </p>
     </section>
   );

@@ -1084,6 +1084,24 @@ describe("CrewPage: sharing and reminders", () => {
     expect(JSON.parse(posted![2]!)).toEqual({ email: "lena@example.com", lang: "en" });
   });
 
+  it("says when to ask again when the server held the confirm mail back, never to click a link", async () => {
+    const retryAt = new Date(2026, 9, 7, 15, 30).getTime();
+    fetchFrom({
+      "GET /api/crews/c1": [200, { crew: crewOf() }],
+      "GET /api/signups/reminders": [200, { email: null, confirmed: false }],
+      "POST /api/signups/reminders": [200, { email: "lena@example.com", confirmed: false, retryAt }],
+    });
+    render(<CrewPage swiff={atCrew("c1")} />);
+    fireEvent.change(await screen.findByLabelText("Email address"), { target: { value: "lena@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Remind me" }));
+    expect(
+      await screen.findByText(
+        "lena@example.com already got an email from us a moment ago; you can ask for a new one from 3:30 pm.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/click the link/)).toBeNull();
+  });
+
   it("shows confirmed reminders with a way to stop them", async () => {
     const calls = fetchFrom({
       "GET /api/crews/c1": [200, { crew: crewOf() }],

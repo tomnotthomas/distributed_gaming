@@ -397,6 +397,17 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     `ALTER TABLE marketing_signups DROP CONSTRAINT marketing_signups_email_kind_key`,
     `CREATE UNIQUE INDEX marketing_signups_email_kind ON marketing_signups (email, kind) WHERE steam_id IS NULL`,
   ],
+  [
+    // The confirm mails each player had sent to each address lately (signups.ts), so
+    // one address gets another only after a while: the address as its SHA-256 hash
+    // (hex), and nothing older than that while.
+    `CREATE TABLE marketing_confirm_sends (
+      steam_id   TEXT NOT NULL,
+      email_hash TEXT NOT NULL,
+      sent_at    BIGINT NOT NULL,
+      PRIMARY KEY (steam_id, email_hash)
+    )`,
+  ],
 ];
 
 /**

@@ -504,7 +504,6 @@ describe("marketing site", () => {
     assert.equal((await signupRows()).length, 2);
 
     // A new address starts over, and nothing goes to it until it confirms.
-    now += RESEND_AFTER_MS;
     mails = await outbox();
     assert.deepEqual(JSON.parse((await remind({ email: "sam@new.example" })).body), {
       email: "sam@new.example",
@@ -520,35 +519,46 @@ describe("marketing site", () => {
     assert.deepEqual(JSON.parse(off.body), { email: null, confirmed: false });
   });
 
-  it("sends the confirm mail again only after a while", async () => {
+  it("sends the confirm mail again only after a while, and says when to ask again", async () => {
     await remind({ email: "bo@example.com" });
-    await remind({ email: "bo@example.com" });
+    const sentAt = now;
+    assert.deepEqual(JSON.parse((await remind({ email: "bo@example.com" })).body), {
+      email: "bo@example.com",
+      confirmed: false,
+      retryAt: sentAt + RESEND_AFTER_MS,
+    });
     assert.equal((await outbox()).length, 1);
     now += RESEND_AFTER_MS;
     await remind({ email: "bo@example.com" });
     assert.equal((await outbox()).length, 2);
   });
 
-  it("sends a player no second confirm mail within the while by switching addresses", async () => {
+  it("mails a corrected address at once, but an address switched back to only after a while", async () => {
     await remind({ email: "a@example.com" });
     const firstConfirm = await linkToken("confirm");
-    await remind({ email: "b@example.com" });
-    await remind({ email: "a@example.com" });
-    assert.deepEqual(
-      (await outbox()).map((m) => m.to_address),
-      ["a@example.com"],
-    );
-    // The link mailed to the first address confirms nothing it no longer asks for.
-    await remind({ email: "b@example.com" });
-    await confirm(firstConfirm);
-    assert.deepEqual(await reminders(), { email: "b@example.com", confirmed: false });
-
-    now += RESEND_AFTER_MS;
-    await remind({ email: "b@example.com" });
+    const sentAt = now;
+    assert.deepEqual(JSON.parse((await remind({ email: "b@example.com" })).body), {
+      email: "b@example.com",
+      confirmed: false,
+    });
+    const back = JSON.parse((await remind({ email: "a@example.com" })).body);
+    assert.deepEqual(back, { email: "a@example.com", confirmed: false, retryAt: sentAt + RESEND_AFTER_MS });
     assert.deepEqual(
       (await outbox()).map((m) => m.to_address),
       ["a@example.com", "b@example.com"],
     );
+    // The link mailed before the switch confirms nothing: the address starts over.
+    await confirm(firstConfirm);
+    assert.deepEqual(await reminders(), { email: "a@example.com", confirmed: false });
+
+    now = sentAt + RESEND_AFTER_MS;
+    await remind({ email: "a@example.com" });
+    assert.deepEqual(
+      (await outbox()).map((m) => m.to_address),
+      ["a@example.com", "b@example.com", "a@example.com"],
+    );
+    await confirm(await linkToken("confirm"));
+    assert.deepEqual(await reminders(), { email: "a@example.com", confirmed: true });
   });
 
   it("sends no second confirm mail within the while by stopping the reminders and asking again", async () => {
@@ -556,10 +566,17 @@ describe("marketing site", () => {
     const off = () =>
       ask(origin, "/api/signups/reminders/off", { host: APP_HOST, method: "POST", renter: "765611" });
     await remind({ email: "fay@example.com" });
+    const sentAt = now;
+    await confirm(await linkToken("confirm"));
     await off();
-    await remind({ email: "fay@example.com" });
+    const again = JSON.parse((await remind({ email: "fay@example.com" })).body);
+    assert.deepEqual(again, { email: "fay@example.com", confirmed: false, retryAt: sentAt + RESEND_AFTER_MS });
     assert.equal((await outbox()).length, 1);
-    // Its first link still confirms it.
+
+    // Stopped, it needs confirming afresh.
+    now = sentAt + RESEND_AFTER_MS;
+    await remind({ email: "fay@example.com" });
+    assert.equal((await outbox()).length, 2);
     await confirm(await linkToken("confirm"));
     assert.deepEqual(await reminders(), { email: "fay@example.com", confirmed: true });
   });
@@ -577,7 +594,6 @@ describe("marketing site", () => {
   it("gives a new address its own unsubscribe link, so one mailed to the old address cannot stop it", async () => {
     await remind({ email: "old@example.com" });
     const oldUnsubscribe = await linkToken("unsubscribe");
-    now += RESEND_AFTER_MS;
     await remind({ email: "new@example.com" });
     const newUnsubscribe = await linkToken("unsubscribe");
     assert.notEqual(newUnsubscribe, oldUnsubscribe);
