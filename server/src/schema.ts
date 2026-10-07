@@ -345,7 +345,7 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     `CREATE UNIQUE INDEX seats_taken ON seats (machine_id, user_id) WHERE revoked_at IS NULL AND user_id IS NOT NULL`,
   ],
   [
-    // Sign-ups from the marketing site (signups.ts): the waitlist (player) and
+    // Sign-ups from the marketing site: the waitlist (player) and
     // Founding Host applications (host), one per address and kind. The confirm
     // token is kept here only as its SHA-256 hash (hex), though the outbox
     // mails carry the confirm link itself until sent; the unsubscribe token,
@@ -387,7 +387,8 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     // Reminders by email (reminders), asked for on the app's crew page by a
     // player signed in with Steam: one address per player (steam_id), double
     // opt-in like the rest. The waitlist and Founding Host rows (player, host)
-    // stay one per address and kind, and have no steam_id.
+    // stay one per address and kind, and have no steam_id. The reminders are
+    // gone since; no code reads or writes the marketing_* tables any more.
     `ALTER TABLE marketing_signups ADD COLUMN steam_id TEXT UNIQUE`,
     `ALTER TABLE marketing_signups DROP CONSTRAINT marketing_signups_kind_check`,
     `ALTER TABLE marketing_signups ADD CONSTRAINT marketing_signups_kind_check
@@ -398,7 +399,7 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     `CREATE UNIQUE INDEX marketing_signups_email_kind ON marketing_signups (email, kind) WHERE steam_id IS NULL`,
   ],
   [
-    // The confirm mails each player had sent to each address lately (signups.ts), so
+    // The confirm mails each player had sent to each address lately, so
     // one address gets another only after a while: the address as its SHA-256 hash
     // (hex), and nothing older than that while.
     `CREATE TABLE marketing_confirm_sends (
