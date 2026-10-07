@@ -521,6 +521,11 @@ function watchSerial() {
     let text;
     try {
       const data = readFileSync(serial);
+      // A new QEMU (the tampered boot's) starts the console file over.
+      if (data.length < offset) {
+        offset = 0;
+        rest = "";
+      }
       if (data.length <= offset) return;
       text = data.subarray(offset).toString("utf8");
       offset = data.length;
