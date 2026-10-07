@@ -190,6 +190,8 @@ export type Tracker = {
   capture(thrown: unknown, opts?: CaptureOptions): void;
   /** Wait for the reports still on their way, but not longer than `timeoutMs`. */
   flush(timeoutMs?: number): Promise<void>;
+  /** `text` scrubbed as a report is, of this program's secrets too: for what it logs about an error. */
+  scrub(text: string): string;
 };
 
 /** Post `body` to `url`; rejects or resolves, the tracker does not mind which. */
@@ -284,6 +286,7 @@ export function createTracker(opts: TrackerOptions): Tracker {
         // A report that cannot be made is dropped; reporting never adds a failure.
       }
     },
+    scrub: (text) => scrubText(text, secrets),
     async flush(timeoutMs = FLUSH_TIMEOUT_MS) {
       if (pending.size === 0) return;
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -306,7 +309,8 @@ export type TrackedProcess = {
 
 /**
  * Report what nothing caught in `proc`. A daemon (`crash: true`, the default)
- * then ends as Node would have, with the error in its log and exit code 1,
+ * then ends as Node would have, with the error in its log (scrubbed as the
+ * report is, since a journal is read by more than this program) and exit code 1,
  * once the report is sent or FLUSH_TIMEOUT_MS has passed. Electron's main
  * process (`crash: false`) only watches: Electron decides what an uncaught
  * error does there, and main logs an unhandled rejection itself and goes on.
@@ -335,7 +339,7 @@ export function trackProcess(
   if (!tracker.enabled) return;
   const die = (thrown: unknown, mechanism: string) => {
     tracker.capture(thrown, { handled: false, mechanism });
-    log(text(thrown));
+    log(tracker.scrub(text(thrown)));
     void tracker.flush().finally(() => proc.exit(1));
   };
   proc.on("uncaughtException", (error) => die(error, "uncaughtException"));

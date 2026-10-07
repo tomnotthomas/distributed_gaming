@@ -297,6 +297,19 @@ describe("trackProcess", () => {
     });
   });
 
+  it("logs a crash scrubbed as its report is, of the program's own secrets too", async () => {
+    const { tracker } = recorded({ secrets: ["mk_very_secret_machine_key"] });
+    const { proc, exited } = fakeProcess();
+    const log = vi.fn();
+    trackProcess(tracker, proc, { log });
+    proc.emit("uncaughtException", new Error("register mk_very_secret_machine_key as 76561198012345678"));
+    await exited;
+    const line = String(log.mock.calls[0]?.[0]);
+    expect(line).toContain("Error: register <redacted> as <steam-id>");
+    expect(line).not.toContain("mk_very_secret_machine_key");
+    expect(line).not.toContain("76561198012345678");
+  });
+
   it("in Electron's main process only watches: it reports, and neither logs, exits nor takes over uncaught errors", async () => {
     const { tracker, bodies } = recorded();
     const { proc } = fakeProcess();
