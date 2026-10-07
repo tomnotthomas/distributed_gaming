@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import {
   catalogGames,
   gamesMedia,
+  lookUpGamesMedia,
   mostPlayed,
   popularGames,
   resetCatalog,
@@ -197,16 +198,19 @@ describe("gamesMedia", () => {
     assert.deepEqual(calls.map(askedFor), [[7, 8]]);
   });
 
-  it("rejects when strict and Steam fails, and retries next time", async () => {
-    stubFetch(() => ({ ok: false, status: 500 }));
-    await assert.rejects(gamesMedia([1, 2], undefined, undefined, true));
-    const calls = stubFetch((url) => itemsAnswer(askedFor(url).map((id) => item(id))));
-    assert.equal((await gamesMedia([1, 2], undefined, undefined, true)).length, 2);
-    assert.equal(calls.length, 1);
+  it("says when Steam failed for some, keeping the games it did answer for", async () => {
+    stubFetch((url) => (askedFor(url).includes(1) ? itemsAnswer([item(1)]) : { ok: false, status: 500 }));
+    await catalogGames([1]);
+    const looked = await lookUpGamesMedia([1, 2]);
+    assert.deepEqual(
+      looked.games.map((g) => g.appid),
+      [1],
+    );
+    assert.equal(looked.failed, true);
   });
 
-  it("answers an empty list when strict and Steam knows no games among them", async () => {
+  it("does not count an answer with no games in it as a failure", async () => {
     stubFetch((url) => itemsAnswer(askedFor(url).map((id) => item(id, { type: 6 }))));
-    assert.deepEqual(await gamesMedia([1, 2], undefined, undefined, true), []);
+    assert.deepEqual(await lookUpGamesMedia([1, 2]), { games: [], failed: false });
   });
 });

@@ -593,9 +593,9 @@ describe("crews", () => {
 describe("crew API", () => {
   let server: Server;
   let origin: string;
-  /** Store lookups for game media, and whether the store fails them. */
+  /** Store lookups for game media, and whether the store fails them, or answers only for MEDIA. */
   let lookups = 0;
-  let storeDown = false;
+  let store: "up" | "down" | "partly" = "up";
   const access: Access = {
     secret: SECRET,
     machines: parseMachineKeys(MACHINE_KEYS),
@@ -622,10 +622,13 @@ describe("crew API", () => {
         isFree: async () => true,
         gameMedia: async (appids) => {
           lookups++;
-          if (storeDown) throw new Error("store down");
-          return appids.flatMap((appid) =>
+          if (store === "down") return { games: [], failed: true };
+          if (store === "partly")
+            return { games: appids.flatMap((appid) => MEDIA[appid] ?? []), failed: true };
+          const games = appids.flatMap((appid) =>
             MEDIA[appid] ? [MEDIA[appid]] : appid < 100 ? [media(appid, `Paid ${appid}`, false)] : [],
           );
+          return { games, failed: false };
         },
       });
       const path = new URL(req.url ?? "/", "http://localhost").pathname;
@@ -640,7 +643,7 @@ describe("crew API", () => {
   beforeEach(async () => {
     now = Date.UTC(2026, 9, 6, 20);
     lookups = 0;
-    storeDown = false;
+    store = "up";
     await open();
   });
 
@@ -919,11 +922,26 @@ describe("crew API", () => {
     const many = Array.from({ length: 450 }, (_, i) => i + 1);
     assert.equal((await offerPc("pc-1", { games: [...many, 570] })).status, 200);
     assert.equal((await call("POST", `/api/crews/${crew.id}/pc`, HOST, { pc: "yes" })).status, 200);
-    storeDown = true;
+    store = "down";
     lookups = 0;
     const read = await call("GET", `/api/crews/${crew.id}/games`, ALEX);
     assert.equal(read.status, 200);
     assert.deepEqual(read.body.games, []);
+    assert.equal(lookups, 1);
+  });
+
+  it("keeps the games the store did answer for when it fails for some, then stops", async () => {
+    const crew = await joinByLink();
+    const many = Array.from({ length: 450 }, (_, i) => i + 1001);
+    assert.equal((await offerPc("pc-1", { games: [730, 570, ...many] })).status, 200);
+    assert.equal((await call("POST", `/api/crews/${crew.id}/pc`, HOST, { pc: "yes" })).status, 200);
+    store = "partly";
+    lookups = 0;
+    const read = await call("GET", `/api/crews/${crew.id}/games`, ALEX);
+    assert.deepEqual(
+      read.body.games.map((g: { name: string }) => g.name),
+      ["Counter-Strike 2", "Dota 2"],
+    );
     assert.equal(lookups, 1);
   });
 

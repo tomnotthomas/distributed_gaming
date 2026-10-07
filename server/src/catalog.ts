@@ -135,9 +135,12 @@ async function fetchItems(appids: number[]): Promise<Map<number, CatalogGame | n
 /**
  * Catalog entries for appids, in the order given, skipping anything that is not
  * a game. Uncached appids go to Steam in batches; concurrent callers share them.
- * A failed lookup is skipped too, unless `strict`, which rejects instead.
+ * `failed` tells whether any of them could not be looked up, so is missing too.
  */
-export async function catalogGames(appids: number[], now = Date.now(), strict = false): Promise<CatalogGame[]> {
+export async function lookUpGames(
+  appids: number[],
+  now = Date.now(),
+): Promise<{ games: CatalogGame[]; failed: boolean }> {
   const missing = appids.filter((id) => !fresh(cache.items.get(id), ITEMS_TTL, now));
   for (let i = 0; i < missing.length; i += BATCH) {
     const batch = missing.slice(i, i + BATCH);
@@ -154,13 +157,21 @@ export async function catalogGames(appids: number[], now = Date.now(), strict = 
     if (cache.items.size <= MAX_CACHED_ITEMS) break;
     cache.items.delete(id);
   }
+  let failed = false;
   const games = await Promise.all(
-    appids.map((id) => {
-      const { value } = cache.items.get(id)!;
-      return strict ? value : value.catch(() => null);
-    }),
+    appids.map((id) =>
+      cache.items.get(id)!.value.catch(() => {
+        failed = true;
+        return null;
+      }),
+    ),
   );
-  return games.filter((g): g is CatalogGame => g !== null);
+  return { games: games.filter((g): g is CatalogGame => g !== null), failed };
+}
+
+/** lookUpGames' games alone: what could not be looked up is simply missing. */
+export async function catalogGames(appids: number[], now = Date.now()): Promise<CatalogGame[]> {
+  return (await lookUpGames(appids, now)).games;
 }
 
 /**
@@ -178,18 +189,26 @@ export async function popularGames(
 }
 
 /**
- * Art and trailers for up to `limit` specific games that `keep` lets through, e.g. a signed-in
- * player's library. Rejects if `strict` and the store could not be asked (catalogGames).
+ * Art and trailers for up to `limit` specific games that `keep` lets through, e.g. a crew's
+ * PCs, and whether any could not be looked up (lookUpGames).
  */
-export function gamesMedia(
+export function lookUpGamesMedia(
   appids: number[],
   keep: (appid: number) => boolean = () => true,
   limit = MEDIA_LIMIT,
-  strict = false,
-): Promise<CatalogGame[]> {
+): Promise<{ games: CatalogGame[]; failed: boolean }> {
   const unique = [...new Set(appids.filter((id) => Number.isInteger(id) && id > 0 && keep(id)))].slice(
     0,
     limit,
   );
-  return catalogGames(unique, Date.now(), strict);
+  return lookUpGames(unique);
+}
+
+/** Art and trailers for up to `limit` specific games that `keep` lets through, e.g. a signed-in player's library. */
+export async function gamesMedia(
+  appids: number[],
+  keep: (appid: number) => boolean = () => true,
+  limit = MEDIA_LIMIT,
+): Promise<CatalogGame[]> {
+  return (await lookUpGamesMedia(appids, keep, limit)).games;
 }

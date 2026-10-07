@@ -116,7 +116,7 @@ import {
 import { createAttestation, looksLikeHostCert, type Attestation, type Credential } from "./attestation.js";
 import { RequestBudget } from "./budget.js";
 import { availabilityFor, machinesFor, type MachineCandidate, type RenterAsk } from "./candidates.js";
-import { gamesMedia, popularGames, type CatalogGame } from "./catalog.js";
+import { lookUpGamesMedia, popularGames, type CatalogGame } from "./catalog.js";
 import type { ErrorTracking } from "./error-tracking.js";
 import { everyGamePlayable, type PlayableGames } from "./playable.js";
 import type { RenterEvents } from "./events.js";
@@ -186,8 +186,11 @@ export type ApiOptions = {
   fallbackOrigin: string;
   /** The games that can be booked, before playability. Defaults to Steam's most played (catalog.ts). */
   games?: () => Promise<{ id: number; name: string; image: string | null }[]>;
-  /** Names, art and free-to-play for games on a crew's PCs. Defaults to Steam's store data (catalog.ts). */
-  gameMedia?: (appids: number[]) => Promise<CatalogGame[]>;
+  /**
+   * Names, art and free-to-play for games on a crew's PCs, and whether the store failed to
+   * answer for some. Defaults to Steam's store data (catalog.ts).
+   */
+  gameMedia?: (appids: number[]) => Promise<{ games: CatalogGame[]; failed: boolean }>;
   /** The renter event streams. Without them GET /api/events is not served. */
   events?: RenterEvents;
   /** The signed-in renter's Steam profile. Defaults to reading it without an API key. */
@@ -522,7 +525,8 @@ export function createApi({
 }: ApiOptions) {
   const playable = (appid: number) => playability.playable(appid);
   const bookable = games ?? (() => popularBookable(playable));
-  const media = gameMedia ?? ((appids: number[]) => gamesMedia(appids, playable, CREW_GAMES_CANDIDATES, true));
+  const media =
+    gameMedia ?? ((appids: number[]) => lookUpGamesMedia(appids, playable, CREW_GAMES_CANDIDATES));
 
   /**
    * The games on crew `crewId`'s PCs as `steamId`, in it, picks from: for
@@ -549,10 +553,7 @@ export function createApi({
     const games = [];
     for (let at = 0; at < ranked.length && games.length < CREW_GAMES_MAX; at += CREW_GAMES_CANDIDATES) {
       const batch = ranked.slice(at, at + CREW_GAMES_CANDIDATES);
-      const found = await media(batch.map((g) => g.appid)).catch(() => null);
-      // The store did not answer: the next batches would not fare better. An empty answer is
-      // only a batch with no games in it, and the next one may still have some.
-      if (found === null) break;
+      const { games: found, failed } = await media(batch.map((g) => g.appid));
       const known = new Map(found.map((g) => [g.appid, g]));
       for (const { appid, owners, wants } of batch) {
         const game = known.get(appid);
@@ -569,6 +570,9 @@ export function createApi({
           mine: wants.includes(me.id),
         });
       }
+      // The store did not answer for all of them: the next batches would not fare better. An
+      // empty answer is only a batch with no games in it, and the next one may still have some.
+      if (failed) break;
     }
     return { games: games.slice(0, CREW_GAMES_MAX), size: read.members.length };
   }
