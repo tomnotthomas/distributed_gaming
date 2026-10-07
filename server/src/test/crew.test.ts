@@ -899,6 +899,21 @@ describe("crew API", () => {
     );
   });
 
+  it("looks past a whole batch the store knows no games in", async () => {
+    const crew = await joinByLink();
+    // A store lookup's worth of installs that are not games, ranked ahead of the free one.
+    const unknown = Array.from({ length: 200 }, (_, i) => i + 101);
+    assert.equal((await offerPc("pc-1", { games: [...unknown, 570] })).status, 200);
+    assert.equal((await call("POST", `/api/crews/${crew.id}/pc`, HOST, { pc: "yes" })).status, 200);
+    lookups = 0;
+    const read = await call("GET", `/api/crews/${crew.id}/games`, ALEX);
+    assert.deepEqual(
+      read.body.games.map((g: { name: string }) => g.name),
+      ["Dota 2"],
+    );
+    assert.equal(lookups, 2);
+  });
+
   it("asks the store once, not once per batch, while it is down", async () => {
     const crew = await joinByLink();
     const many = Array.from({ length: 450 }, (_, i) => i + 1);

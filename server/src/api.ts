@@ -549,9 +549,10 @@ export function createApi({
     const games = [];
     for (let at = 0; at < ranked.length && games.length < CREW_GAMES_MAX; at += CREW_GAMES_CANDIDATES) {
       const batch = ranked.slice(at, at + CREW_GAMES_CANDIDATES);
-      const found = await media(batch.map((g) => g.appid)).catch(() => []);
-      // The store did not answer: the next batches would not fare better.
-      if (found.length === 0) break;
+      const found = await media(batch.map((g) => g.appid)).catch(() => null);
+      // The store did not answer: the next batches would not fare better. An empty answer is
+      // only a batch with no games in it, and the next one may still have some.
+      if (found === null) break;
       const known = new Map(found.map((g) => [g.appid, g]));
       for (const { appid, owners, wants } of batch) {
         const game = known.get(appid);
