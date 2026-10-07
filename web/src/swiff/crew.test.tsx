@@ -757,7 +757,9 @@ describe("CrewPage: the guided crew page", () => {
   const library = { games: [ER, CS, GAMES[2]!] };
 
   it("starts the game the player picks on the crew's free PC: first come, first play", async () => {
-    fetchFrom({ "GET /api/crews/c1": [200, { crew: readyCrew({ session: dated, shared: true, picks: 2 }) }] });
+    fetchFrom({
+      "GET /api/crews/c1": [200, { crew: readyCrew({ session: dated, shared: true, picks: 2 }) }],
+    });
     const swiff = atCrew("c1", library);
     render(<CrewPage swiff={swiff} />);
     expect(
@@ -788,7 +790,9 @@ describe("CrewPage: the guided crew page", () => {
   });
 
   it("says when someone was quicker to start", async () => {
-    fetchFrom({ "GET /api/crews/c1": [200, { crew: readyCrew({ session: dated, shared: true, picks: 1 }) }] });
+    fetchFrom({
+      "GET /api/crews/c1": [200, { crew: readyCrew({ session: dated, shared: true, picks: 1 }) }],
+    });
     const swiff = atCrew("c1", library);
     const { rerender } = render(<CrewPage swiff={swiff} />);
     fireEvent.click(await screen.findByRole("button", { name: `Start ${CS.title}` }));
@@ -943,7 +947,12 @@ describe("CrewPage: the guided crew page", () => {
 
   it("does not call a PC free while someone's start on it is still on its way", async () => {
     const [max] = readyCrew().machines;
-    const crew = readyCrew({ session: dated, shared: true, picks: 1, machines: [{ ...max!, state: "busy" }] });
+    const crew = readyCrew({
+      session: dated,
+      shared: true,
+      picks: 1,
+      machines: [{ ...max!, state: "busy" }],
+    });
     fetchFrom({ "GET /api/crews/c1": [200, { crew }] });
     render(<CrewPage swiff={atCrew("c1", library)} />);
     expect(
@@ -1205,7 +1214,9 @@ describe("CrewPage: the guided crew page", () => {
     expect(screen.getByRole("heading", { name: "What do you want to play on Friday?" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Done: 1 game marked/ }));
-    expect(await screen.findByRole("heading", { name: "You're ready to play!" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "The gaming PC is free. Who goes first?" }),
+    ).toBeInTheDocument();
   });
 
   it("says so when there are no games on the PC yet, and lets the player go on", async () => {
@@ -1223,7 +1234,9 @@ describe("CrewPage: the guided crew page", () => {
     ).toBeInTheDocument();
     expect(await screen.findByText(/Auf dem Gaming-PC der Crew sind noch keine Spiele/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Fertig" }));
-    expect(await screen.findByRole("heading", { name: "Ihr seid spielbereit!" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Der Gaming-PC ist frei. Wer fängt an?" }),
+    ).toBeInTheDocument();
   });
 
   it("counts picking games as done after a reload while the crew's PCs have none to pick", async () => {
@@ -1231,7 +1244,9 @@ describe("CrewPage: the guided crew page", () => {
       "GET /api/crews/c1": [200, { crew: readyCrew({ session: dated, shared: true, offered: 0 }) }],
     });
     render(<CrewPage swiff={atCrew("c1")} />);
-    expect(await screen.findByRole("heading", { name: "You're ready to play!" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "The gaming PC is free. Who goes first?" }),
+    ).toBeInTheDocument();
     expect(stubs()).toContain("Pick games:done");
     expect(stubs()).toContain("Play:now");
   });
@@ -1253,7 +1268,9 @@ describe("CrewPage: the guided crew page", () => {
       ],
     });
     render(<CrewPage swiff={atCrew("c1")} />);
-    expect(await screen.findByRole("heading", { name: "You're ready to play!" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "The gaming PC is free. Who goes first?" }),
+    ).toBeInTheDocument();
     expect(stubs()).toContain("Pick games:later");
     expect(stubs()).toContain("Play:now");
   });
