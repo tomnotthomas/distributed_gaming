@@ -448,12 +448,27 @@ function playerOf(room: Room | undefined, sessionId: string): PeerSocket | null 
 }
 
 /**
+ * Players not told of a change because their crews could not be read, by
+ * session, with their room: told on the next check (checkWatches).
+ */
+const untold = new Map<string, string>();
+
+/**
  * Tell the player of `sessionId` everyone asking to watch or watching, whole,
  * and which of their crews may (platform.ts, watchCrew). Read when it is sent,
- * so the last told is the latest. Never rejects.
+ * so the last told is the latest. When their crews cannot be read, nothing is
+ * sent until the next check: never an empty list it would read as nobody may
+ * watch. Never rejects.
  */
 async function tellPlayer(room: string, sessionId: string): Promise<void> {
-  const crews = await platform.watchCrews(sessionId).catch(() => []);
+  let crews: WatchCrew[];
+  try {
+    crews = await platform.watchCrews(sessionId);
+  } catch {
+    untold.set(sessionId, room);
+    return;
+  }
+  untold.delete(sessionId);
   const crew = watchCrew(
     crews.map((c) => c.id),
     watches.crew(sessionId),
@@ -535,6 +550,7 @@ async function currentCrews(sessionId: string): Promise<WatchCrew[]> {
  * Never rejects.
  */
 async function checkWatches(): Promise<void> {
+  for (const [sessionId, room] of untold) void tellPlayer(room, sessionId);
   for (const { watch, reason } of watches.expire()) {
     endViewer(watch, reason);
     void tellPlayer(watch.room, watch.sessionId);
@@ -581,6 +597,7 @@ function sessionEnded(hostId: string, sessionId: string, ticketId: string | null
   evictStreamer(hostId, sessionId);
   // Nobody watches a session that is over.
   for (const watch of watches.endSession(sessionId)) endViewer(watch, "watch-ended");
+  untold.delete(sessionId);
   const client = rooms.get(hostId)?.client;
   if (client && seatRevoked(client)) putOut(client);
 }

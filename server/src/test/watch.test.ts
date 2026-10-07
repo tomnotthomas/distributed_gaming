@@ -1331,6 +1331,30 @@ describe("watching through the signaling server", () => {
     assert.ok(room);
   });
 
+  it("tells the player nothing while their crews cannot be read, and tells them in full once they can", async () => {
+    const { player, watchId, playerTicket } = await accepted();
+    player.close();
+    await wait(100);
+    await database.exec("ALTER TABLE crew_machines RENAME TO crew_machines_away");
+    const back = await tracked();
+    try {
+      send(back, { type: "join", ticket: playerTicket });
+      await handled(back);
+      // A few checks go by: never an empty list of crews, which would say nobody may watch.
+      await wait(500);
+      assert.deepEqual(back.received.filter(isWatchers), []);
+    } finally {
+      await database.exec("ALTER TABLE crew_machines_away RENAME TO crew_machines");
+    }
+    const told = await heard(
+      back,
+      (m): m is Extract<SignalMessage, { type: "watchers" }> => m.type === "watchers" && m.crews.length > 0,
+      "watchers once the crews read again",
+    );
+    assert.ok(told.crew);
+    assert.deepEqual(told.watchers, [{ watchId, name: null, state: "watching", here: true }]);
+  });
+
   it("ends the watch at once when the viewer leaves, and lets them ask again", async () => {
     const { player, viewer, sessionId } = await accepted();
     viewer.close();
