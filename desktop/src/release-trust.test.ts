@@ -246,4 +246,39 @@ describe("the shipped image-trust.json", () => {
     }
     expect(trustOf({ dev: false })).toHaveLength(list.length);
   });
+
+  // Lanterel's release pair, made on the GEEKOM by release-key.sh (README, "Release keys"). Its
+  // private half never leaves there, so no test signs with it: the throwaway pair above stands in.
+  const LANTEREL = {
+    fingerprint: "9a046b4b82a8963ccffb8416673ed38c7e0783c30ada578383779359a553ab24",
+    certSha256: "2480ad54b30788ed735522289b7d9765d9f0b224dee5d49dba31a3017768bccd",
+  };
+
+  it("makes a release build trust Lanterel's release key and nothing else", () => {
+    expect(
+      trustOf({ dev: false }).map((t) => ({
+        fingerprint: sha256(createPublicKey(t.publicKey).export({ type: "spki", format: "der" })),
+        certSha256: t.certSha256,
+      })),
+    ).toEqual([LANTEREL]);
+  });
+
+  it("makes a release build refuse a set any other key signed, even one carrying Lanterel's certificate", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "swiff-shipped-trust-"));
+    try {
+      const other = generateKeyPairSync("ed25519");
+      // The certificate's bytes are not read here, only the SHA-256 the manifest lists for it.
+      const set = imageSet(dir, Buffer.from("certificate"), () => {});
+      const manifest = JSON.parse(fs.readFileSync(path.join(set, MANIFEST), "utf8"));
+      manifest.files["swiffos-key.cer"].sha256 = LANTEREL.certSha256;
+      const bytes = Buffer.from(JSON.stringify(manifest));
+      fs.writeFileSync(path.join(set, MANIFEST), bytes);
+      fs.writeFileSync(path.join(set, SIGNATURE), sign(null, bytes, other.privateKey));
+      expect(() => readImageSet(set, { trust: trustOf({ dev: false }) })).toThrow(
+        /Lanterel did not sign this image set/,
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

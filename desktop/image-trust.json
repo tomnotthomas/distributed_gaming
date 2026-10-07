@@ -1,1 +1,6 @@
-[]
+[
+  {
+    "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAyVBuPh7oEgkf+j1c/kufcSSnjw8KMyXjsn7eGXVn6+U=\n-----END PUBLIC KEY-----\n",
+    "certSha256": "2480ad54b30788ed735522289b7d9765d9f0b224dee5d49dba31a3017768bccd"
+  }
+]
