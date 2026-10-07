@@ -119,6 +119,18 @@ function signed(sections: { name: string; data: Buffer }[], trailer = Buffer.all
 
 const section = (name: string, text: string) => ({ name, data: Buffer.from(text, "latin1") });
 
+/** `sections` with the .pcrsig the release build writes: systemd-measure's signed TPM2_PolicyPCR over their PCR 11. */
+function withPcrsig(sections: { name: string; data: Buffer }[]) {
+  const pcr11 = ukiPcr11(pe(sections).image);
+  const pol = sha256(
+    Buffer.alloc(32),
+    Buffer.from([0, 0, 0x01, 0x7f]),
+    Buffer.from([0, 0, 0, 1, 0x00, 0x0b, 3, 0x00, 0x08, 0x00]),
+    sha256(Buffer.from(pcr11, "hex")),
+  ).toString("hex");
+  return [...sections, section(".pcrsig", JSON.stringify({ sha256: [{ pcrs: [11], pol }] }))];
+}
+
 describe("Authenticode", () => {
   it("hashes the headers but the CheckSum and the certificate entry, the sections in file order and the rest but the signature", () => {
     const sections = [section(".text", "code"), section(".data", "data")];
@@ -203,18 +215,12 @@ describe("PCR 11", () => {
 
   it("knows whether the UKI's own .pcrsig signed it", () => {
     const pcr11 = ukiPcr11(pe(ukiSections("swiff-os-1")).image);
-    const policy = sha256(
-      Buffer.alloc(32),
-      Buffer.from([0, 0, 0x01, 0x7f]),
-      Buffer.from([0, 0, 0, 1, 0x00, 0x0b, 3, 0x00, 0x08, 0x00]),
-      sha256(Buffer.from(pcr11, "hex")),
-    ).toString("hex");
     const withSig = (pol: string) =>
       pe([
         ...ukiSections("swiff-os-1"),
         section(".pcrsig", JSON.stringify({ sha256: [{ pcrs: [11], pol }] })),
       ]).image;
-    assert.equal(pcrsigHolds(withSig(policy), pcr11), true);
+    assert.equal(pcrsigHolds(pe(withPcrsig(ukiSections("swiff-os-1"))).image, pcr11), true);
     assert.equal(pcrsigHolds(withSig("00".repeat(32)), pcr11), false);
     assert.equal(pcrsigHolds(pe(ukiSections("swiff-os-1")).image, pcr11), null);
   });
@@ -255,7 +261,7 @@ describe("a release's payload", () => {
     name: "swiffos 1.0.0",
     shim: signed([section(".text", "shim")]),
     bootLoader: signed([section(".text", "systemd-boot")]),
-    ukis: [signed(ukiSections("swiff-os-1"))],
+    ukis: [signed(withPcrsig(ukiSections("swiff-os-1")))],
     mok,
     dbCerts: [db],
     iommu: false,
@@ -284,7 +290,7 @@ describe("a release's payload", () => {
     assert.equal(releaseEntry({ ...files, iommu: true }).iommu, true);
   });
 
-  it("refuses an unsigned binary, one signed over other bytes, and a UKI its .pcrsig does not sign", () => {
+  it("refuses an unsigned binary, one signed over other bytes, and a UKI its .pcrsig does not sign or without one", () => {
     assert.throws(
       () => releaseEntry({ ...files, shim: pe([section(".text", "shim")]).image }),
       /shim is not signed/,
@@ -301,6 +307,10 @@ describe("a release's payload", () => {
       section(".pcrsig", JSON.stringify({ sha256: [{ pol: "00" }] })),
     ]);
     assert.throws(() => releaseEntry({ ...files, ukis: [badSig] }), /\.pcrsig does not sign/);
+    assert.throws(
+      () => releaseEntry({ ...files, ukis: [signed(ukiSections("swiff-os-1"))] }),
+      /UKI 1 has no \.pcrsig/,
+    );
     assert.throws(() => releaseEntry({ ...files, ukis: [] }), /no UKI/);
     assert.throws(() => releaseEntry({ ...files, dbCerts: [] }), /no db certificate/);
   });

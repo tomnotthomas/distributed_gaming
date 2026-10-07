@@ -7,7 +7,10 @@
 #
 # It checks the set as a release build would (signed by a release key in
 # desktop/image-trust.json, with its certificate), takes shim, the boot loader
-# and the UKI out of the set's ESP, and computes the release's payload from
+# and the UKI out of the set's ESP, checks their Secure Boot signatures with
+# sbverify (shim against Microsoft's UEFI CA 2011 or 2023, the boot loader and
+# the UKI against the set's swiffos-key.cer, as shim checks them), and computes
+# the release's payload from
 # them (npm run boot-policy -- payload: PCR 11 from the UKI, checked against
 # the UKI's own signed .pcrsig; each binary's Authenticode digest, checked
 # against its own signature; the PCR 7 authorities from the set's MOK and the
@@ -15,7 +18,8 @@
 # --previous, the releases of an earlier payload stay in it, so hosts still on
 # them keep attesting; one of the same name is replaced.
 #
-# It shows the payload, asks before signing, then signs it with the release
+# It shows the payload and asks before signing (run from a terminal: without
+# one, or on no answer, it signs nothing), then signs it with the release
 # image signing key and writes into <out-dir>:
 #
 #   boot-policy.payload.json  what was signed: keep it for the next --previous
@@ -32,7 +36,8 @@
 # Environment (optional):
 #   KEYS  the release key folder (default: ~/.lanterel-keys/release)
 #
-# Needs node, mtools and the repository's npm dependencies.
+# Needs node, mtools, openssl, sbverify (sbsigntool) and the repository's npm
+# dependencies.
 set -euo pipefail
 set +x
 
@@ -64,7 +69,8 @@ while [ $# -gt 0 ]; do
 	esac
 	shift
 done
-for tool in node mcopy mdir; do command -v "$tool" > /dev/null || die "$tool not found"; done
+[ -t 0 ] || die "run it from a terminal: it asks before signing"
+for tool in node mcopy mdir openssl sbverify sbattach; do command -v "$tool" > /dev/null || die "$tool not found"; done
 for f in image-signing-key.pem image-signing-key.passphrase; do
 	[ -s "$KEYS/$f" ] || die "$KEYS/$f is missing"
 done
@@ -88,6 +94,39 @@ mapfile -t ukis < <(mdir -b -i "$esp" ::/EFI/Linux/ | sed -n 's|^::/EFI/Linux/\(
 [ ${#ukis[@]} -eq 1 ] || die "the ESP should hold one UKI in \\EFI\\Linux, not ${#ukis[@]}"
 mcopy -n -i "$esp" "::/EFI/Linux/${ukis[0]}" "$work/uki.efi"
 
+# Each signed as Secure Boot will check it: shim by the firmware's db (one of
+# Microsoft's UEFI CAs), the boot loader and the UKI by shim's MOK. sbverify
+# checks the signature and that it is over the image; it trusts a chain that
+# stops short of --cert, so openssl checks that the signer reaches the CA.
+pem() { # <cert, PEM or DER> <out.pem>
+	openssl x509 -in "$1" -out "$2" 2> /dev/null || openssl x509 -inform DER -in "$1" -out "$2"
+}
+signed_by() { # <efi> <CA file, PEM, one or more certificates>
+	local sig=$work/sig.p7 certs=$work/sig-certs.pem serial cert
+	rm -f "$sig" "$certs" "$work"/sig-cert-*.pem
+	sbverify --cert "$2" "$1" > /dev/null 2>&1 || return 1
+	sbattach --detach "$sig" "$1" > /dev/null 2>&1 || return 1
+	openssl pkcs7 -inform DER -in "$sig" -print_certs -out "$certs" 2> /dev/null || return 1
+	serial=$(openssl pkcs7 -inform DER -in "$sig" -print 2> /dev/null |
+		sed -n 's/^ *serial: 0x0*\([0-9A-Fa-f]*\)$/\1/p' | head -n 1)
+	[ -n "$serial" ] || return 1
+	awk -v dir="$work" '/BEGIN CERT/ { n++ } n { print > (dir "/sig-cert-" n ".pem") }' "$certs"
+	for cert in "$work"/sig-cert-*.pem; do
+		[ -e "$cert" ] || continue
+		[ "$(openssl x509 -in "$cert" -noout -serial | sed 's/^serial=0*//')" = "${serial^^}" ] || continue
+		openssl verify -partial_chain -no_check_time -CAfile "$2" -untrusted "$certs" "$cert" > /dev/null 2>&1
+		return
+	done
+	return 1
+}
+pem "$here/secure-boot/microsoft-uefi-ca-2011.der" "$work/ca-2011.pem"
+pem "$here/secure-boot/microsoft-uefi-ca-2023.der" "$work/ca-2023.pem"
+pem "$set_dir/swiffos-key.cer" "$work/mok.pem"
+signed_by "$work/shimx64.efi" "$work/ca-2011.pem" || signed_by "$work/shimx64.efi" "$work/ca-2023.pem" ||
+	die "shim is not signed by Microsoft's UEFI CA 2011 or 2023"
+signed_by "$work/grubx64.efi" "$work/mok.pem" || die "the boot loader is not signed by the set's swiffos-key.cer"
+signed_by "$work/uki.efi" "$work/mok.pem" || die "the UKI is not signed by the set's swiffos-key.cer"
+
 # 3. The payload.
 (cd "$repo" && npm run --silent build -w @swiff/server > /dev/null) || die "the server did not build"
 cli=$repo/server/dist/cli.js
@@ -100,10 +139,9 @@ node "$cli" boot-policy payload --name "swiffos $version" \
 	--db-cert "$here/secure-boot/microsoft-option-rom-uefi-ca-2023.der" \
 	"${extra[@]}" > "$work/payload.json"
 cat "$work/payload.json"
-if [ -t 0 ]; then
-	read -rp "Sign this boot policy with $KEYS/image-signing-key.pem? [y/N] " answer
-	[ "$answer" = y ] || [ "$answer" = Y ] || die "not signed"
-fi
+answer=
+read -rp "Sign this boot policy with $KEYS/image-signing-key.pem? [y/N] " answer || true
+[ "$answer" = y ] || [ "$answer" = Y ] || die "not signed"
 
 # 4. Signed with the release image signing key; its public half is the one desktop/image-trust.json lists.
 (

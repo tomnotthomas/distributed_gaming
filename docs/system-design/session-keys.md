@@ -338,11 +338,13 @@ It needs `ROOM_SECRET` (it keys the activation credentials) and:
   `/etc/swiff/boot-policy.json` and `/etc/swiff/boot-policy.pub.pem`. A policy without
   `pcr12`, `pcr13`, `uki` or `secureBootAuthorities` is refused. `swiff-os/boot-policy.sh`
   makes a release's, on the machine that signs releases: it checks the image set as a release
-  build would, computes the payload from the set's own files (`npm run boot-policy -- payload`,
+  build would, checks that a Microsoft UEFI CA (2011 or 2023) signed shim and the set's
+  Secure Boot certificate signed systemd-boot and the UKI (`sbverify`, with `openssl`
+  anchoring each signer to that certificate), computes the payload from the set's own files (`npm run boot-policy -- payload`,
   `server/src/release-policy.ts`), and signs it with the release image signing key, whose
   public half `desktop/image-trust.json` lists. The payload holds the release's PCR 11 at the
   `ready` phase, computed as `systemd-measure calculate` does and checked against the UKI's own
-  signed `.pcrsig`; its PCRs 12 and 13, all zero (it takes no add-ons, credentials or
+  signed `.pcrsig`, which it must have; its PCRs 12 and 13, all zero (it takes no add-ons, credentials or
   extensions from the ESP); the Authenticode digests of shim, systemd-boot and the UKI, each
   checked against the digest its own signature signs; which of them is the UKI; the PCR 7
   authorities, each the SHA-256 of a UEFI_VARIABLE_DATA: Microsoft's UEFI CAs 2011 and 2023 and

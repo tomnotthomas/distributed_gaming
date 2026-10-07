@@ -15,7 +15,8 @@
 //               then systemd-pcrphase's phases up to `ready`, each the SHA-256 of
 //               its word. A UKI with a section whose measurement depends on the
 //               machine (.dtbauto, .hwids, .profile, .efifw) is refused, and so
-//               is one whose own .pcrsig does not sign the value computed here.
+//               is one without a .pcrsig or whose .pcrsig does not sign the
+//               value computed here.
 //   pcr12/13    all zero: the release takes no command line, credential, add-on
 //               or extension from outside its UKI.
 //   bootApplications, uki
@@ -313,7 +314,11 @@ export function releaseEntry(files: ReleaseFiles): Release {
   const uki = files.ukis.map((pe, i) => signedDigest(pe, `UKI ${i + 1}`));
   const pcr11 = files.ukis.map((pe, i) => {
     const value = ukiPcr11(pe);
-    if (pcrsigHolds(pe, value) === false) {
+    // The release build signs its expected PCR 11 into .pcrsig (SignExpectedPcr=yes):
+    // a UKI without one did not come from it.
+    const held = pcrsigHolds(pe, value);
+    if (held === null) throw new ReleasePolicyError(`UKI ${i + 1} has no .pcrsig`);
+    if (!held) {
       throw new ReleasePolicyError(`UKI ${i + 1}'s .pcrsig does not sign PCR 11 ${value} at ready`);
     }
     return value;

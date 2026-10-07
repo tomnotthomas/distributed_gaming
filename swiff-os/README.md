@@ -205,9 +205,11 @@ and signed with the same image signing key:
 swiff-os/boot-policy.sh <set-dir> <policy-dir> --previous <last-policy-dir>/boot-policy.payload.json
 ```
 
-It computes PCR 11, the boot chain's Authenticode digests and the PCR 7 authorities from the
-set's own files, checks each against what the build signed, shows the payload and asks before
-signing. The server takes `boot-policy.json` as `ATTESTATION_POLICY` and `boot-policy.pub.pem`
+It checks the Secure Boot signatures of shim (Microsoft's UEFI CA 2011 or 2023), systemd-boot
+and the UKI (the set's `swiffos-key.cer`) with `sbverify` and `openssl` (`sbsigntool` must be
+installed), computes PCR 11, the boot chain's Authenticode digests and the PCR 7 authorities from
+the set's own files, checks each against what the build signed, shows the payload and asks
+before signing; run it from a terminal, since without one it signs nothing. The server takes `boot-policy.json` as `ATTESTATION_POLICY` and `boot-policy.pub.pem`
 as `ATTESTATION_POLICY_KEY`; keep `boot-policy.payload.json` for the next release's
 `--previous`, so hosts still on this one keep attesting. `--iommu` is for a release that will
 not reach `ready` without DMA remapping; this image does not refuse that yet (`hwcheck` only
