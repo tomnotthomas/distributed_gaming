@@ -42,10 +42,11 @@ const usedPorts = new Set<number>();
  * Start the real server with `env` on a port in [`from`, `from + span`), and
  * resolve once this child says it listens, not once the port answers: another
  * file's or another run's server on the same port answers too. A child that
- * exits first, as one does on a taken port, is retried on another port; one
- * still silent after 60 s is stuck on its own startup, so it fails at once. Its
- * output is read to the end, so a full pipe never stalls it, and the end of
- * its stderr is kept: a child that never listens fails with why.
+ * exits first, as one does on a taken port, or cannot be spawned, is retried
+ * on another port; one still silent after 60 s is stuck on its own startup, so
+ * it fails at once. Its output is read to the end, so a full pipe never stalls
+ * it, and the end of its stderr is kept: a child that never listens fails with
+ * why.
  */
 export async function startServer(
   env: Record<string, string>,
