@@ -504,6 +504,7 @@ describe("marketing site", () => {
     assert.equal((await signupRows()).length, 2);
 
     // A new address starts over, and nothing goes to it until it confirms.
+    now += RESEND_AFTER_MS;
     mails = await outbox();
     assert.deepEqual(JSON.parse((await remind({ email: "sam@new.example" })).body), {
       email: "sam@new.example",
@@ -526,6 +527,66 @@ describe("marketing site", () => {
     now += RESEND_AFTER_MS;
     await remind({ email: "bo@example.com" });
     assert.equal((await outbox()).length, 2);
+  });
+
+  it("sends a player no second confirm mail within the while by switching addresses", async () => {
+    await remind({ email: "a@example.com" });
+    const firstConfirm = await linkToken("confirm");
+    await remind({ email: "b@example.com" });
+    await remind({ email: "a@example.com" });
+    assert.deepEqual(
+      (await outbox()).map((m) => m.to_address),
+      ["a@example.com"],
+    );
+    // The link mailed to the first address confirms nothing it no longer asks for.
+    await remind({ email: "b@example.com" });
+    await confirm(firstConfirm);
+    assert.deepEqual(await reminders(), { email: "b@example.com", confirmed: false });
+
+    now += RESEND_AFTER_MS;
+    await remind({ email: "b@example.com" });
+    assert.deepEqual(
+      (await outbox()).map((m) => m.to_address),
+      ["a@example.com", "b@example.com"],
+    );
+  });
+
+  it("sends no second confirm mail within the while by stopping the reminders and asking again", async () => {
+    /** Stop the player's reminders. */
+    const off = () =>
+      ask(origin, "/api/signups/reminders/off", { host: APP_HOST, method: "POST", renter: "765611" });
+    await remind({ email: "fay@example.com" });
+    await off();
+    await remind({ email: "fay@example.com" });
+    assert.equal((await outbox()).length, 1);
+    // Its first link still confirms it.
+    await confirm(await linkToken("confirm"));
+    assert.deepEqual(await reminders(), { email: "fay@example.com", confirmed: true });
+  });
+
+  it("counts stopping the reminders against the client's budget", async () => {
+    const statuses = [];
+    for (let i = 0; i < CLIENT_BURST + 1; i++)
+      statuses.push(
+        (await ask(origin, "/api/signups/reminders/off", { host: APP_HOST, method: "POST", renter: "765611" }))
+          .status,
+      );
+    assert.deepEqual(statuses, [...Array<number>(CLIENT_BURST).fill(200), 429]);
+  });
+
+  it("gives a new address its own unsubscribe link, so one mailed to the old address cannot stop it", async () => {
+    await remind({ email: "old@example.com" });
+    const oldUnsubscribe = await linkToken("unsubscribe");
+    now += RESEND_AFTER_MS;
+    await remind({ email: "new@example.com" });
+    const newUnsubscribe = await linkToken("unsubscribe");
+    assert.notEqual(newUnsubscribe, oldUnsubscribe);
+    await confirm(await linkToken("confirm"));
+
+    assert.equal((await link(`/api/signups/unsubscribe?token=${oldUnsubscribe}`, "POST")).status, 404);
+    assert.deepEqual(await reminders(), { email: "new@example.com", confirmed: true });
+    assert.equal((await link(`/api/signups/unsubscribe?token=${newUnsubscribe}`, "POST")).status, 200);
+    assert.deepEqual(await reminders(), { email: null, confirmed: false });
   });
 
   it("refuses what is not an address and lands a bad link on the crew page", async () => {
