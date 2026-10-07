@@ -206,6 +206,8 @@ export type ApiOptions = {
   watchRelay?: () => boolean;
   /** Someone left a crew or was removed from one: whoever watches across it stops. */
   onCrewLeft?: () => void;
+  /** Before an ask: drop the crew picked for the session when it may watch it no more (index.ts currentCrews). */
+  checkCrew?: (sessionId: string) => Promise<unknown>;
 };
 
 /** What a 403 for a game the renter may not play says, by its `code`. */
@@ -494,6 +496,7 @@ export function createApi({
   watches,
   watchRelay,
   onCrewLeft,
+  checkCrew,
 }: ApiOptions) {
   const playable = (appid: number) => playability.playable(appid);
   const bookable = games ?? (() => popularBookable(playable));
@@ -849,6 +852,7 @@ export function createApi({
     if (watches && resource === "crew-live" && id && action === "watch" && method === "POST") {
       const steamId = requireRenter(req, sessionSecret);
       if (!access.secret) throw new HttpError(503, "tickets cannot be minted: ROOM_SECRET is not set");
+      await checkCrew?.(id);
       const live = await platform.watchable(id, steamId, watches.crew(id));
       // Behind Ignition the player would never see the ask: only once the game is on screen.
       if (live === "ended" || live === "not-crew" || !watches.onScreen(live.sessionId)) {

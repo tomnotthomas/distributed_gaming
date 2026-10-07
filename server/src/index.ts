@@ -81,6 +81,7 @@ import {
   type DeniedMessage,
   type PeerLeftMessage,
   type SessionError,
+  type WatchCrew,
   type WatchersMessage,
   type SessionGrant,
   type SignalMessage,
@@ -231,6 +232,7 @@ const serveApi = createApi({
   watches,
   watchRelay: () => relayServers(ice.servers()).length > 0,
   onCrewLeft: () => void checkWatches(),
+  checkCrew: (sessionId) => currentCrews(sessionId),
 });
 
 // The public marketing site (marketing.ts) and its sign-ups (signups.ts), only
@@ -503,6 +505,25 @@ function endWatch(watchId: string, reason: WatchEnd): void {
 }
 
 /**
+ * The crews session `sessionId` may be opened to now (platform.ts
+ * watchCrews). A crew picked for it that is no longer one of them (the PC no
+ * longer plays for it, or the player left it) is dropped first: everyone
+ * watching through it stops, sharing closes, and the session's crew is the
+ * first of those left until the player shares again.
+ */
+async function currentCrews(sessionId: string): Promise<WatchCrew[]> {
+  const pin = watches.crew(sessionId);
+  const crews = await platform.watchCrews(sessionId);
+  if (pin === null || watches.crew(sessionId) !== pin || crews.some((c) => c.id === pin)) return crews;
+  const ended = watches.unpin(sessionId);
+  for (const watch of ended) endViewer(watch, "not-crew");
+  const room = [...rooms].find(([, r]) => r.client?.watchSession === sessionId)?.[0] ?? ended[0]?.room;
+  if (room) void tellPlayer(room, sessionId);
+  renterEvents.crewChanged();
+  return crews;
+}
+
+/**
  * Time and the database's say on every watch: one asking too long goes
  * unanswered, one whose viewer left for good stops, and one whose session is
  * over or whose viewer no longer shares a crew with the player ends, in one
@@ -515,17 +536,7 @@ async function checkWatches(): Promise<void> {
     void tellPlayer(watch.room, watch.sessionId);
   }
   try {
-    // A crew picked for a session that the PC no longer plays for, or the player left, is dropped.
-    for (const sessionId of watches.pinned()) {
-      const pin = watches.crew(sessionId);
-      if ((await platform.watchCrews(sessionId)).some((c) => c.id === pin)) continue;
-      if (watches.crew(sessionId) !== pin) continue;
-      const ended = watches.unpin(sessionId);
-      for (const watch of ended) endViewer(watch, "not-crew");
-      const room = [...rooms].find(([, r]) => r.client?.watchSession === sessionId)?.[0] ?? ended[0]?.room;
-      if (room) void tellPlayer(room, sessionId);
-      renterEvents.crewChanged();
-    }
+    for (const sessionId of watches.pinned()) await currentCrews(sessionId);
     const all = watches.all();
     if (!all.length) return;
     const stopped = await platform.watchesStopped(
@@ -1135,16 +1146,13 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
         const open = msg.open === true;
         const was = watches.sharing(sessionId);
         // A share names one crew for the session: the one picked, else the first, kept from then on.
-        const crews =
-          msg.crew !== undefined || (open && watches.crew(sessionId) === null)
-            ? await platform.watchCrews(sessionId)
-            : null;
-        if (crews && !crews.length) return;
-        const crew = msg.crew ?? crews?.[0]?.id;
+        const crews = await currentCrews(sessionId);
+        if (open && !crews.length) return;
+        const crew = msg.crew ?? (open && watches.crew(sessionId) === null ? crews[0]!.id : undefined);
         const picked = crew !== undefined && crew !== watches.crew(sessionId);
         if (picked) {
           // One of the crews the player may open watching to, or nothing changes.
-          if (typeof crew !== "string" || !crews!.some((c) => c.id === crew)) return;
+          if (typeof crew !== "string" || !crews.some((c) => c.id === crew)) return;
           // Only that crew from now on: asks are checked against it at once, and anyone of another stops.
           watches.choose(sessionId, crew);
           const others = watches.list(sessionId);

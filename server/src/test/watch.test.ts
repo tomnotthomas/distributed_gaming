@@ -1142,6 +1142,60 @@ describe("watching through the signaling server", () => {
     assert.equal((await call("POST", `/api/crew-live/${sessionId}/watch`, LEA)).status, 404);
   });
 
+  /** A room playing for Mara's first crew and a fresh one the stranger is in; Lea asks, Mara shares, pinning the first. */
+  async function pinnedThenLeft() {
+    const first = await crew();
+    const other = await call("POST", "/api/crews", MARA, { name: "Still Here" });
+    const otherId = other.body.crew.id as string;
+    for (const member of [STRANGER, OWNER]) {
+      assert.equal((await call("POST", `/api/invites/${other.body.crew.token}/join`, member)).status, 200);
+    }
+    const s = await scene({ crews: [first, otherId] });
+    send(s.player, { type: "watch-share", open: true });
+    await handled(s.player);
+    assert.equal((await heard(s.viewer, isWatching, "watching")).state, "watching");
+    // The PC stops playing for the pinned crew.
+    const gone = closed(s.viewer);
+    assert.equal(
+      (
+        await call(
+          "PUT",
+          `/api/machines/${s.room}/availability`,
+          undefined,
+          { available: true, ...REPORT, crews: [otherId] },
+          MACHINE_KEY,
+        )
+      ).status,
+      200,
+    );
+    return { ...s, otherId, gone };
+  }
+
+  it("shares with the crew left when the player shares right after the PC leaves the pinned one", async () => {
+    const { player, viewer, sessionId, otherId, gone } = await pinnedThenLeft();
+    send(player, { type: "watch-share", open: true });
+    await gone;
+    assert.equal(denial(viewer), "not-crew");
+    const told = await heard(
+      player,
+      (m): m is Extract<SignalMessage, { type: "watchers" }> =>
+        m.type === "watchers" && m.crew?.id === otherId && m.sharing,
+      "sharing with the crew left",
+    );
+    assert.deepEqual(told.watchers, []);
+    const asked = await call("POST", `/api/crew-live/${sessionId}/watch`, STRANGER);
+    assert.equal(asked.status, 200);
+    assert.equal(asked.body.state, "watching");
+  });
+
+  it("takes an ask from the crew left right after the PC leaves the pinned one", async () => {
+    const { sessionId, gone } = await pinnedThenLeft();
+    const asked = await call("POST", `/api/crew-live/${sessionId}/watch`, STRANGER);
+    assert.equal(asked.status, 200);
+    assert.equal(asked.body.state, "asking");
+    await gone;
+  });
+
   it("opens watching to the crew the player picks, and stops anyone of the one before", async () => {
     const { player, viewer, sessionId } = await accepted();
     const first = await crew();
