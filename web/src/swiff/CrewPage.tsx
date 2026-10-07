@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { STEAM_LOGIN_URL } from "./steam";
 import {
+  activeSession,
   answerCrewSession,
   bringPc,
   createCrew,
@@ -23,7 +24,6 @@ import {
   removeCrewMember,
   renameCrew,
   renewCrewLink,
-  SESSION_OVER_MS,
   sessionDay,
   sessionTime,
   setCrewSession,
@@ -256,11 +256,6 @@ export function crewSteps(crew: CrewDetail, me: CrewMember, now: number, lang: L
   ];
 }
 
-/** The crew's Zockrunde while it is ahead or under way; null once it is over, or while it has none. */
-function activeSession(crew: CrewDetail, now: number): CrewSession | null {
-  return crew.session && crew.session.at + SESSION_OVER_MS > now ? crew.session : null;
-}
-
 /** The step to do now: the first one not done that can be done. */
 function currentStep(steps: Step[], crew: CrewDetail, now: number): StepId {
   const session = activeSession(crew, now);
@@ -344,12 +339,12 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
     );
   }
 
-  const now = Date.now();
   const me = crew.members.find((m) => m.you)!;
   const admin = crew.members.find((m) => m.admin);
   const title = crewTitle(lang, crew);
   const link = crew.token ? inviteLink(crew.token) : "";
-  const message = inviteMessage(lang, crew);
+  const now = Date.now();
+  const message = inviteMessage(lang, crew, location.origin, now);
   const firstPc = crew.machines.find((m) => m.state !== "offline") ?? crew.machines[0];
   const pcName = firstPc ? pcTitle(lang, firstPc) : "";
   const session = activeSession(crew, now);
@@ -375,8 +370,7 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
     if (await share("whatsapp", message, link, "toast.sent")) await apply(sharedCrew(id));
   };
   const copyInvite = async () => {
-    await copyLink(link);
-    await apply(sharedCrew(id));
+    if (await copyLink(link)) await apply(sharedCrew(id));
   };
 
   // Their PC plays for the crew from now on, once it runs the app.

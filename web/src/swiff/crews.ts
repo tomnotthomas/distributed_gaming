@@ -97,16 +97,22 @@ export function pcTitle(lang: Lang, pc: Pick<CrewPc, "name" | "owner">): string 
 
 /**
  * The message a member shares the crew with: it says the Zockrunde's date
- * first when there is one and who invites, asks everyone to say yes or no,
+ * first when there is one that is not over at `now` and who invites, asks everyone to say yes or no,
  * and while no PC is in it asks who has one.
  */
-export function inviteMessage(lang: Lang, crew: CrewDetail, origin: string = location.origin): string {
+export function inviteMessage(
+  lang: Lang,
+  crew: CrewDetail,
+  origin: string = location.origin,
+  now: number = Date.now(),
+): string {
   const t = crewText(lang);
   const link = crew.token ? inviteLink(crew.token, origin) : origin;
-  if (crew.session) {
+  const session = activeSession(crew, now);
+  if (session) {
     const me = crew.members.find((m) => m.you);
     const lines = [
-      t("msg.date", { when: sessionWhen(lang, crew.session.at) }),
+      t("msg.date", { when: sessionWhen(lang, session.at) }),
       me?.name ? t("msg.dateFrom", { name: me.name }) : t("msg.dateAnon"),
       link,
     ];
@@ -153,7 +159,12 @@ export function sessionDay(lang: Lang, at: number): string {
 }
 
 /** How long after it starts a Zockrunde counts as over, and the next one is to be set: 6 hours. */
-export const SESSION_OVER_MS = 6 * 3600 * 1000;
+const SESSION_OVER_MS = 6 * 3600 * 1000;
+
+/** The crew's Zockrunde while it is ahead or under way at `now`; null once it is over, or while it has none. */
+export function activeSession(crew: Pick<CrewView, "session">, now: number): CrewSession | null {
+  return crew.session && crew.session.at + SESSION_OVER_MS > now ? crew.session : null;
+}
 
 /** A JSON call to the crew API: the answer's body, or the status it was refused with, or null for no answer. */
 async function call<T>(
@@ -274,32 +285,6 @@ export async function removeCrewMember(id: string, get: typeof fetch = fetch): P
     get,
   );
   return answer.ok || answer.status === 404;
-}
-
-/**
- * The signed-in player's reminders by email: the address they go to, whether
- * it confirmed, and, when its confirm mail was held back, when to ask again.
- */
-export type Reminders = { email: string | null; confirmed: boolean; retryAt?: number };
-
-/** The player's reminders; null when the server takes none (the marketing site is off) or gave no answer. */
-export async function fetchReminders(get: typeof fetch = fetch): Promise<Reminders | null> {
-  const answer = await call<Reminders>("/api/signups/reminders", {}, get);
-  return answer.ok ? answer.body : null;
-}
-
-/** Send the reminders to `email` once it confirms (`email` null: stop them); the reminders after, or null when that failed. */
-export async function saveReminders(
-  email: string | null,
-  lang: Lang,
-  get: typeof fetch = fetch,
-): Promise<Reminders | null> {
-  const answer = await call<Reminders>(
-    email === null ? "/api/signups/reminders/off" : "/api/signups/reminders",
-    { method: "POST", body: JSON.stringify(email === null ? {} : { email, lang }) },
-    get,
-  );
-  return answer.ok ? answer.body : null;
 }
 
 /** Where this tab keeps that the player came from the host side, to see the PC card first. */

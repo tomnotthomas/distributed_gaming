@@ -129,6 +129,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   delete (navigator as { share?: unknown }).share;
+  delete (navigator as { clipboard?: unknown }).clipboard;
   sessionStorage.clear();
   localStorage.clear();
   history.replaceState(null, "", "/");
@@ -217,6 +218,18 @@ describe("crew addresses and names", () => {
     expect(ready).toContain(link);
     expect(inviteMessage("de", crewOf({ name: "Max" }), origin)).toContain("Max' Crew");
     expect(inviteMessage("en", crewOf({ token: null }), origin)).toMatch(/ https:\/\/lanterel\.example$/);
+  });
+
+  it("puts the Zockrunde's date in the message only until 6 hours after it starts", () => {
+    const origin = "https://lanterel.example";
+    const at = new Date(2026, 9, 9, 21).getTime();
+    const crew = crewOf({ session: { at, yes: 1, no: 0 } });
+    expect(inviteMessage("en", crew, origin, at + 6 * 3600_000 - 1)).toMatch(
+      /^Session on Friday 9 October, 9 pm/,
+    );
+    const over = inviteMessage("en", crew, origin, at + 6 * 3600_000);
+    expect(over).not.toMatch(/Session on|October/);
+    expect(over).toBe(inviteMessage("en", crewOf(), origin));
   });
 });
 
@@ -468,6 +481,21 @@ describe("CrewPage: the guided crew page", () => {
     ]);
     expect(calls).toContainEqual(["POST", "/api/crews/c1/shared"]);
     expect(stubs()).toEqual(["Date:done", "Get your people:done", "Gaming PC:now", "Play:later"]);
+  });
+
+  it("leaves the step open when the crew link could not be copied", async () => {
+    const calls = fetchFrom({ "GET /api/crews/c1": [200, { crew: crewOf({ session: dated }) }] });
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn(async () => Promise.reject(new Error("denied"))) },
+      configurable: true,
+    });
+    render(<CrewPage swiff={atCrew("c1")} />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Copy the crew link" }))[0]!);
+    expect(
+      await screen.findByText("Couldn't copy. Select the link and copy it yourself."),
+    ).toBeInTheDocument();
+    expect(calls).not.toContainEqual(["POST", "/api/crews/c1/shared"]);
+    expect(stubs()).toEqual(["Date:done", "Get your people:now", "Gaming PC:later", "Play:later"]);
   });
 
   it("brings the founder's PC with one button, or asks the group", async () => {

@@ -39,6 +39,7 @@ test("found a crew, a friend joins without a PC, brings one later, and the crew 
   request,
 }) => {
   const founderContext = await browser.newContext();
+  await founderContext.grantPermissions(["clipboard-read", "clipboard-write"], { origin: baseURL! });
   await signIn(founderContext, baseURL!, FOUNDER);
   const founder = await founderContext.newPage();
   const founderErrors = failOnPageError(founder, "founder");

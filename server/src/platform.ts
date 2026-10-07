@@ -177,6 +177,8 @@ export const TIME_UP_GRACE_MS = 10_000;
 export const SESSION_AHEAD_MS = 90 * 24 * 3600 * 1000;
 /** How long before now a Zockrunde may still be set, for a clock a little behind: 1 hour. */
 export const SESSION_PAST_MS = 3600 * 1000;
+/** How long after it starts a Zockrunde counts as over: it is no longer shown in invites or answered. 6 hours. */
+export const SESSION_OVER_MS = 6 * 3600 * 1000;
 
 /** How long a crew's first PC is news to a member who was away when it came. */
 export const PC_ARRIVED_MS = 7 * 24 * 60 * 60_000;
@@ -751,6 +753,10 @@ const crewView = (crew: CrewRow, userId: string | null): CrewView => ({
   pcs: crew.pcs,
   session: crew.session_at === null ? null : { at: crew.session_at, yes: crew.going, no: crew.not_going },
 });
+
+/** A crew's Zockrunde while it is ahead or under way at `now`; null once it is over, or for none. */
+const liveSession = (session: CrewSession | null, now: number): CrewSession | null =>
+  session && session.at + SESSION_OVER_MS > now ? session : null;
 
 /** How a PC playing for a crew is, by its status. */
 const pcState = (status: MachineStatus): CrewPcState =>
@@ -1571,13 +1577,13 @@ export class Platform {
 
   /**
    * `userId` answers the crew's Zockrunde: in ("yes") or cannot ("no"). Null
-   * unless they are in it; "no-session" while it has none.
+   * unless they are in it; "no-session" while it has none, or once it is over.
    */
   answerCrewSession(crewId: string, userId: string, rsvp: Rsvp): Promise<CrewDetail | null | "no-session"> {
     return this.#transaction(async () => {
       const detail = await this.#crewDetail(crewId, userId);
       if (!detail) return null;
-      if (!detail.session) return "no-session";
+      if (!liveSession(detail.session, this.#now())) return "no-session";
       await this.#run(
         "UPDATE crew_members SET rsvp = $1 WHERE crew_id = $2 AND user_id = $3",
         rsvp,
@@ -1599,8 +1605,8 @@ export class Platform {
 
   /**
    * The crew a live invite joins, as `userId` opening the link sees it (null:
-   * signed out), with whether they are in it already; null for a revoked or
-   * unknown invite.
+   * signed out), with whether they are in it already and its Zockrunde only
+   * while that is not over; null for a revoked or unknown invite.
    */
   invite(inviteId: string, userId: string | null = null): Promise<(CrewView & { member: boolean }) | null> {
     return this.#read(async () => {
@@ -1613,7 +1619,8 @@ export class Platform {
           crew.id,
           userId,
         )) !== undefined;
-      return { ...crewView(crew, userId), member };
+      const view = crewView(crew, userId);
+      return { ...view, session: liveSession(view.session, this.#now()), member };
     });
   }
 

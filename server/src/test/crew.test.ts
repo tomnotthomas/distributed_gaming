@@ -25,6 +25,7 @@ import {
   MAX_CREWS,
   PC_ARRIVED_MS,
   Platform,
+  SESSION_OVER_MS,
   type MachineSpec,
 } from "../platform.js";
 import { SESSION_COOKIE } from "../signin.js";
@@ -722,6 +723,31 @@ describe("crew API", () => {
       moved.body.crew.members.map((m: { rsvp: string | null }) => m.rsvp),
       ["yes", null],
     );
+  });
+
+  it("stops showing and answering a Zockrunde once it is over, 6 hours after it starts", async () => {
+    const crew = await joinByLink();
+    const at = now + 3600 * 1000;
+    await call("POST", `/api/crews/${crew.id}/session`, ALEX, { at });
+    now = at + SESSION_OVER_MS - 1;
+    assert.deepEqual((await call("GET", `/api/invites/${crew.token}`)).body.crew.session, {
+      at,
+      yes: 1,
+      no: 0,
+    });
+    assert.equal((await call("POST", `/api/crews/${crew.id}/rsvp`, HOST, { rsvp: "yes" })).status, 200);
+
+    now += 1;
+    assert.equal((await call("GET", `/api/invites/${crew.token}`)).body.crew.session, null);
+    const late = await call("POST", `/api/crews/${crew.id}/rsvp`, HOST, { rsvp: "no" });
+    assert.equal(late.status, 409);
+    assert.equal(late.body.code, "no-session");
+    // The crew itself still knows its last one, so its page can ask for the next.
+    assert.deepEqual((await call("GET", `/api/crews/${crew.id}`, HOST)).body.crew.session, {
+      at,
+      yes: 2,
+      no: 0,
+    });
   });
 
   it("renames and replaces the link for its admin alone", async () => {
