@@ -617,7 +617,10 @@ describe("crew API", () => {
         profile,
         discovery: new RequestBudget({ now: () => now }),
         isFree: async () => true,
-        gameMedia: async (appids) => appids.flatMap((appid) => (MEDIA[appid] ? [MEDIA[appid]] : [])),
+        gameMedia: async (appids) =>
+          appids.flatMap((appid) =>
+            MEDIA[appid] ? [MEDIA[appid]] : appid < 100 ? [media(appid, `Paid ${appid}`, false)] : [],
+          ),
       });
       const path = new URL(req.url ?? "/", "http://localhost").pathname;
       if (!(await api(req, res, path))) res.writeHead(418).end("{}");
@@ -871,6 +874,19 @@ describe("crew API", () => {
       (await platform.crewGames(crew.id, ALEX))!.wants.length,
       0,
       "Sam's wishes are gone with Sam",
+    );
+  });
+
+  it("keeps games nobody in the crew may start from taking the places of those on offer", async () => {
+    const crew = await joinByLink();
+    const unowned = Array.from({ length: 50 }, (_, i) => i + 1);
+    assert.equal((await offerPc("pc-1", { games: [...unowned, 570] })).status, 200);
+    assert.equal((await call("POST", `/api/crews/${crew.id}/pc`, HOST, { pc: "yes" })).status, 200);
+    const read = await call("GET", `/api/crews/${crew.id}/games`, ALEX);
+    assert.deepEqual(
+      read.body.games.map((g: { name: string }) => g.name),
+      ["Dota 2"],
+      "fifty paid games nobody owns, ranked ahead, still leave the free one on offer",
     );
   });
 

@@ -463,6 +463,8 @@ function renterAsk(steamId: string, query: URLSearchParams): RenterAsk {
 
 /** The most games a crew's page offers to pick from, the most wanted first. */
 const CREW_GAMES_MAX = 48;
+/** The most wanted games a crew's page looks up in the store, so games nobody may start do not take CREW_GAMES_MAX's places. */
+const CREW_GAMES_CANDIDATES = 200;
 
 /** Steam's most played games that `keep` lets through, as the games that can be booked. */
 const popularBookable = async (keep: (appid: number) => boolean) =>
@@ -520,7 +522,7 @@ export function createApi({
 }: ApiOptions) {
   const playable = (appid: number) => playability.playable(appid);
   const bookable = games ?? (() => popularBookable(playable));
-  const media = gameMedia ?? ((appids: number[]) => gamesMedia(appids, playable));
+  const media = gameMedia ?? ((appids: number[]) => gamesMedia(appids, playable, CREW_GAMES_CANDIDATES));
 
   /**
    * The games on crew `crewId`'s PCs as `steamId`, in it, picks from: for
@@ -543,7 +545,7 @@ export function createApi({
         wants: read.wants.filter((w) => w.appid === appid).map((w) => w.memberId),
       }))
       .sort((a, b) => b.wants.length - a.wants.length || b.owners - a.owners || a.appid - b.appid)
-      .slice(0, CREW_GAMES_MAX);
+      .slice(0, CREW_GAMES_CANDIDATES);
     const known = new Map((await media(ranked.map((g) => g.appid)).catch(() => [])).map((g) => [g.appid, g]));
     const games = ranked.flatMap(({ appid, owners, wants }) => {
       const game = known.get(appid);
@@ -562,7 +564,7 @@ export function createApi({
         },
       ];
     });
-    return { games, size: read.members.length };
+    return { games: games.slice(0, CREW_GAMES_MAX), size: read.members.length };
   }
 
   /** The page's copy of the renter's profile; the games it can show are checked ahead of background rechecks. */

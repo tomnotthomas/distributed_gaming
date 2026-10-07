@@ -171,14 +171,15 @@ export async function popularGames(
   return games.slice(0, limit);
 }
 
-/** Art and trailers for specific games that `keep` lets through, e.g. a signed-in player's library. */
+/** Art and trailers for up to `limit` specific games that `keep` lets through, e.g. a signed-in player's library. */
 export function gamesMedia(
   appids: number[],
   keep: (appid: number) => boolean = () => true,
+  limit = MEDIA_LIMIT,
 ): Promise<CatalogGame[]> {
   const unique = [...new Set(appids.filter((id) => Number.isInteger(id) && id > 0 && keep(id)))].slice(
     0,
-    MEDIA_LIMIT,
+    limit,
   );
   return catalogGames(unique);
 }
