@@ -153,6 +153,7 @@ export function Rail({
   setupDone,
   onStep,
   foot,
+  paid = true,
 }: {
   view: HostView;
   step: Step;
@@ -160,9 +161,12 @@ export function Rail({
   onStep: (step: Step) => void;
   /** The demo's screen picker, in demo mode. */
   foot?: ReactNode;
+  /** Paid gaming is on (features.ts): off, there is no "Get paid" step. */
+  paid?: boolean;
 }) {
-  const live = STEPS.findIndex((s) => s.id === "live");
-  const at = step === "settings" ? live : STEPS.findIndex((s) => s.id === step);
+  const steps = paid ? STEPS : STEPS.filter((s) => s.id !== "paid");
+  const live = steps.findIndex((s) => s.id === "live");
+  const at = step === "settings" ? live : steps.findIndex((s) => s.id === step);
   return (
     <nav className="path" aria-label="Steps">
       <div className="pwm">
@@ -175,7 +179,7 @@ export function Rail({
         </div>
       ) : null}
       <ol>
-        {STEPS.map((s, i) => {
+        {steps.map((s, i) => {
           // Rental mode is how a PC hosts: it is done once it is ready, not by being passed.
           const passed = s.id === "rental" ? rentalReady(view.rental) : i < at || (setupDone && i < live);
           const state = i === at ? "now" : passed ? "done" : "next";

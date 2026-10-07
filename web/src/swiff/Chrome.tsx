@@ -6,7 +6,8 @@ type Props = {
   screen: Screen;
   onHome: () => void;
   onProfile: () => void;
-  onShare: () => void;
+  /** Share your PC for money; left out while paid gaming is off. */
+  onShare?: () => void;
   /** The back chevron, which only the game screen needs. */
   onBack?: () => void;
   /** The live count in the fourth nav cell: "4 free near you". Absent signed out, where none is shown. */
@@ -49,16 +50,19 @@ export function Chrome({ screen, onHome, onProfile, onShare, onBack, live, freed
           </button>
         )}
       </div>
-      <nav className="bar-nav" aria-label="Lanterel">
+      <nav className={onShare ? "bar-nav" : "bar-nav bar-nav-3"} aria-label="Lanterel">
         <button type="button" aria-current={screen === "home" ? "page" : undefined} onClick={onHome}>
           {t("bar.home")}
         </button>
         <button type="button" aria-current={screen === "profile" ? "page" : undefined} onClick={onProfile}>
           {t("bar.profile")}
         </button>
-        <button type="button" aria-current={screen === "share" ? "page" : undefined} onClick={onShare}>
-          {t("bar.share")}
-        </button>
+        {/* No sharing your PC for money while paid gaming is off: the nav keeps three columns. */}
+        {onShare ? (
+          <button type="button" aria-current={screen === "share" ? "page" : undefined} onClick={onShare}>
+            {t("bar.share")}
+          </button>
+        ) : null}
         {/* The cell stays when there is no count, so the nav keeps its four columns. */}
         <span className={freed ? "bar-live freed" : "bar-live"}>
           {live ? (

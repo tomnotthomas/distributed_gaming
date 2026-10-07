@@ -1,12 +1,13 @@
-// The crew pages (/crews): founding a crew in one tap (/crews/new), the crews
-// a player is in (/crews), and one crew's lobby (/crews/<id>), in the approved
+// The crew pages (/crews): the crews a player is in, founding one in a tap
+// right there, and one crew's lobby (/crews/<id>), in the approved
 // "Sofort-Crew" design. Nobody is asked about hardware to found or join: the
-// lobby has an open PC slot anyone in the crew fills now or later, reads
-// "Almost ready" until a PC is in, and leads with one next step per state.
-// Someone who joined is shown, once, what the crew sees on a PC and what it
-// does not, with a one-minute PC check and an equally plain "Later", which
-// stays as a "Check my PC later" chip. The lobby reads its crew again whenever
-// the event stream says something changed, so a PC arriving shows at once.
+// lobby has an open PC slot while no PC is in, reads "Almost ready" until one
+// is, and leads with one next step per state. Everyone in the crew sees the
+// same page; the admin only has more to manage. Whoever has a gaming PC opens
+// the PC card, which says what the crew sees on it and what it does not, and
+// whose one button downloads the Lanterel app for the PC. The lobby reads its
+// crew again whenever the event stream says something changed, so a PC
+// arriving shows at once.
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { STEAM_LOGIN_URL } from "./steam";
@@ -25,6 +26,7 @@ import {
   saveReminders,
   takeLanding,
   takePcFirst,
+  FOUND_PATH,
   type CrewDetail,
   type CrewMember,
   type MyCrew,
@@ -52,7 +54,6 @@ export function CrewPage({ swiff }: { swiff: Swiff }) {
   const { crewRoute, signedIn, signInKnown } = swiff;
   if (!signInKnown) return <CrewLoading />;
   if (!signedIn) return <FoundSignedOut />;
-  if (crewRoute.found) return <Founding swiff={swiff} />;
   if (crewRoute.crew) return <Lobby key={crewRoute.crew} id={crewRoute.crew} swiff={swiff} />;
   return <CrewList swiff={swiff} />;
 }
@@ -79,7 +80,7 @@ function FoundSignedOut() {
             <p className="fa-why">{t("found.line")}</p>
             <p className="fa-why">{t("found.why")}</p>
             <div className="lb-join">
-              <a className="lpill solid" href={`${STEAM_LOGIN_URL}?to=${encodeURIComponent("/crews/new")}`}>
+              <a className="lpill solid" href={`${STEAM_LOGIN_URL}?to=${encodeURIComponent(FOUND_PATH)}`}>
                 {t("found.start")}
                 <span className="lpill-c">
                   <Glyph name="arrow" size={18} />
@@ -94,59 +95,19 @@ function FoundSignedOut() {
   );
 }
 
-/** /crews/new: the crew is founded at once, and the page becomes its lobby. */
-function Founding({ swiff }: { swiff: Swiff }) {
-  const { t } = useCrewText();
-  const [failed, setFailed] = useState<"full" | true | false>(false);
-  const started = useRef(false);
-  const { replaceCrew, openCrew } = swiff;
-
-  const found = useCallback(() => {
-    setFailed(false);
-    void createCrew().then((crew) => {
-      if (crew === "full") setFailed("full");
-      else if (crew) replaceCrew(crew.id);
-      else setFailed(true);
-    });
-  }, [replaceCrew]);
-
-  // Once per visit: a page that re-renders never founds a second crew.
-  useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    found();
-  }, [found]);
-
-  return (
-    <main className="crew-lobby" data-testid="crew" aria-busy={!failed}>
-      <div className="lb-wrap crew-wait">
-        {failed ? (
-          <div role="alert" className="crew-gone">
-            <p>{t(failed === "full" ? "crews.full" : "found.failed")}</p>
-            {failed === "full" ? (
-              <button type="button" className="lpill solid" onClick={() => openCrew()}>
-                {t("gone.back")}
-              </button>
-            ) : (
-              <button type="button" className="lpill solid" onClick={found}>
-                {t("crews.retry")}
-              </button>
-            )}
-          </div>
-        ) : (
-          <p>{t("found.starting")}</p>
-        )}
-      </div>
-    </main>
-  );
-}
-
-/** /crews: the crews the player is in, and founding another. One crew opens straight away. */
+/**
+ * /crews: the crews the player is in, and founding another, which opens its
+ * lobby at once. One crew opens straight away.
+ */
 function CrewList({ swiff }: { swiff: Swiff }) {
   const { lang, t } = useCrewText();
   const [crews, setCrews] = useState<MyCrew[] | "failed" | null>(null);
-  // From a "Crew gründen" button on the marketing site: a player with no crew yet gets one at once.
+  // From a "Crew gründen" button: a player with no crew yet gets one at once;
+  // from the app's "Start a new crew", any player does.
   const [landing] = useState(takeLanding);
+  const [founding, setFounding] = useState(false);
+  const [foundFailed, setFoundFailed] = useState<"full" | boolean>(false);
+  const foundedOnce = useRef(false);
   const { openCrew, replaceCrew } = swiff;
 
   const load = useCallback(() => {
@@ -154,10 +115,27 @@ function CrewList({ swiff }: { swiff: Swiff }) {
     void fetchCrews().then((answer) => setCrews(answer ?? "failed"));
   }, []);
   useEffect(load, [load]);
+
+  const found = useCallback(() => {
+    setFounding(true);
+    setFoundFailed(false);
+    void createCrew().then((crew) => {
+      setFounding(false);
+      if (crew === "full") setFoundFailed("full");
+      else if (crew) replaceCrew(crew.id);
+      else setFoundFailed(true);
+    });
+  }, [replaceCrew]);
+
   useEffect(() => {
-    if (Array.isArray(crews) && crews.length === 1) replaceCrew(crews[0]!.id);
-    else if (Array.isArray(crews) && !crews.length && landing.found) replaceCrew("new");
-  }, [crews, replaceCrew, landing]);
+    if (!Array.isArray(crews)) return;
+    // Once per visit: a page that re-renders never founds a second crew.
+    if (landing.found === "new" || (landing.found === "first" && !crews.length)) {
+      if (foundedOnce.current) return;
+      foundedOnce.current = true;
+      found();
+    } else if (crews.length === 1) replaceCrew(crews[0]!.id);
+  }, [crews, replaceCrew, landing, found]);
 
   return (
     <main className="crew-lobby" data-testid="crew">
@@ -168,9 +146,9 @@ function CrewList({ swiff }: { swiff: Swiff }) {
             <LobbyTitle prose>
               {Array.isArray(crews) && crews.length ? t("crews.title") : t("found.title")}
             </LobbyTitle>
-            {crews === null ? (
+            {crews === null || founding ? (
               <p className="fa-why" aria-busy="true">
-                {t("crews.loading")}
+                {t(founding ? "crew.loading" : "crews.loading")}
               </p>
             ) : crews === "failed" ? (
               <div role="alert" className="crew-gone">
@@ -208,9 +186,14 @@ function CrewList({ swiff }: { swiff: Swiff }) {
                 <p className="fa-why">{t("found.why")}</p>
               </>
             )}
+            {foundFailed ? (
+              <p role="alert" className="crew-gone">
+                {t(foundFailed === "full" ? "crews.full" : "found.failed")}
+              </p>
+            ) : null}
             {Array.isArray(crews) ? (
               <div className="lb-join">
-                <button type="button" className="lpill solid" onClick={() => openCrew("new")}>
+                <button type="button" className="lpill solid" disabled={founding} onClick={found}>
                   {crews.length ? t("crews.new") : t("found.start")}
                   <span className="lpill-c">
                     <Glyph name="arrow" size={18} />
@@ -226,13 +209,13 @@ function CrewList({ swiff }: { swiff: Swiff }) {
 }
 
 /** The next step a crew's page leads with, by its state and who is looking. */
-type Next = "found" | "joined" | "setup" | "ready" | "offline";
+type Next = "found" | "setup" | "ready" | "offline";
 
 function nextStep(crew: CrewDetail, me: CrewMember): Next {
   if (crew.state === "ready") return "ready";
   if (crew.state === "offline") return "offline";
   if (me.pc === "yes") return "setup";
-  return me.admin ? "found" : "joined";
+  return "found";
 }
 
 /** The day choices for a session: today, tomorrow, and the next three days by name. */
@@ -333,10 +316,10 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
   const firstPc = crew.machines.find((m) => m.state !== "offline") ?? crew.machines[0];
   const pcName = firstPc ? pcTitle(lang, firstPc) : "";
   const next = nextStep(crew, me);
-  // Someone who joined is shown the PC card until they answer it; anyone else when they ask.
-  const cardOpen = card ?? (me.pc === null && !me.admin && crew.state === "no-pc");
-  // A crew with a PC already takes another from anyone who has none in it yet.
-  const addAnother = crew.state !== "no-pc" && !myPcs.length;
+  // The PC card opens when someone asks for it (or came from the host side).
+  const cardOpen = card ?? false;
+  // Anyone without a PC in a crew that has none yet may bring theirs.
+  const canBring = crew.state === "no-pc" && me.pc !== "yes" && !myPcs.length;
 
   const apply = async (work: Promise<CrewDetail | null>, done?: CopyKey) => {
     setBusy(true);
@@ -352,16 +335,14 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
   const shareInvite = (channel: Channel) =>
     void share(channel, message, link, crew.state === "no-pc" ? "toast.asked" : "toast.sent");
 
-  // Their PC plays for the crew from now on, once it runs the app: the next step says how to set it up.
-  const checkPc = async () => {
+  // One click: the Lanterel app downloads (once a release is published), their
+  // PC plays for the crew from now on, once it runs the app, and the next step
+  // says how to set it up.
+  const loadApp = async () => {
+    if (HOST_DOWNLOAD_URL) startDownload(HOST_DOWNLOAD_URL);
     if (!(await apply(bringPc(id, "yes")))) return;
     setCard(false);
-    if (HOST_DOWNLOAD_URL) window.open(HOST_DOWNLOAD_URL, "_blank", "noopener,noreferrer");
-    else nextRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" });
-  };
-
-  const later = async () => {
-    if (await apply(bringPc(id, "later"), "toast.later")) setCard(false);
+    nextRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" });
   };
 
   const askNotify = async () => {
@@ -395,15 +376,7 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
   const nightMessage = t("msg.night", { day: days[day]!, time: times[time]!, crew: title, link });
 
   const memberMeta = (m: CrewMember) =>
-    m.admin
-      ? t("cp.founder")
-      : m.pcs > 0
-        ? t("cp.brings")
-        : m.pc === "yes"
-          ? t("cp.settingUp")
-          : m.you
-            ? t("cp.joined")
-            : "";
+    m.admin ? t("cp.founder") : m.pcs > 0 ? t("cp.brings") : m.pc === "yes" ? t("cp.settingUp") : "";
 
   return (
     <main className="crew-lobby" data-testid="crew" data-state={crew.state}>
@@ -510,17 +483,6 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
                   <p>{t("cp.nextFoundLine")}</p>
                   <WhatsAppButton label={t("cp.whatsapp")} onClick={() => shareInvite("whatsapp")} />
                 </>
-              ) : next === "joined" ? (
-                <>
-                  <h2 id="nx-h">{t("cp.nextJoined")}</h2>
-                  <p>{t("cp.nextJoinedLine")}</p>
-                  <button type="button" className="lpill solid" onClick={openCard}>
-                    {t("cp.addPc")}
-                    <span className="lpill-c">
-                      <Glyph name="arrow" size={18} />
-                    </span>
-                  </button>
-                </>
               ) : next === "setup" ? (
                 <>
                   <h2 id="nx-h">{t("cp.nextSetup")}</h2>
@@ -567,8 +529,7 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
                 </svg>
                 {t("cp.planSession")}
               </button>
-              {(me.admin && crew.state === "no-pc" && me.pc !== "yes" && me.pc !== "later") ||
-              (addAnother && me.pc !== "later") ? (
+              {canBring ? (
                 <button type="button" className="sa" onClick={openCard}>
                   <PcIcon />
                   {t("cp.havePc")}
@@ -584,15 +545,6 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
                 <LinkIcon />
                 {t("cp.copy")}
               </button>
-              {me.pc === "later" && !myPcs.length && !cardOpen ? (
-                <button type="button" className="sa chip-later" onClick={openCard}>
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <circle cx="12" cy="12" r="8" />
-                    <path d="M12 8v4l3 2" />
-                  </svg>
-                  {t("cp.pcLater")}
-                </button>
-              ) : null}
               {crew.state === "no-pc" && permission !== null && permission !== "denied" ? (
                 <button
                   type="button"
@@ -654,19 +606,17 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
                 </span>
               </li>
             ))}
-            {crew.state === "no-pc" || addAnother ? (
+            {crew.state === "no-pc" ? (
               <li>
                 <button type="button" className="lb-slot act pcadd" onClick={openCard}>
                   <span className="av" aria-hidden="true">
                     <PcIcon />
                   </span>
                   <span className="lb-who">
-                    <span className="lb-name">{t(addAnother ? "cp.addAnotherPc" : "cp.addPc")}</span>
-                    <span className="lb-meta">{t(addAnother ? "cp.addAnotherPcLine" : "cp.addPcLine")}</span>
+                    <span className="lb-name">{t("cp.addPc")}</span>
+                    <span className="lb-meta">{t("cp.addPcLine")}</span>
                   </span>
-                  <span className={addAnother ? "lchip free" : "lchip wait"}>
-                    {t(addAnother ? "cp.addAnotherChip" : "cp.missing")}
-                  </span>
+                  <span className="lchip wait">{t("cp.missing")}</span>
                 </button>
               </li>
             ) : null}
@@ -730,17 +680,15 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
                     type="button"
                     className="lpill solid"
                     disabled={busy}
-                    onClick={() => void checkPc()}
+                    onClick={() => void loadApp()}
                   >
-                    {t("pcc.check")}
+                    {t("pcc.load")}
                     <span className="lpill-c">
-                      <Glyph name="arrow" size={18} />
+                      <Glyph name="download" size={18} />
                     </span>
                   </button>
-                  <button type="button" className="lpill" disabled={busy} onClick={() => void later()}>
-                    {t("pcc.later")}
-                  </button>
                 </div>
+                {HOST_DOWNLOAD_URL ? null : <p className="crew-soon">{t("pcc.soonShort")}</p>}
               </div>
             )}
           </section>
@@ -892,6 +840,17 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
       </div>
     </main>
   );
+}
+
+/** Start downloading `url` from this page, without leaving it. */
+function startDownload(url: string) {
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "";
+  link.rel = "noopener";
+  document.body.append(link);
+  link.click();
+  link.remove();
 }
 
 /** The address the reminders confirm form checks, as the server does (signups.ts). */

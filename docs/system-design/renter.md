@@ -554,8 +554,7 @@ Nobody is asked about a PC to found or join, and joining changes no PC. A PC pla
 crews its owner picks (`crew_machines`): a member brings their PCs to a crew (`POST
 /crews/:id/pc`, `yes`), which also brings any PC of theirs first heard from later, a
 founder's PCs play for the crew they found, and the host app picks crews per PC (`crews` on
-availability, host.md). A member may put the question off (`later`) or take their PCs out
-again (`off`). A PC that plays for crews is crew-only: it is offered and matched only to the
+availability, host.md). A member may take their PCs out again (`off`). A PC that plays for crews is crew-only: it is offered and matched only to the
 people in those crews (gate E7 in `packages/rank`): on the wall, on the game page, in the
 queue, as a picked machine, and at the claim, which hands a reservation made before the PC
 was taken from the renter's crews back to the queue. A PC first heard from while its owner
@@ -602,7 +601,7 @@ POST /crews/:id/link            → 200 { crew }
   the admin again), or a new link in place of the old one. → 403 for a member who is not
   the admin. → 404 as above.
 
-POST /crews/:id/pc { pc: "yes" | "later" | "off" }
+POST /crews/:id/pc { pc: "yes" | "off" }
   → 200 { crew }
   Whether the signed-in member brings their PCs to the crew. → 404 as above.
 
@@ -624,16 +623,20 @@ POST /crew-members/:id/remove
 ```
 
 The web app (`web/src/swiff/CrewPage.tsx`, `CrewInvite.tsx`, `CrewsCard.tsx`) follows the
-decided "Sofort-Crew" flow in the launch set's lobby look: `/crews/new` founds a crew and
-becomes its page, `/crews` lists the player's crews, `/crews/<id>` is one crew. The crew page
+decided "Sofort-Crew" flow in the launch set's lobby look: `/crews` lists the player's crews
+and founds one in a tap right there (at once from `/crews?found=1` for a player with none,
+the marketing site's buttons, and from `/crews?found=new` whatever they have, the app's own
+"Start a new crew"), then becomes its page; `/crews/<id>` is one crew. The crew page
 reads "Almost ready." until a PC is in, leads with one next step per state (bring your
 people, with one WhatsApp message that invites and asks who has a gaming PC, through the
-phone's share sheet where there is one and `wa.me` otherwise; got a gaming PC?; play now; or
-every PC away), has an open PC slot anyone in the crew fills (once a PC is in, it offers
-anyone with no PC in the crew yet to add another), a "Plan a session" panel that
-posts the session to WhatsApp, the crew link with other ways to share, and leaving. Someone
-who joined is shown once what the crew sees on their PC and what it does not, with a
-one-minute PC check and an equally plain "Later", which stays as a "Check my PC later" chip.
+phone's share sheet where there is one and `wa.me` otherwise; set up your gaming PC; play
+now; or every PC away), has an open PC slot while no PC is in, a "Plan a session" panel that
+posts the session to WhatsApp, the crew link with other ways to share, and leaving. Everyone
+in the crew sees the same page; the admin only has more to manage. "I've got a gaming PC"
+opens the PC card: what the crew sees on the PC and what it does not, and one button, "Get
+the app on your PC", which starts the Lanterel app's download (`release.json`; until a
+release is published the card says the app is coming soon), brings the member's PCs to the
+crew and shows "Almost there: set up your gaming PC".
 The crew page reads its crew again on every change its event stream announces. The invite
 page names who asks and which crew, explains in three lines how it works, and joins with one
 button: signed out, Steam sign-in comes back to `/invite` (the token waits in the tab, the

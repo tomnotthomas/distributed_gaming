@@ -18,6 +18,7 @@ import { loadSetupDone, saveSetupDone } from "./settings";
 import { ArtContext } from "./ui/art";
 import { Rail } from "./ui/Rail";
 import { useDemoHost } from "./useDemoHost";
+import { unpaid, usePaidGaming } from "./features";
 import { useHost } from "./useHost";
 
 /**
@@ -81,6 +82,7 @@ export function Shell({
   setupDone,
   finishSetup,
   foot,
+  paid,
 }: {
   host: Host;
   step: Step;
@@ -88,11 +90,16 @@ export function Shell({
   setupDone: boolean;
   finishSetup: () => void;
   foot?: ReactNode;
+  /** Paid gaming is on at the server (features.ts): the app shows earning, levels and the rate. */
+  paid: boolean;
 }) {
-  useTray(host);
-  const props: ScreenProps = { view: host.view, actions: host.actions, go: onStep };
+  // While paid gaming is off nothing about money shows, and there is no "Get paid" step.
+  const view = paid ? host.view : unpaid(host.view);
+  useTray({ ...host, view });
+  const props: ScreenProps = { view, actions: host.actions, go: onStep };
   // A step that is still locked shows rental mode, the step it waits for, and opens by itself once it is ready.
-  const shown = stepLocked(step, host.view, WINDOWS_SHARE) ? "rental" : step;
+  const locked = stepLocked(step, view, WINDOWS_SHARE) ? "rental" : step;
+  const shown = locked === "paid" && !paid ? "live" : locked;
   const screen = (() => {
     switch (shown) {
       case "pc":
@@ -114,7 +121,7 @@ export function Shell({
   return (
     <div className={MAC ? "hx mac" : "hx"}>
       <div className="titlebar" aria-hidden="true" />
-      <Rail view={host.view} step={shown} setupDone={setupDone} onStep={onStep} foot={foot} />
+      <Rail view={view} step={shown} setupDone={setupDone} onStep={onStep} foot={foot} paid={paid} />
       {screen}
     </div>
   );
@@ -126,6 +133,7 @@ const TEST_BUILD = new URLSearchParams(location.search).get("build") === "test";
 /** The app on this PC's own data. The first run starts at reading the PC; later ones at Go live. */
 export function RealApp() {
   const host = useHost();
+  const paid = usePaidGaming(host.view.connection.url);
   const [setupDone, setSetupDone] = useState(loadSetupDone);
   const [step, setStep] = useState<Step>(() => (loadSetupDone() ? "live" : "pc"));
   return (
@@ -139,6 +147,7 @@ export function RealApp() {
         setSetupDone(true);
       }}
       foot={TEST_BUILD ? <span className="build-tag">Test build</span> : undefined}
+      paid={paid}
     />
   );
 }
@@ -183,6 +192,7 @@ export function DemoApp({ screen: first }: { screen: DemoScreen }) {
           setupDone={demo.setupDone}
           finishSetup={() => demo.setStep("live")}
           foot={picker}
+          paid={false}
         />
       )}
     </ArtContext.Provider>

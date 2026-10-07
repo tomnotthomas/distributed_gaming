@@ -262,7 +262,6 @@ describe("crews", () => {
 
     it("makes the crew ready when a member brings a PC later, and tells everyone in it once", async () => {
       const { crewId } = await hostJoinsAlex();
-      assert.equal((await platform.bringPc(crewId, HOST, "later"))?.members[1]?.pc, "later");
       assert.deepEqual(ready, []);
 
       // Weeks later the host says yes, before the PC was ever heard from.
@@ -727,13 +726,12 @@ describe("crew API", () => {
     assert.equal(own.body.joined, false);
   });
 
-  it("brings a member's PC to the crew, puts it off, or takes it out", async () => {
+  it("brings a member's PC to the crew, or takes it out; there is no putting it off", async () => {
     const crew = await joinByLink();
     await offerPc("pc-1");
     assert.equal((await call("POST", `/api/crews/${crew.id}/pc`, HOST, { pc: "maybe" })).status, 400);
     assert.equal((await call("POST", `/api/crews/${crew.id}/pc`, STRANGER, { pc: "yes" })).status, 404);
-    const later = await call("POST", `/api/crews/${crew.id}/pc`, HOST, { pc: "later" });
-    assert.equal(later.body.crew.members[1].pc, "later");
+    assert.equal((await call("POST", `/api/crews/${crew.id}/pc`, HOST, { pc: "later" })).status, 400);
     const yes = await call("POST", `/api/crews/${crew.id}/pc`, HOST, { pc: "yes" });
     assert.equal(yes.body.crew.state, "ready");
     assert.deepEqual(yes.body.crew.machines, [{ name: "Nova-01", owner: "Sam", mine: true, state: "ready" }]);

@@ -5,6 +5,7 @@ import { GAMES, MACHINES, type Game, type SeedMachine, type Spot } from "./data"
 import { applySteam, type CatalogGame, type SteamProfile } from "./steam";
 import type { Swiff } from "./useSwiff";
 import { Wall } from "./Wall";
+import { setPaidGaming } from "../test/features";
 
 const noop = () => {};
 const pool = ["glass", "ember", "tide", "moss"];
@@ -171,6 +172,16 @@ describe("Wall", () => {
       expect(signIn[0]).toHaveAttribute("href", "/auth/steam/login");
       expect(screen.getByText(/Sign in with Steam and we'll tell you when a PC frees up\./)).toBeTruthy();
       expect(screen.queryByText(/We'll tell you the moment something frees up/)).toBeNull();
+    });
+
+    it("says nothing about what is free to a crew, with paid gaming off: the games show anyway", () => {
+      setPaidGaming(false);
+      const profile = { ...privateLibrary, lib: true, owned: [[1245620, 12]] as [number, number][] };
+      emptyWall(profile, applySteam(profile, pool));
+      expect(screen.queryByText("Nothing is ready right now")).toBeNull();
+      expect(screen.queryByText(/No shared PC is free|Every shared machine is in use/)).toBeNull();
+      expect(screen.queryByRole("button", { name: "Notify me" })).toBeNull();
+      expect(screen.getByTestId("hero")).toBeInTheDocument();
     });
 
     it("asks a signed-in renter for nothing more", () => {

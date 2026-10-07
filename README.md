@@ -50,9 +50,9 @@ overrides file (`cloud`, with the evidence in `cloudWhy`). A game that asks for 
 Steam's at start (Ubisoft Connect, the EA app, Battle.net, Rockstar…) stays playable: the catalog
 names its launcher (`requiresAccount`), and the game page tells the renter they will sign in to it.
 
-A signed-in player founds a crew in one tap (`/crews/new`) and shares its link
-(`/invite/<token>`); anyone in a crew may share it, and anyone in it brings a gaming PC now
-or later. A PC plays for the crews its owner picks, and only for the people in them. See
+A signed-in player founds a crew in one tap on the crew pages (`/crews`) and shares its link
+(`/invite/<token>`); anyone in a crew may share it, and anyone in it who has a gaming PC
+brings it by getting the Lanterel app onto it. A PC plays for the crews its owner picks, and only for the people in them. See
 [Crews](docs/system-design/renter.md#crews). A host also keeps up to four named seats at their
 PC for friends, from the host app; a friend takes one from its link (`/seat/<token>`) and plays
 their own games there. See [Friend seats](docs/system-design/renter.md#friend-seats).
@@ -88,9 +88,19 @@ page whose button does it, so a mail scanner opening a link changes nothing. See
 
 Settings (server environment):
 
-- `MARKETING_PAGES=on` turns the pages and the reminders on. Leave it off until the bracketed
-  placeholders in the Impressum and legal notice (the founder's name, address and contact, e.g.
-  `[VOR- UND NACHNAME]`) are filled in.
+- Paid gaming is the PostHog feature flag `paid-gaming`, which the server asks with the project's
+  public key (`POSTHOG_KEY`/`POSTHOG_HOST`, else the web build's `VITE_POSTHOG_KEY`/`VITE_POSTHOG_HOST`)
+  and keeps for a minute; it is off without a key or until PostHog has answered once (a later
+  failed ask keeps its last answer), and `PAID_GAMING=on` or `off` overrides it. On, it turns on the paid marketplace: the game wall as the app's start page, PCs of
+  people you don't know, Share your PC (`/share`) and everything about earning, in the host app
+  too (its "Get paid" step, levels, reliability and the rate; the app asks `GET /api/features`).
+  Off, the default, Lanterel is crews only: `/` is the launch landing page (on `SITE_ORIGIN` when
+  the site has its own host, else served by the app itself), a signed-in player goes on to their
+  crew, and the game wall is reached from a crew at `/play`. See `server/src/features.ts`.
+- `IMPRESSUM_EMAIL`: the contact address on the Impressum and legal notice. Unset, they show
+  `tom.schwabe123@gmail.com`.
+- `MARKETING_PAGES=on` turns the pages and the reminders on. The Impressum and legal notice carry
+  the founder's name and address, and `IMPRESSUM_EMAIL` as their contact.
 - `SITE_ORIGIN`, e.g. `https://lanterel.de`: the site's own origin. The pages are served only to
   requests for its host, and it is the origin in the pages' canonical and Open Graph links.
   Without it the pages stay off even with `MARKETING_PAGES=on`.

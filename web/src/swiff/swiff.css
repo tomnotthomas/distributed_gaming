@@ -238,6 +238,9 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
   padding: 0;
 }
+.bar-nav-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
 .bar-nav > * {
   display: flex;
   align-items: center;
@@ -276,6 +279,9 @@
 @media (max-width: 1279px) and (min-width: 861px) {
   .bar-nav {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .bar-nav-3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .bar-nav > * {
     font-size: 12px;

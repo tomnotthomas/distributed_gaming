@@ -272,7 +272,7 @@ const SCREENS: { screen: AppScreen; path: string; via?: "bar.profile" }[] = [
   { screen: "home", path: "/" },
   { screen: "invite", path: `/invite/${TOKEN}` },
   { screen: "seat", path: `/seat/${TOKEN}` },
-  { screen: "crew", path: "/crews/new" },
+  { screen: "crew", path: "/crews/c-other" },
   { screen: "share", path: "/share" },
   { screen: "profile", path: "/", via: "bar.profile" },
 ];

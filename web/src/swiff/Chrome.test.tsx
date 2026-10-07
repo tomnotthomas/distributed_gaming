@@ -26,6 +26,12 @@ describe("Chrome", () => {
     expect(nav().getByRole("button", { name: "Home" })).not.toHaveAttribute("aria-current");
   });
 
+  it("has no Share your PC while paid gaming is off", () => {
+    render(<Chrome screen="home" onHome={noop} onProfile={noop} />);
+    expect(screen.queryByRole("button", { name: "Share your PC" })).toBeNull();
+    expect(screen.getByRole("navigation")).toHaveClass("bar-nav-3");
+  });
+
   it("leaves signing in to the screen below rather than offering it again in the bar", () => {
     render(<Chrome screen="home" onHome={noop} onProfile={noop} onShare={noop} live="4 free near you" />);
     expect(screen.queryByRole("link", { name: /sign in/i })).toBeNull();

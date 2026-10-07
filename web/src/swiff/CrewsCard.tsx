@@ -51,7 +51,7 @@ export function CrewsCard({ swiff }: { swiff: Swiff }) {
         </ul>
       ) : null}
       <div className="ask-ways">
-        <button type="button" className="lpill lpill-sm" onClick={() => swiff.openCrew("new")}>
+        <button type="button" className="lpill lpill-sm" onClick={swiff.foundCrew}>
           {crews?.length ? t("crews.new") : t("found.start")}
           <span className="lpill-c">
             <Glyph name="arrow" size={16} />
@@ -93,7 +93,11 @@ export function CrewStrip({ swiff }: { swiff: Swiff }) {
   return (
     <div className="library-note ask-strip" data-testid="crew-strip">
       <p>{t("strip.line")}</p>
-      <button type="button" className="lpill lpill-sm" onClick={() => swiff.openCrew(mine ? mine.id : "new")}>
+      <button
+        type="button"
+        className="lpill lpill-sm"
+        onClick={() => (mine ? swiff.openCrew(mine.id) : swiff.foundCrew())}
+      >
         {t(mine ? "strip.mine" : "strip.start")}
         <span className="lpill-c">
           <Glyph name="arrow" size={16} />

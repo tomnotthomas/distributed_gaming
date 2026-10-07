@@ -1,4 +1,5 @@
 import { crewRouteAt, CREWS_PATH } from "./crews";
+import { paidGaming, PLAY_PATH } from "./features";
 import { INVITE_PATH, inviteTokenAt } from "./invite";
 import { SEAT_PATH, seatTokenAt } from "./seat";
 import type { Screen } from "./useSwiff";
@@ -9,8 +10,9 @@ export const SHARE_PATH = "/share";
 /**
  * The screen an address opens: the estimate at /share, the invite a friend was
  * sent at /invite/<token> (and /invite, coming back from sign-in), a friend
- * seat at /seat/<token> (and /seat), the crew pages at /crews, /crews/new and
- * /crews/<id>, the wall everywhere else.
+ * seat at /seat/<token> (and /seat), the crew pages at /crews and
+ * /crews/<id>, the wall everywhere else. With paid gaming off (features.ts)
+ * there is no estimate: /share opens the crew pages.
  */
 export const screenAt = (pathname: string): Screen =>
   inviteTokenAt(pathname) !== null
@@ -20,14 +22,17 @@ export const screenAt = (pathname: string): Screen =>
       : crewRouteAt(pathname) !== null
         ? "crew"
         : pathname.replace(/\/+$/, "") === SHARE_PATH
-          ? "share"
+          ? paidGaming()
+            ? "share"
+            : "crew"
           : "home";
 
 /**
  * The address a screen keeps: /share for the estimate, /invite for an invite
  * (whose own address, with its token, is kept as it is), /seat for a friend
  * seat (likewise), /crews for the crew pages (a crew's own, with its id, is
- * kept as it is), / for everything else.
+ * kept as it is), / for everything else: the wall's own address, which is
+ * /play while paid gaming is off.
  */
 export const pathOf = (screen: Screen): string =>
   screen === "share"
@@ -38,4 +43,6 @@ export const pathOf = (screen: Screen): string =>
         ? SEAT_PATH
         : screen === "crew"
           ? CREWS_PATH
-          : "/";
+          : paidGaming()
+            ? "/"
+            : PLAY_PATH;

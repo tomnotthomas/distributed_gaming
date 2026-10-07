@@ -57,7 +57,7 @@ test("the crew page, its invite and a seat's page fit every width from phone to 
   await signIn(founderContext, baseURL!, FOUNDER);
   const founder = await founderContext.newPage();
   const founderErrors = failOnPageError(founder, "founder");
-  await founder.goto("/crews/new");
+  await founder.goto("/crews?found=1");
   await expect(founder).toHaveURL(/\/crews\/[\w-]{22}$/);
   const crewId = new URL(founder.url()).pathname.split("/").pop()!;
   const { crew } = await (await founder.request.get(`/api/crews/${crewId}`)).json();

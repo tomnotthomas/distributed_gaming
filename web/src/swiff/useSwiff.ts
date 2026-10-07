@@ -45,11 +45,12 @@ import {
   type PlayState,
 } from "./play";
 import { questionOf, useLive } from "./useLive";
-import { CREWS_PATH, crewRouteAt, fetchCrews, seeReady, unseenReady } from "./crews";
+import { CREWS_PATH, crewRouteAt, fetchCrews, FOUND_NEW_PATH, seeReady, unseenReady } from "./crews";
 import { useCrewLive, type CrewLiveEntry } from "./watch";
 import type { CrewHub, CrewHubState } from "@swiff/rtc";
 import type { Channel } from "./invite";
 import { pathOf, screenAt } from "./route";
+import { paidGaming } from "./features";
 import { screenLang, screenText } from "./screenCopy";
 import { fetchMedia, fetchPopular, type Popular } from "./catalog";
 import {
@@ -216,7 +217,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   const [week, setWeek] = useState<Week>(DEFAULT_WEEK);
   const [estimateOpen, setEstimateOpen] = useState(false);
 
-  // Crews: the crew page's own address (/crews, /crews/new or /crews/<id>),
+  // Crews: the crew page's own address (/crews or /crews/<id>),
   // and a crew whose first PC came, which every screen celebrates until it is
   // closed: as it happens, or on the next visit for whoever was away.
   const [crewPath, setCrewPath] = useState(() => location.pathname);
@@ -928,8 +929,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   }, []);
 
   /**
-   * Open the crew pages: one crew by its id, "new" to found one, or the
-   * player's crews. Each is an address of its own, so Back returns to the last.
+   * Open the crew pages: one crew by its id, or the player's crews. Each is an address of its own, so Back returns to the last.
    */
   const openCrew = useCallback((id?: string) => {
     const path = id ? `${CREWS_PATH}/${id}` : CREWS_PATH;
@@ -943,7 +943,13 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     history.replaceState(history.state, "", path + location.search);
     setCrewPath(path);
   }, []);
-  const crewRoute = useMemo(() => crewRouteAt(crewPath) ?? { crew: null, found: false }, [crewPath]);
+  const crewRoute = useMemo(() => crewRouteAt(crewPath) ?? { crew: null }, [crewPath]);
+  /** The crew pages, founding a new crew at once. */
+  const foundCrew = useCallback(() => {
+    history.pushState(null, "", FOUND_NEW_PATH);
+    setCrewPath(CREWS_PATH);
+    setScreen("crew");
+  }, []);
   const dismissCrewReady = useCallback(() => {
     if (crewReady) seeReady(crewReady);
     setCrewReady(null);
@@ -971,6 +977,16 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     setPhase("idle");
     setBeat(0);
   }, [endSession, endCurrentBooking]);
+
+  /**
+   * The app's start: the wall while paid gaming is on (features.ts); otherwise
+   * the player's crews, or, signed out, the server's start page at "/".
+   */
+  const goStart = useCallback(() => {
+    if (paidGaming()) goHome();
+    else if (steamId !== null) openCrew();
+    else location.assign("/");
+  }, [goHome, openCrew, steamId]);
 
   const openGame = useCallback(
     (next: Game) => {
@@ -1324,6 +1340,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     week,
     estimateOpen,
     goHome,
+    goStart,
     /** A rental-mode PC's Steam sign-in code for Ignition to show, until the renter approves it. */
     steamLogin: play?.steamLogin ?? null,
     /**
@@ -1364,6 +1381,7 @@ export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
     signInKnown,
     openCrew,
     replaceCrew,
+    foundCrew,
     crewRoute,
     crewChanges: live.changes,
     crewReady,

@@ -1474,10 +1474,10 @@ export class Platform {
   /**
    * `userId` answers whether they bring a gaming PC to the crew: "yes" has
    * every PC they own play for it, and any of theirs first heard from later;
-   * "later" puts the question off; "off" takes their PCs out of it, leaving
-   * the question put off. Null unless they are in it.
+   * "off" takes their PCs out of it, leaving the question put off. Null
+   * unless they are in it.
    */
-  bringPc(crewId: string, userId: string, choice: "yes" | "later" | "off"): Promise<CrewDetail | null> {
+  bringPc(crewId: string, userId: string, choice: "yes" | "off"): Promise<CrewDetail | null> {
     return this.#transaction(async () => {
       const now = this.#now();
       const changed = await this.#run(
