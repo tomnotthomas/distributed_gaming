@@ -23,7 +23,8 @@
 //   {{app}}, which the server fills in from server/src/brand.ts, SITE_ORIGIN
 //   and PUBLIC_ORIGIN as it serves each file. Routes and file names keep what the
 //   build made of them (/lanterel-os/).
-// - Every form posts to the server's sign-up endpoint (the form-endpoint meta).
+// - No page asks for an email address: there is no waitlist and no sign-up
+//   endpoint, so a page's form-endpoint meta is dropped.
 // - The privacy pages say nothing about reminders by email: the product sends
 //   none (withoutReminders).
 // - A crew's time together is a "Zockrunde" / "gaming session", as the app
@@ -64,8 +65,6 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 const TARGET = fileURLToPath(new URL("../../web/marketing", import.meta.url));
-/** The endpoint every form posts to. */
-const FORM_ENDPOINT = "/api/signups";
 const TEXT = new Set([".html", ".txt", ".css", ".js", ".json", ".md", ".xml", ".svg"]);
 const SKIPPED = new Set([
   "_redirects",
@@ -174,6 +173,9 @@ export const MEETUP_WORDING = [
 export const CORRECTIONS = [
   // A stray slash after the legal basis on the English privacy page.
   ["(§ 25(2) TDDDG). /", "(§ 25(2) TDDDG)."],
+  // There is no waitlist: the host FAQ does not promise players from one.
+  [" Ob später auch Mac-Spieler von unserer Warteliste dazukommen, entscheidest du.", ""],
+  [" Whether Mac players from our waitlist join later is up to you.", ""],
 ];
 
 /** `text` with the set's meetup and time-of-day wording put the app's way (MEETUP_WORDING), and its slips corrected. */
@@ -183,8 +185,9 @@ export function neutralWording(text) {
 
 /** `html` without the privacy page's section on reminders by email, German or English. */
 export function withoutReminders(html) {
+  // Up to the next section, or to where the page's text ends when it is the last one.
   return html.replace(
-    /<h2>(?:Wenn du dich erinnern lässt|When you ask for reminders)<\/h2>[\s\S]*?(?=<h2>)/g,
+    /<h2>(?:Wenn du dich erinnern lässt|When you ask for reminders)<\/h2>[\s\S]*?(?=<h2>|<\/main>|$)/g,
     "",
   );
 }
@@ -224,10 +227,7 @@ function tokenize(text, name, site, app) {
     .replace(new RegExp(`\\b${escape(new URL(site).host)}\\b`, "g"), "{{siteHost}}")
     .replace(new RegExp(`\\b${escape(name)}\\b`, "g"), "{{brand}}")
     .replace(new RegExp(`\\b${escape(name.toUpperCase())}\\b`, "g"), "{{wordmark}}")
-    .replace(
-      /<meta name="form-endpoint" content="[^"]*">/g,
-      `<meta name="form-endpoint" content="${FORM_ENDPOINT}">`,
-    );
+    .replace(/<meta name="form-endpoint" content="[^"]*">\n?/g, "");
 }
 
 /** An element's inner HTML as plain text: its tags gone, its character references read. */

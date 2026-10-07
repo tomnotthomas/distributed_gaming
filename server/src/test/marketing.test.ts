@@ -155,6 +155,8 @@ describe("marketing site", () => {
       assert.doesNotMatch(page.body, /\{\{|\bSwiff|\bSWIFF\b/, path);
       assert.match(page.body, new RegExp(`<link rel="canonical" href="${SITE.origin}${path}">`), path);
       assert.doesNotMatch(page.body, /onrender\.com/, path);
+      // No page asks for an email address: no waitlist, no sign-up form.
+      assert.doesNotMatch(page.body, /<form\b|type="email"|form-endpoint/, path);
     }
   });
 
@@ -372,7 +374,7 @@ describe("MARKETING_PAGES on the real server", () => {
 
   after(stop);
 
-  it("off: the site's routes and its sign-up endpoint behave as before", async () => {
+  it("off: the site's routes behave as before, and nothing takes a sign-up", async () => {
     await start({ SITE_ORIGIN: `http://${HOST}` });
     try {
       for (const path of ["/", "/host/", "/crew/AB12", "/robots.txt"]) {

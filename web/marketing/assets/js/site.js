@@ -1,7 +1,6 @@
-/* Launch pages: language links, waitlist and host forms, nav, reveals.
+/* Launch pages: language links, nav, reveals.
    Each language is its own static URL (/ and /en/); the DE/EN buttons go to the page named by
-   <link rel="alternate" hreflang>. Forms POST JSON to the endpoint in <meta name="form-endpoint">
-   (or data-endpoint on the form). Without an endpoint they only show the confirmation state. */
+   <link rel="alternate" hreflang>. */
 (function () {
   "use strict";
   var root = document.documentElement;
@@ -14,19 +13,6 @@
   function snapshot() {
     document.querySelectorAll("[data-t]").forEach(function (el) {
       if (!(el.dataset.t in TXT)) TXT[el.dataset.t] = el.innerHTML;
-    });
-  }
-  function fill() {
-    document.querySelectorAll("[data-t]").forEach(function (el) {
-      var v = TXT[el.dataset.t];
-      if (v == null || v.indexOf("{email}") < 0) return;
-      var form = el.closest("[data-email]");
-      if (form) el.innerHTML = v.replace("{email}", escapeHtml(form.dataset.email));
-    });
-  }
-  function escapeHtml(s) {
-    return String(s || "").replace(/[&<>"']/g, function (c) {
-      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
     });
   }
   window.SiteLang = window.SwiffLang = {
@@ -54,70 +40,6 @@
     return m ? { type: m[1], code: m[2] } : null;
   }
   window.SiteInvite = inviteFromPath();
-
-  /* ---------- Forms ---------- */
-  var EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-  var meta = document.querySelector('meta[name="form-endpoint"]');
-  var ENDPOINT = meta ? meta.getAttribute("content") : "";
-
-  function wireForm(form) {
-    var input = form.querySelector("input[type=email]");
-    var err = form.querySelector(".wl-err");
-    var state = form.querySelector(".wl-state");
-    var done = form.querySelector(".wl-done");
-    var button = form.querySelector("button[type=submit]");
-    input.addEventListener("input", function () {
-      if (form.hasAttribute("data-invalid") && EMAIL.test(input.value.trim())) {
-        form.removeAttribute("data-invalid");
-        err.hidden = true;
-        input.removeAttribute("aria-invalid");
-      }
-    });
-    function show(msg) {
-      form.setAttribute("data-invalid", "");
-      err.innerHTML = msg;
-      err.hidden = false;
-      button.disabled = false;
-    }
-    form.addEventListener("submit", function (e) {
-      e.preventDefault();
-      var v = input.value.trim();
-      if (!EMAIL.test(v)) {
-        input.setAttribute("aria-invalid", "true");
-        show(TXT[err.dataset.t] || err.innerHTML);
-        input.focus();
-        return;
-      }
-      button.disabled = true;
-      var url = form.dataset.endpoint || ENDPOINT;
-      var params = new URLSearchParams(location.search);
-      var body = {
-        email: v,
-        kind: form.hasAttribute("data-reminders") ? "reminders" : form.hasAttribute("data-host") ? "host" : "player",
-        lang: current,
-        page: location.pathname,
-        invite: params.get("i") || inviteFromPath(),
-      };
-      // The endpoint may answer with {code}: the new crew's invite code for the crew page.
-      var finish = function (res) {
-        form.dataset.email = v;
-        state.hidden = true;
-        done.hidden = false;
-        fill();
-        done.focus();
-        form.dispatchEvent(new CustomEvent("site:joined", { bubbles: true, detail: { email: v, code: res && res.code } }));
-      };
-      if (!url) {
-        if (window.console) console.warn("no form endpoint configured, nothing was sent.");
-        setTimeout(finish, 300);
-        return;
-      }
-      fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
-        .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json().catch(function () { return {}; }); })
-        .then(finish)
-        .catch(function () { show(T["form.fail"] || "Error"); });
-    });
-  }
 
   /* ---------- Nav: a solid bar once the page moves ---------- */
   function wireNav() {
@@ -168,7 +90,6 @@
       b.setAttribute("aria-pressed", String(b.dataset.lang === current));
       b.addEventListener("click", function () { goLang(b.dataset.lang); });
     });
-    document.querySelectorAll("form[data-waitlist], form[data-host]").forEach(wireForm);
     wireNav();
     wireReveal();
     wireCopy();

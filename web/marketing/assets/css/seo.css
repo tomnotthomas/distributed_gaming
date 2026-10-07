@@ -27,8 +27,6 @@
 .ok::before, .no::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; vertical-align: 1px; }
 .ok::before { background: #5f9e1f; }
 .no::before { background: #b5442f; }
-.g-strip .wl-row { flex-direction: column; }
-.g-strip .wl-row .lpill { width: 100%; }
 
 /* Article body (game page sections, guides) */
 .art { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: clamp(24px, 4vw, 72px); padding: clamp(56px, 7vw, 104px) var(--gut); border-top: 1px solid var(--line); }

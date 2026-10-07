@@ -36,7 +36,7 @@
    "name": "Wer spielt auf meinem PC?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Zuerst nur Freunde, die du einlädst. Sie melden sich mit ihrem eigenen Steam-Konto an und spielen ihre eigenen Spiele. Ob später auch Mac-Spieler von unserer Warteliste dazukommen, entscheidest du."
+    "text": "Zuerst nur Freunde, die du einlädst. Sie melden sich mit ihrem eigenen Steam-Konto an und spielen ihre eigenen Spiele."
    }
   },
   {
@@ -212,12 +212,6 @@
     color: var(--on-paper-2);
     max-width: 34ch;
   }
-  .strip .wl-row {
-    flex-direction: column;
-  }
-  .strip .wl-row .lpill {
-    width: 100%;
-  }
   @media (max-width: 1080px) {
     .strip {
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -384,16 +378,6 @@
   .steps {
     background: var(--paper);
   }
-  .close .wl {
-    max-width: 440px;
-  }
-  .close .wl-row {
-    flex-direction: column;
-  }
-  .close .wl-row .lpill {
-    width: 100%;
-    max-width: 420px;
-  }
   .pfoot .host-link a {
     color: var(--ink);
   }
@@ -411,9 +395,8 @@
 <link rel="alternate" hreflang="en" href="{{site}}/en/host/">
 <link rel="alternate" hreflang="x-default" href="{{site}}/host/">
 <meta property="og:url" content="{{site}}/host/">
-<meta name="form-endpoint" content="/api/signups">
 <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
-<script>window.SITE_T = {"form.fail": "Das hat nicht geklappt. Versuch es gleich noch einmal.", "copy.done": "Kopiert"};</script>
+<script>window.SITE_T = {"copy.done": "Kopiert"};</script>
 </head>
 <body id="top">
 <header class="nav" data-nav>
@@ -505,7 +488,7 @@
     <div class="faq rv">
       <details><summary><span data-t="q2">Kommen Gäste an meine Dateien?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a2">Nein. Gäste spielen in {{brand}} OS, einem eigenen, abgeschotteten System. {{brand}} OS schreibt nie auf deine Windows-Laufwerke: Dein Steam-Laufwerk wird nur gelesen, andere Laufwerke bindet es gar nicht ein. Nach jeder Session startet der PC neu. <a href="#os">So funktioniert {{brand}} OS</a></p></details>
       <details><summary><span data-t="q3">Was passiert mit meinem Windows?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a3">Es bleibt, wie es ist. {{brand}} OS braucht feste 24 GB: freien Platz auf der Platte, oder es verkleinert ein Laufwerk, auf dem danach noch mindestens 16 GB frei bleiben. Wenn du nicht teilst, startet dein PC ganz normal in Windows.</p></details>
-      <details><summary><span data-t="q4">Wer spielt auf meinem PC?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a4">Zuerst nur Freunde, die du einlädst. Sie melden sich mit ihrem eigenen Steam-Konto an und spielen ihre eigenen Spiele. Ob später auch Mac-Spieler von unserer Warteliste dazukommen, entscheidest du.</p></details>
+      <details><summary><span data-t="q4">Wer spielt auf meinem PC?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a4">Zuerst nur Freunde, die du einlädst. Sie melden sich mit ihrem eigenen Steam-Konto an und spielen ihre eigenen Spiele.</p></details>
       <details><summary><span data-t="q5">Wie viel Strom kostet das?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a5">So viel, wie wenn du selbst darauf zockst, und nur, solange ein Gast spielt. Ein Gaming-PC zieht unter Last etwa 300 bis 450 Watt, bei 40 Cent pro kWh sind das 12 bis 18 Cent pro Stunde. Zwei Testrunden à drei Stunden kosten dich also rund einen Euro im Monat.</p></details>
       <details><summary><span data-t="q6">Kann ich meinen PC jederzeit zurückholen?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a6">Ja, direkt am PC, solange gerade kein Gast spielt. Läuft eine Session, wartest du, bis sie vorbei ist.</p></details>
     <details><summary><span data-t="q7">Ich habe nur Linux auf dem PC. Geht das?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a7">Noch nicht. {{brand}} OS wird aus Windows heraus installiert und wechselt danach zurück zu Windows, also brauchst du einen Windows-Gaming-PC. Trag dich trotzdem ein, dann erfährst du, wenn sich das ändert.</p></details>
