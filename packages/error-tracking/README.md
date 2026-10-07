@@ -42,7 +42,8 @@ The hosted Lanterel server serves its own `VITE_POSTHOG_KEY` and
 `VITE_POSTHOG_HOST` at runtime (`server/src/error-tracking.ts`): the same Render
 service builds the web app, so they are the same variables. Installers carry no
 key, and CI builds them without one, so a new key needs no new installer:
-Lanterel Host keeps what the server last said between starts, and the install
+Lanterel Host keeps what the server last said between starts, with that server
+(setting another server forgets it at once, before the new one answers), and the install
 puts it onto Lanterel OS's ESP. A dev build may set `VITE_POSTHOG_KEY` and
 `VITE_POSTHOG_HOST` (`desktop/.env.example`) to report to its own project
 instead.
