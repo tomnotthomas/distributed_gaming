@@ -20,6 +20,7 @@
 //   setGlance                         the tray glance's snapshot, to the tray
 //   onTrayAction                      a named action the tray glance sends back
 //   reportError                       an error nothing caught in the window, for main to report
+//   setErrorProject                   the Lanterel server's error-reports project (or null), for main
 //
 // The tray glance has its own, smaller preload (tray-preload.cjs).
 
@@ -32,7 +33,11 @@ function subscribe(channel, listener) {
   return () => ipcRenderer.removeListener(channel, forward);
 }
 
-/** An error report as plain strings: nothing else crosses to main. */
+/**
+ * An error report as plain strings: nothing else crosses to main. A sandboxed
+ * preload cannot require a local file, so tray-preload.cjs has its own copy;
+ * keep the two the same.
+ */
 const windowError = (report) => ({
   name: String(report?.name ?? ""),
   message: String(report?.message ?? ""),
@@ -66,4 +71,9 @@ contextBridge.exposeInMainWorld("swiffHost", {
   setGlance: (glance) => ipcRenderer.send("glance:set", glance),
   onTrayAction: (listener) => subscribe("tray:action", listener),
   reportError: (report) => ipcRenderer.send("errors:report", windowError(report)),
+  setErrorProject: (project) =>
+    ipcRenderer.send(
+      "errors:project",
+      project === null ? null : { key: String(project?.key ?? ""), host: String(project?.host ?? "") },
+    ),
 });

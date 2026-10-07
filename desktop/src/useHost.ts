@@ -4,6 +4,7 @@ import type { PcRead } from "../pc.cjs";
 import { bridge } from "./bridge";
 import { demandRows, useDemand } from "./demand";
 import { WINDOWS_SHARE } from "./devShare";
+import { syncErrorProject } from "./errorProject";
 import { clock } from "./format";
 import { connectionReady, untilChoices, type Connection, type Host, type HostView, type Live } from "./model";
 import { createHostReporter, hostReport, offOffer, playingFor, type Crew, type HostReporter } from "./report";
@@ -349,6 +350,15 @@ export function useHost(): Host {
     }
     return seatClient({ url: seatMachine, machineId: machineId.trim(), machineKey: machineKey.trim() }, site);
   }, [seatMachine, machineId, machineKey]);
+  // The server's error-reports project, for main and Lanterel OS (errorProject.ts), once per server.
+  useEffect(() => {
+    if (seatMachine === null) return;
+    try {
+      void syncErrorProject(httpOrigin(seatMachine));
+    } catch {
+      // Not an address the platform could answer at; nothing to ask.
+    }
+  }, [seatMachine]);
   const rentalCrew = useRef(rentalMachine);
   rentalCrew.current = rentalMachine;
   // Each rental machine has its own asks: anything still under way for the one

@@ -51,6 +51,8 @@ export type HostBridge = {
   onTrayAction(listener: (action: TrayAction) => void): () => void;
   /** An error nothing caught in this window, for main to report (mainErrors.ts). */
   reportError?(report: WindowError): void;
+  /** The Lanterel server's error-reports project, or null when it has none, for main (errorProject.ts). */
+  setErrorProject?(project: { key: string; host: string } | null): void;
 };
 
 /** The tray glance's calls (tray-preload.cjs): its snapshot, and one named action back. */

@@ -25,6 +25,20 @@ export function withoutInviteTokens<T>(value: T): T {
   return deep(value, (text) => text.replace(TOKEN_IN_URL, "$1$2"));
 }
 
+/** An IPv4 address, and one group of an IPv6 address. */
+const IPV4 = String.raw`(?:\d{1,3}\.){3}\d{1,3}`;
+const HEX = "[0-9a-f]{1,4}";
+
+/**
+ * An IPv6 address: in full, or with `::` standing in for zero groups (::1,
+ * fe80::1%eth0, ::ffff:1.2.3.4). Not part of a longer word or run of colons, so
+ * a file:line:col or a C++ name stays as it is.
+ */
+const IPV6 = new RegExp(
+  String.raw`(?<![\w:])(?:(?:${HEX}:){3,7}${HEX}|(?=[:0-9a-f]*[0-9a-f])(?:${HEX}(?::${HEX}){0,6})?::(?:(?:${HEX}:){0,5}${IPV4}|${HEX}(?::${HEX}){0,6})?)(?:%[\w.-]+)?(?![\w:])`,
+  "gi",
+);
+
 /** Each pattern, in order, and what it leaves in place of what it found. */
 const CUTS: [RegExp, string][] = [
   [TOKEN_IN_URL, "$1$2"],
@@ -39,8 +53,8 @@ const CUTS: [RegExp, string][] = [
   [/\b7656119\d{10}\b/g, "<steam-id>"],
   [/\b([A-Za-z]:(?:\\+|\/+)(?:Users|Documents and Settings)(?:\\+|\/+))[^\\/:*?"'<>|\r\n]+/gi, "$1<user>"],
   [/((?:^|[\s"'(=:]|file:\/\/)\/(?:Users|home|var\/home)\/)[^/\s:"'()]+/g, "$1<user>"],
-  [/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, "<ip>"],
-  [/\b(?:[0-9a-f]{1,4}:){3,7}[0-9a-f]{1,4}\b/gi, "<ip>"],
+  [IPV6, "<ip>"],
+  [new RegExp(String.raw`\b${IPV4}\b`, "g"), "<ip>"],
   // 32 or more letters, digits, - and _, with at least one of each kind: no word or path is that.
   [/\b(?=[\w+-]*\d)(?=[\w+-]*[A-Za-z])[\w+-]{32,}={0,2}/g, "<redacted>"],
 ];

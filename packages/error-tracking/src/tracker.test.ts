@@ -51,10 +51,26 @@ describe("errorTrackingConfig", () => {
     expect(errorTrackingConfig({ ...on, DO_NOT_TRACK: "0" })).not.toBeNull();
   });
 
+  it.each([
+    ["a key that is not a project key", { LANTEREL_POSTHOG_KEY: "phx_personal" }],
+    ["a key with more than letters and digits", { LANTEREL_POSTHOG_KEY: "phc_x\nNODE_OPTIONS=y" }],
+    ["a host off posthog.com", { LANTEREL_POSTHOG_HOST: "https://evil.example" }],
+    ["a host that only ends in posthog.com", { LANTEREL_POSTHOG_HOST: "https://notposthog.com" }],
+    ["a host with a path", { LANTEREL_POSTHOG_HOST: "https://eu.i.posthog.com/x" }],
+    ["a host with a port", { LANTEREL_POSTHOG_HOST: "https://eu.i.posthog.com:8443" }],
+    ["a host with a user", { LANTEREL_POSTHOG_HOST: "https://a@eu.i.posthog.com" }],
+    ["a host that is not a URL", { LANTEREL_POSTHOG_HOST: "eu.i.posthog.com" }],
+  ])("is off with %s", (_what, change) => {
+    const on = { LANTEREL_POSTHOG_KEY: "phc_x", LANTEREL_POSTHOG_HOST: "https://eu.i.posthog.com" };
+    expect(errorTrackingConfig({ ...on, ...change })).toBeNull();
+  });
+
   it("reads other names when given them", () => {
-    expect(errorTrackingConfig({ K: "phc_y", H: "https://h.example" }, { key: "K", host: "H" })).toEqual({
+    expect(
+      errorTrackingConfig({ K: "phc_y", H: "https://us.i.posthog.com" }, { key: "K", host: "H" }),
+    ).toEqual({
       key: "phc_y",
-      host: "https://h.example",
+      host: "https://us.i.posthog.com",
     });
   });
 });
@@ -163,6 +179,23 @@ describe("createTracker", () => {
     expect(sent).toContain("C:\\\\Users\\\\<user>\\\\AppData");
   });
 
+  it("asks a config function at each report, for a project learned after start", async () => {
+    let project: typeof CONFIG | null = null;
+    const urls: string[] = [];
+    const tracker = createTracker({
+      config: () => project,
+      service: "x",
+      send: async (url) => void urls.push(url),
+    });
+    tracker.capture(new Error("before"));
+    expect(tracker.enabled).toBe(false);
+    project = CONFIG;
+    tracker.capture(new Error("after"));
+    await tracker.flush();
+    expect(tracker.enabled).toBe(true);
+    expect(urls).toEqual(["https://eu.i.posthog.com/i/v0/e/"]);
+  });
+
   it("sends nothing without a config", async () => {
     const send = vi.fn(async () => {});
     const tracker = createTracker({ config: null, service: "x", send });
@@ -219,16 +252,18 @@ describe("trackProcess", () => {
     });
   });
 
-  it("in Electron's main process only watches: it reports, and neither exits nor takes over uncaught errors", async () => {
+  it("in Electron's main process only watches: it reports, and neither logs, exits nor takes over uncaught errors", async () => {
     const { tracker, bodies } = recorded();
     const { proc } = fakeProcess();
     const exit = vi.spyOn(proc, "exit");
-    trackProcess(tracker, proc, { crash: false, log: () => {} });
+    const log = vi.fn();
+    trackProcess(tracker, proc, { crash: false, log });
     expect(proc.listenerCount("uncaughtException")).toBe(0);
     proc.emit("uncaughtExceptionMonitor", new Error("main broke"));
     proc.emit("unhandledRejection", "a string");
     await tracker.flush();
     expect(exit).not.toHaveBeenCalled();
+    expect(log).not.toHaveBeenCalled();
     expect(bodies.map((b) => b.properties.$exception_list[0].mechanism.type)).toEqual([
       "uncaughtException",
       "unhandledRejection",

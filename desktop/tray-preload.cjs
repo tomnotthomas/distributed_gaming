@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld("swiffTray", {
     return () => ipcRenderer.removeListener("glance", forward);
   },
   trayAction: (action) => ipcRenderer.send("tray:action", String(action)),
+  // The same plain strings as preload.cjs's windowError (a sandboxed preload
+  // cannot require it); keep the two the same.
   reportError: (report) =>
     ipcRenderer.send("errors:report", {
       name: String(report?.name ?? ""),

@@ -26,21 +26,46 @@ const MAX_CAUSES = 4;
 
 type Env = Readonly<Record<string, string | undefined>>;
 
+/** A project's public key, as PostHog makes them: phc_ and letters and digits. */
+const PROJECT_KEY = /^phc_\w{1,100}$/;
+
+/** `host` as an https origin on PostHog's own domain, or null for anything else. */
+function posthogHost(host: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(host);
+  } catch {
+    return null;
+  }
+  const onPosthog = url.hostname === "posthog.com" || url.hostname.endsWith(".posthog.com");
+  const bare =
+    !url.username && !url.password && !url.port && url.pathname === "/" && !url.search && !url.hash;
+  return url.protocol === "https:" && onPosthog && bare ? url.origin : null;
+}
+
+/** Whether the machine asks for no tracking: DO_NOT_TRACK set to anything but 0 or empty. */
+export function doNotTrack(env: Env): boolean {
+  const value = env.DO_NOT_TRACK?.trim();
+  return Boolean(value && value !== "0");
+}
+
 /**
  * Where reports go, from the environment, or null when they are off: no key,
  * no host, or DO_NOT_TRACK set to anything but 0 or empty. The OS services read
- * LANTEREL_POSTHOG_KEY and LANTEREL_POSTHOG_HOST; Lanterel Host has them
- * built in from VITE_POSTHOG_KEY and VITE_POSTHOG_HOST.
+ * LANTEREL_POSTHOG_KEY and LANTEREL_POSTHOG_HOST; Lanterel Host asks its
+ * server for them, or a dev build has VITE_POSTHOG_KEY and VITE_POSTHOG_HOST
+ * built in (desktop/src/mainErrors.ts). Lanterel OS reads them
+ * from a file Windows can write, so they are taken only as a project key and an
+ * https host on posthog.com: anything else means reports are off.
  */
 export function errorTrackingConfig(
   env: Env,
   names: { key: string; host: string } = { key: "LANTEREL_POSTHOG_KEY", host: "LANTEREL_POSTHOG_HOST" },
 ): ErrorTrackingConfig | null {
-  const doNotTrack = env.DO_NOT_TRACK?.trim();
-  if (doNotTrack && doNotTrack !== "0") return null;
+  if (doNotTrack(env)) return null;
   const key = env[names.key]?.trim();
-  const host = env[names.host]?.trim().replace(/\/+$/, "");
-  if (!key || !host || !/^https:\/\//.test(host)) return null;
+  const host = posthogHost(env[names.host]?.trim() ?? "");
+  if (!key || !PROJECT_KEY.test(key) || !host) return null;
   return { key, host };
 }
 
@@ -147,7 +172,7 @@ export type CaptureOptions = {
 };
 
 export type Tracker = {
-  /** Whether reports are sent at all. */
+  /** Whether reports are sent at all, now. */
   readonly enabled: boolean;
   /** Report `thrown`, in the background; never throws and never rejects. */
   capture(thrown: unknown, opts?: CaptureOptions): void;
@@ -167,7 +192,11 @@ const fetchSend: Send = (url, body) =>
   });
 
 export type TrackerOptions = {
-  config: ErrorTrackingConfig | null;
+  /**
+   * Where reports go, or a function asked at each report, for a program that
+   * learns its project after it starts (Lanterel Host asks its server).
+   */
+  config: ErrorTrackingConfig | null | (() => ErrorTrackingConfig | null);
   /** Which program reports: lanterel-host, swiff-hostd, swiff-streamer, swiff-steam-login. */
   service: string;
   /** Its version, when it has one. */
@@ -189,15 +218,20 @@ function runId(): string {
 }
 
 export function createTracker(opts: TrackerOptions): Tracker {
-  const { config, service, release, secrets = [], send = fetchSend, now = () => new Date() } = opts;
+  const { service, release, secrets = [], send = fetchSend, now = () => new Date() } = opts;
+  const configOf =
+    typeof opts.config === "function" ? opts.config : () => opts.config as ErrorTrackingConfig | null;
   const distinctId = `${service}-run-${runId()}`;
   const pending = new Set<Promise<unknown>>();
   const seen = new Set<string>();
   let sent = 0;
 
   return {
-    enabled: config !== null,
+    get enabled() {
+      return configOf() !== null;
+    },
     capture(thrown, captureOpts = {}) {
+      const config = configOf();
       if (config === null || sent >= MAX_REPORTS) return;
       try {
         const list = scrub(
@@ -263,7 +297,8 @@ export type TrackedProcess = {
  * then ends as Node would have, with the error in its log and exit code 1,
  * once the report is sent or FLUSH_TIMEOUT_MS has passed. Electron's main
  * process (`crash: false`) only watches: Electron decides what an uncaught
- * error does there, and an unhandled rejection is logged and the app goes on.
+ * error does there, and main logs an unhandled rejection itself and goes on.
+ * It watches even while reports are off, since its project may come later.
  */
 export function trackProcess(
   tracker: Tracker,
@@ -273,19 +308,19 @@ export function trackProcess(
     log = (line: string) => console.error(line),
   }: { crash?: boolean; log?: (line: string) => void } = {},
 ): void {
-  if (!tracker.enabled) return;
   const text = (thrown: unknown) =>
     thrown instanceof Error ? (thrown.stack ?? String(thrown)) : `Uncaught ${safeString(thrown)}`;
   if (!crash) {
     proc.on("uncaughtExceptionMonitor", (error) =>
       tracker.capture(error, { handled: false, mechanism: "uncaughtException" }),
     );
-    proc.on("unhandledRejection", (reason) => {
-      log(`Unhandled rejection: ${text(reason)}`);
-      tracker.capture(reason, { handled: false, mechanism: "unhandledRejection" });
-    });
+    proc.on("unhandledRejection", (reason) =>
+      tracker.capture(reason, { handled: false, mechanism: "unhandledRejection" }),
+    );
     return;
   }
+  // Off, a daemon keeps Node's own ending: nothing listens.
+  if (!tracker.enabled) return;
   const die = (thrown: unknown, mechanism: string) => {
     tracker.capture(thrown, { handled: false, mechanism });
     log(text(thrown));

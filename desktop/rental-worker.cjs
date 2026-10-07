@@ -15,6 +15,8 @@
 //                  as it is copied at its write, written from there into its own
 //                  partition, hashed as it goes and read back, against the image
 //                  set's SHA-256, and its copy removed
+//   the ESP        LANTEREL.ENV, where Lanterel OS reports its errors, put into
+//                  Swiff OS's ESP once it is written and read back (esp-file.cjs)
 //   firmware       Boot####, BootOrder, BootNext and shim's MOK requests
 //                  (efi.cjs), through SetFirmwareEnvironmentVariableEx
 //
@@ -46,7 +48,17 @@ const {
   sourceOf,
   trustOf,
 } = require("./image-set.cjs");
-const { BOOT_PATH, BOOT_TITLE, GAMES_LABEL, MOK_CERT, TYPE, shellOf } = require("./rental.cjs");
+const { writeRootFile } = require("./esp-file.cjs");
+const {
+  BOOT_PATH,
+  BOOT_TITLE,
+  ERROR_REPORTS_FILE,
+  GAMES_LABEL,
+  MOK_CERT,
+  TYPE,
+  errorReportsFile,
+  shellOf,
+} = require("./rental.cjs");
 const { handshake } = require("./rental-exec.cjs");
 
 /** The partition types Swiff OS's partitions have: the only ones this worker adds or removes. */
@@ -363,6 +375,11 @@ function checkOp(op) {
       return must(
         isInt(op.disk) && isInt(op.offset) && isInt(op.bytes) && typeof op.source === "string",
         "A bad write.",
+      );
+    case "esp-file":
+      return must(
+        isInt(op.disk) && isInt(op.offset) && errorReportsFile(op) !== null,
+        "A bad error-reports file.",
       );
     case "boot-entry":
       return must(
@@ -810,6 +827,17 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
         }
         // On the disk now: its copy gives C: its room back.
         files.rmSync(source.path);
+        return {};
+      }
+      case "esp-file": {
+        const esp = s.partitions.find((p) => p.role === "esp");
+        must(
+          s.disk === op.disk && esp && esp.offset === op.offset,
+          "That is not Lanterel OS's boot partition.",
+        );
+        await withDisk(op.disk, async (disk) =>
+          writeRootFile(disk, op.offset, ERROR_REPORTS_FILE, Buffer.from(errorReportsFile(op), "ascii")),
+        );
         return {};
       }
       case "boot-entry": {

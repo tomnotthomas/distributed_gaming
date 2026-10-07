@@ -24,11 +24,17 @@ and at most `MAX_REPORTS` per run.
 Nothing is sent without a project key and host, and nothing when `DO_NOT_TRACK`
 is set (to anything but `0`). Keys are never committed.
 
-| Program       | Key                                                 | Host                              |
-| ------------- | --------------------------------------------------- | --------------------------------- |
-| Lanterel Host | `VITE_POSTHOG_KEY` at build time                    | `VITE_POSTHOG_HOST` at build time |
-| Lanterel OS   | `LANTEREL_POSTHOG_KEY` in the service's environment | `LANTEREL_POSTHOG_HOST`           |
+| Program       | Key and host                                                                                |
+| ------------- | ------------------------------------------------------------------------------------------- |
+| Lanterel Host | asked of its Lanterel server, `GET /api/error-tracking`; a dev build's `VITE_POSTHOG_*` win |
+| Lanterel OS   | `LANTEREL_POSTHOG_KEY` and `LANTEREL_POSTHOG_HOST`, from the file the install leaves        |
 
 The host is the project's ingestion host, `https://eu.i.posthog.com` for
-Lanterel's EU project, and must be https. The key is the project's public key
-(`phc_...`), the same one the web app is built with.
+Lanterel's EU project: an https origin on `posthog.com`, with no path or port.
+The key is the project's public key (`phc_...`), the same one the web app is
+built with. Anything else turns reports off: Lanterel OS reads both from a file
+Windows can write (`swiff-os/README.md`, "Error reports"). The server serves
+the web app's own project, from its `VITE_POSTHOG_KEY` and `VITE_POSTHOG_HOST`
+(`server/src/error-tracking.ts`), so no installer needs a key built in: Lanterel
+Host keeps what the server last said between starts, and the install puts it
+onto Lanterel OS's ESP.

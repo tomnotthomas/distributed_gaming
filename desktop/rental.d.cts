@@ -139,6 +139,7 @@ export type PlanOp =
   | { op: "gpt-add"; disk: number; partitions: GptAddPartition[] }
   | { op: "gpt-remove"; disk: number; partitions: InstallRecord["partitions"] }
   | { op: "write"; disk: number; offset: number; bytes: number; source: string }
+  | { op: "esp-file"; disk: number; offset: number; key: string; host: string }
   | { op: "boot-entry"; disk: number; offset: number; path: string; title: string }
   | { op: "boot-entry-remove" }
   | { op: "label"; letter: string; label: string }
@@ -196,6 +197,7 @@ export const SHIM_LOCK: string;
 export const SHIM_CA: string;
 export const BOOT_PATH: string;
 export const BOOT_TITLE: string;
+export const ERROR_REPORTS_FILE: string;
 export const BITLOCKER_RESTARTS: number;
 /** The plan kinds that change what the PC starts: each waits for the BitLocker recovery key. */
 export const BOOT_CHANGES: Set<string>;
@@ -245,8 +247,14 @@ export function mokSteps(code: string): PlanStep[];
 export function mokPlan(code?: string, rental?: RentalRead | null): RentalPlan;
 export function installPlan(
   rental: RentalRead,
-  options?: { target?: string | null; layout?: LayoutPartition[]; code?: string },
+  options?: {
+    target?: string | null;
+    layout?: LayoutPartition[];
+    code?: string;
+    errorReports?: { key: string; host: string } | null;
+  },
 ): RentalPlan;
+export function errorReportsFile(project: { key?: unknown; host?: unknown }): string | null;
 export function uninstallPlan(rental: RentalRead): RentalPlan;
 export function keyRemovalPlan(code?: string, rental?: RentalRead | null): RentalPlan;
 export function removePlan(rental: RentalRead, options?: { key?: boolean; code?: string }): RentalPlan;

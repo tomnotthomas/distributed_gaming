@@ -133,6 +133,7 @@ describe("booking and host API", () => {
         isFree,
         playability,
         onRenterStarted: (...launch) => launches.push(launch),
+        errorTracking: { key: "phc_test", host: "https://eu.i.posthog.com" },
       });
       const path = new URL(req.url ?? "/", "http://localhost").pathname;
       if (!(await api(req, res, path))) res.writeHead(418).end("{}");
@@ -171,6 +172,13 @@ describe("booking and host API", () => {
     assert.equal(status, 204);
     assert.equal(body, null);
     assert.equal(headers.get("cache-control"), "no-store");
+  });
+
+  it("tells any origin, signed out, the PostHog project the host app reports errors to", async () => {
+    const { status, body, headers } = await call("GET", "/api/error-tracking");
+    assert.equal(status, 200);
+    assert.deepEqual(body, { key: "phc_test", host: "https://eu.i.posthog.com" });
+    assert.equal(headers.get("access-control-allow-origin"), "*");
   });
 
   it("lists the games that can be booked", async () => {

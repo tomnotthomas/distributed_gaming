@@ -907,9 +907,21 @@ Reports are off unless the program's environment names a project, and off whenev
 | `LANTEREL_POSTHOG_KEY`  | the project's public key (`phc_...`), never committed      |
 | `LANTEREL_POSTHOG_HOST` | its ingestion host, `https://eu.i.posthog.com`; https only |
 
-`swiff-hostd.service` reads them from `/etc/lanterel/error-tracking.env`, if it is there,
-and the agent hands the same three variables, and no others, to each streamer it starts.
-`swiff-steam-login` takes them from its session's environment.
+The root is read-only and `/var` a tmpfs, so they come from the one place Lanterel Host
+writes that Lanterel OS can read: its ESP. When the host app has a project (the one its
+Lanterel server names at `GET /api/error-tracking`, or a dev build's own) and the
+PC does not set `DO_NOT_TRACK`, the install writes `LANTEREL.ENV` (`NAME=value` lines) into
+the ESP's root directory, after the ESP is written and read back against its SHA-256
+(`desktop/esp-file.cjs`); without them it writes none, and a new install writes the ESP
+afresh, so no file is left from before. In Lanterel OS `swiff-esp.service` mounts the ESP
+systemd-boot started from (`LoaderDevicePartUUID`) read-only and root's alone at
+`/run/swiff/esp`, and `swiff-hostd.service` points the agent at the file
+(`LANTEREL_ERROR_TRACKING_FILE`). Windows can write the ESP, so the agent treats the file
+as untrusted: it takes only those two names from it, never as an `EnvironmentFile`, and
+only a `phc_` project key and an `https` host on `posthog.com`; anything else leaves
+reports off. The agent hands the same three variables, and no others, to each streamer it
+starts. `swiff-steam-login` runs in the renter's session, not under the agent, and the file
+is root's alone: it reports only when its session's environment names a project.
 
 **Not yet here.** These come in later stages:
 

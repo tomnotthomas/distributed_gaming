@@ -5,14 +5,15 @@
 //   node src/main.ts return-to-windows   ask for the PC back (honoured only when idle: D8)
 //
 // The config file is SWIFF_HOSTD_CONFIG, or /var/lib/swiff/hostd.json. A run
-// of the agent reports what nothing caught to PostHog, when its environment
-// names a project (errors.ts); the two commands do not.
+// of the agent reports what nothing caught to PostHog, when its environment or
+// the file LANTEREL_ERROR_TRACKING_FILE names a project (errors.ts); the two
+// commands do not.
 
 import { createAgent } from "./agent.ts";
 import { createHostApi } from "./api.ts";
 import { DEFAULT_CONFIG_PATH, HARDWARE_FLOOR, loadConfig, OWNER_TAKEOVER, readMachineKey } from "./config.ts";
 import { COMMANDS, sendControl, serveControl, type Command } from "./control.ts";
-import { errorTrackingEnv, hostdTracker } from "./errors.ts";
+import { errorTrackingEnv, errorTrackingFile, hostdTracker } from "./errors.ts";
 import { fileResumeStore } from "./resume.ts";
 import { openMachineSocket } from "./socket.ts";
 import {
@@ -30,7 +31,11 @@ import { trackProcess } from "../../../packages/error-tracking/src/index.ts";
 const command = process.argv[2];
 // Cut from every report: the machine id and key, once they are read.
 const secrets: string[] = [];
-if (command === undefined) trackProcess(hostdTracker(process.env, secrets), process);
+const env =
+  command === undefined
+    ? { ...process.env, ...(await errorTrackingFile(process.env.LANTEREL_ERROR_TRACKING_FILE)) }
+    : process.env;
+if (command === undefined) trackProcess(hostdTracker(env, secrets), process);
 
 const config = await loadConfig(process.env.SWIFF_HOSTD_CONFIG ?? DEFAULT_CONFIG_PATH);
 secrets.push(config.machineId);
@@ -49,7 +54,7 @@ if (command !== undefined) {
     openSocket: (onEvent) =>
       openMachineSocket({ url: config.serverUrl, hostId: config.machineId, machineKey, onEvent }),
     launchStreamer: streamerLauncher(config.streamer, config.serverUrl, config.machineId, {
-      env: errorTrackingEnv(process.env),
+      env: errorTrackingEnv(env),
     }),
     system: linuxSystem(HARDWARE_FLOOR),
     resume: fileResumeStore(config.stateDir),

@@ -1,6 +1,7 @@
 export { scrub, scrubText, withoutInviteTokens } from "./scrub.ts";
 export {
   createTracker,
+  doNotTrack,
   errorTrackingConfig,
   exceptionList,
   parseStack,

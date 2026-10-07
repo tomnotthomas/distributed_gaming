@@ -50,6 +50,7 @@
       "probe.cjs",
       "rental.cjs",
       "gpt.cjs",
+      "esp-file.cjs",
       "tray-preload.cjs",
       "tray-icon.cjs",
       "share-gate.cjs",

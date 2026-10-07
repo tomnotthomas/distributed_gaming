@@ -57,10 +57,14 @@ function userName() {
 }
 
 // Error reports to PostHog (src/mainErrors.ts), built into dist/ beside the
-// window. A build without a project key, or a PC with DO_NOT_TRACK set, sends
-// none; and an unbuilt checkout has no dist/ to load, so it runs without them.
+// window, to the project the Lanterel server names (kept in the app's data
+// between starts). A PC with DO_NOT_TRACK set sends none; and an unbuilt
+// checkout has no dist/ to load, so it runs without them.
+/** The project Lanterel Host reports to now, for Lanterel OS's ESP too: null when there is none. */
+let errorProject = () => null;
 try {
-  require("./dist/main-errors.cjs").startErrorTracking({
+  const errorProjectFile = () => path.join(app.getPath("userData"), "error-reports.json");
+  errorProject = require("./dist/main-errors.cjs").startErrorTracking({
     app,
     ipcMain,
     proc: process,
@@ -69,7 +73,14 @@ try {
       (win !== null && event.sender === win.webContents) ||
       (glance !== null && event.sender === glance.webContents),
     secrets: [os.homedir(), userName()],
-  });
+    store: {
+      read: () => JSON.parse(fs.readFileSync(errorProjectFile(), "utf8")),
+      write: (project) =>
+        project === null
+          ? fs.rmSync(errorProjectFile(), { force: true })
+          : fs.writeFileSync(errorProjectFile(), `${JSON.stringify(project)}\n`),
+    },
+  }).project;
 } catch {
   // No reports, then; the app is the same without them.
 }
@@ -272,6 +283,7 @@ ipcMain.handle("rental:plan", async (event, ask) => {
           : installPlan(rental, {
               target: typeof ask.target === "string" ? ask.target : null,
               layout: imageSet().layout,
+              errorReports: errorProject(),
             });
     }
   } catch {

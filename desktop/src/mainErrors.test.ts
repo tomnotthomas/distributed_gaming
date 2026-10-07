@@ -1,25 +1,37 @@
 // @vitest-environment node
 // Lanterel Host's error reports from main: the window's reports over IPC, the
-// processes that died, and what nothing caught, all scrubbed before they go.
+// processes that died, and what nothing caught, all scrubbed before they go, to
+// the build's project or the one the Lanterel server names.
 
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
-import { builtInConfig, startErrorTracking, windowError } from "./mainErrors";
+import { builtInConfig, projectOf, startErrorTracking, windowError } from "./mainErrors";
 
 const CONFIG = { key: "phc_test", host: "https://eu.i.posthog.com" };
 const APP_WINDOW = { sender: "app" };
 
-/** Main's hooks, faked: the reports land in `bodies`, parsed. */
-function main(config: typeof CONFIG | null = CONFIG) {
+type Project = typeof CONFIG | null;
+
+/** Main's hooks, faked: the reports land in `bodies`, parsed, and the kept project in `kept`. */
+function main(
+  config: Project = CONFIG,
+  { env = {}, kept = null as unknown }: { env?: Record<string, string>; kept?: unknown } = {},
+) {
+  const store = {
+    kept,
+    read: () => store.kept,
+    write: (project: Project) => void (store.kept = project),
+  };
   const app = Object.assign(new EventEmitter(), { getVersion: () => "0.1.0" });
   const ipcMain = new EventEmitter();
   const proc = Object.assign(new EventEmitter(), { exit: () => undefined as never });
   const bodies: Record<string, any>[] = [];
-  const tracker = startErrorTracking({
+  const { tracker, project } = startErrorTracking({
     app,
     ipcMain,
     proc,
-    env: {},
+    env,
+    store,
     fromWindow: (event) => event === APP_WINDOW,
     secrets: ["C:\\Users\\Tom Smith", "Tom Smith"],
     config,
@@ -29,7 +41,7 @@ function main(config: typeof CONFIG | null = CONFIG) {
     await tracker.flush();
     return bodies.map((b) => ({ ...b.properties, exception: b.properties.$exception_list.at(-1) }));
   };
-  return { app, ipcMain, proc, sent };
+  return { app, ipcMain, proc, sent, project, store };
 }
 
 describe("startErrorTracking", () => {
@@ -83,9 +95,65 @@ describe("startErrorTracking", () => {
     });
   });
 
-  it("hooks into nothing when the build has no project key", () => {
-    const { app, ipcMain, proc } = main(null);
+  it("hooks into nothing, keeps nothing and names no project on a PC with DO_NOT_TRACK", () => {
+    const { app, ipcMain, proc, project } = main(CONFIG, { env: { DO_NOT_TRACK: "1" }, kept: CONFIG });
     expect([app.eventNames(), ipcMain.eventNames(), proc.eventNames()]).toEqual([[], [], []]);
+    expect(project()).toBeNull();
+  });
+});
+
+describe("the Lanterel server's project", () => {
+  const SERVER = { key: "phc_server", host: "https://eu.i.posthog.com" };
+
+  it("reports nowhere until the window hands main the server's project, then there, and keeps it", async () => {
+    const { ipcMain, sent, project, store } = main(null);
+    ipcMain.emit("errors:report", APP_WINDOW, { message: "before" });
+    expect(project()).toBeNull();
+    ipcMain.emit("errors:project", APP_WINDOW, SERVER);
+    ipcMain.emit("errors:report", APP_WINDOW, { message: "after" });
+    expect((await sent()).map((r) => r.exception.value)).toEqual(["after"]);
+    expect(project()).toEqual(SERVER);
+    expect(store.kept).toEqual(SERVER);
+  });
+
+  it("starts from the project kept last time, and forgets it when the server names none", () => {
+    const { ipcMain, project, store } = main(null, { kept: SERVER });
+    expect(project()).toEqual(SERVER);
+    ipcMain.emit("errors:project", APP_WINDOW, null);
+    expect(project()).toBeNull();
+    expect(store.kept).toBeNull();
+  });
+
+  it("takes no project from anything but the app's windows, nor one that is not PostHog's", () => {
+    const { ipcMain, project } = main(null, { kept: SERVER });
+    ipcMain.emit("errors:project", { sender: "elsewhere" }, null);
+    ipcMain.emit("errors:project", APP_WINDOW, { key: "phc_x", host: "https://collector.evil.example" });
+    ipcMain.emit("errors:project", APP_WINDOW, "phc_x");
+    expect(project()).toEqual(SERVER);
+  });
+
+  it("lets a build's own project override the server's", () => {
+    const { ipcMain, project } = main(CONFIG);
+    ipcMain.emit("errors:project", APP_WINDOW, SERVER);
+    expect(project()).toEqual(CONFIG);
+  });
+});
+
+describe("projectOf", () => {
+  it("takes a PostHog project key and an https host on posthog.com, and nothing else", () => {
+    expect(projectOf({ key: "phc_abc", host: "https://eu.i.posthog.com", extra: 1 })).toEqual({
+      key: "phc_abc",
+      host: "https://eu.i.posthog.com",
+    });
+    for (const bad of [
+      null,
+      "phc_abc",
+      { key: "phx_personal", host: "https://eu.i.posthog.com" },
+      { key: "phc_abc", host: "http://eu.i.posthog.com" },
+      { key: "phc_abc", host: "https://eu.i.posthog.com.evil.example" },
+      { key: "phc_abc\nLANTEREL_X=1", host: "https://eu.i.posthog.com" },
+    ])
+      expect(projectOf(bad)).toBeNull();
   });
 });
 

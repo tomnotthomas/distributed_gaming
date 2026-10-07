@@ -3,9 +3,15 @@
 // Lanterel Host's error reports to PostHog (packages/error-tracking), for its
 // main process and its windows. This file runs in main, not in a window: `npm
 // run build` builds it on its own into dist/main-errors.cjs
-// (vite.main.config.ts), with the project key and host baked in from
-// VITE_POSTHOG_KEY and VITE_POSTHOG_HOST, and main.cjs loads it from there. A
-// build without them, or a PC with DO_NOT_TRACK set, sends nothing.
+// (vite.main.config.ts), and main.cjs loads it from there.
+//
+// The project it reports to is the Lanterel server's: the window asks it at
+// GET /api/error-tracking once the owner has set the server (errorProject.ts)
+// and hands it to main ("errors:project"), which keeps it for the next start
+// and writes it onto Lanterel OS's ESP at install (rental.cjs). A build with
+// VITE_POSTHOG_KEY and VITE_POSTHOG_HOST set uses those instead, for a dev
+// build pointed at its own project. A PC with DO_NOT_TRACK set sends nothing,
+// keeps nothing and gives Lanterel OS nothing.
 //
 //   main          what nothing caught (Electron still decides what that does), and
 //                 a window's renderer or a helper process that died
@@ -17,6 +23,7 @@
 
 import {
   createTracker,
+  doNotTrack,
   errorTrackingConfig,
   trackProcess,
   type ErrorTrackingConfig,
@@ -41,16 +48,38 @@ export type ErrorHooks = {
     ): unknown;
     on(event: "child-process-gone", listener: (event: unknown, details: Gone) => void): unknown;
   };
-  ipcMain: { on(channel: "errors:report", listener: (event: unknown, report: unknown) => void): unknown };
+  ipcMain: {
+    on(
+      channel: "errors:report" | "errors:project",
+      listener: (event: unknown, value: unknown) => void,
+    ): unknown;
+  };
   proc: TrackedProcess;
   env: Readonly<Record<string, string | undefined>>;
   /** Whether an IPC call came from one of the app's own windows. */
   fromWindow: (event: unknown) => boolean;
   secrets?: readonly string[];
-  /** The build's; tests pass their own. */
+  /** The build's override; tests pass their own. */
   config?: ErrorTrackingConfig | null;
+  /** Where the server's project is kept between starts (a file in the app's data). */
+  store?: { read(): unknown; write(project: ErrorTrackingConfig | null): void };
   send?: Send;
 };
+
+/** What startErrorTracking started: the tracker, and the project it reports to now. */
+export type ErrorTracking = { tracker: Tracker; project: () => ErrorTrackingConfig | null };
+
+const PROJECT_KEY = /^phc_\w{1,100}$/;
+const PROJECT_HOST = /^https:\/\/(?:[a-z0-9-]+\.)*posthog\.com$/;
+
+/** `value` as a project, if it is a PostHog project key and an https host on posthog.com. */
+export function projectOf(value: unknown): ErrorTrackingConfig | null {
+  if (value === null || typeof value !== "object") return null;
+  const { key, host } = value as Record<string, unknown>;
+  if (typeof key !== "string" || !PROJECT_KEY.test(key)) return null;
+  if (typeof host !== "string" || !PROJECT_HOST.test(host)) return null;
+  return { key, host };
+}
 
 /** A window's report is a few short strings; longer ones are cut. */
 const LIMITS = { name: 100, message: 2_000, stack: 16_000, mechanism: 40 } as const;
@@ -81,18 +110,35 @@ export function windowError(report: unknown): { error: Error; mechanism: string 
   return { error, mechanism: field("mechanism") || "onerror" };
 }
 
-/** Start reporting Lanterel Host's errors; the tracker, for main's own handled errors. */
-export function startErrorTracking(hooks: ErrorHooks): Tracker {
-  const { app, ipcMain, proc, env, fromWindow } = hooks;
+/** Start reporting Lanterel Host's errors: the tracker, for main's own, and the project it reports to. */
+export function startErrorTracking(hooks: ErrorHooks): ErrorTracking {
+  const { app, ipcMain, proc, env, fromWindow, store } = hooks;
+  const off = doNotTrack(env);
+  const built = hooks.config === undefined ? builtInConfig(env) : hooks.config;
+  let fetched = off ? null : projectOf(readSafely(store));
+  const project = () => (off ? null : (built ?? fetched));
   const tracker = createTracker({
-    config: hooks.config === undefined ? builtInConfig(env) : hooks.config,
+    config: project,
     service: "lanterel-host",
     release: app.getVersion(),
     secrets: hooks.secrets ?? [],
     ...(hooks.send && { send: hooks.send }),
   });
-  if (!tracker.enabled) return tracker;
+  if (off) return { tracker, project };
 
+  // The server's word: its project, or null when it has none, which forgets the one kept.
+  ipcMain.on("errors:project", (event, value) => {
+    if (!fromWindow(event)) return;
+    const next = value === null ? null : projectOf(value);
+    if (next === null && value !== null) return;
+    if (next?.key === fetched?.key && next?.host === fetched?.host) return;
+    fetched = next;
+    try {
+      store?.write(next);
+    } catch {
+      // Kept for this run only; the window asks again next start.
+    }
+  });
   trackProcess(tracker, proc, { crash: false });
   ipcMain.on("errors:report", (event, report) => {
     const sent = fromWindow(event) ? windowError(report) : null;
@@ -113,5 +159,13 @@ export function startErrorTracking(hooks: ErrorHooks): Tracker {
   };
   app.on("render-process-gone", (_event, _contents, details) => gone("A window's renderer", details));
   app.on("child-process-gone", (_event, details) => gone(`The ${details.type ?? "helper"} process`, details));
-  return tracker;
+  return { tracker, project };
+}
+
+function readSafely(store: ErrorHooks["store"]): unknown {
+  try {
+    return store?.read() ?? null;
+  } catch {
+    return null;
+  }
 }
