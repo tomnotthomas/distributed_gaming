@@ -375,9 +375,11 @@ export function WhoIsComing({
               <button type="button" className="lb-wa" onClick={nudge}>
                 <WhatsAppGlyph />
                 <span>
-                  {others.length === 1 && otherNames.length === 1
-                    ? t("who.nudge", { name: otherNames[0]! })
-                    : t("who.nudgeN", { n: others.length })}
+                  {others.length > 1
+                    ? t("who.nudgeN", { n: others.length })
+                    : otherNames.length === 1
+                      ? t("who.nudge", { name: otherNames[0]! })
+                      : t("who.nudgeOne")}
                 </span>
               </button>
             ) : null}

@@ -1091,6 +1091,27 @@ describe("CrewPage: the guided crew page", () => {
     expect(screen.getByRole("heading", { name: "Move the date" })).toBeInTheDocument();
   });
 
+  it("nudges one member with no Steam name as one, not as a count of people", async () => {
+    const crew = readyCrew({
+      session: { at: FRIDAY_9PM, yes: 1, no: 0 },
+      shared: true,
+      picks: 1,
+      size: 2,
+      members: [{ ...LENA, rsvp: "yes" }, { ...SAM, name: null }],
+    });
+    fetchFrom({ "GET /api/crews/c1": [200, { crew }] });
+    const { unmount } = render(<CrewPage swiff={atCrew("c1")} />);
+    expect(await screen.findByRole("button", { name: "Nudge them" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Nudge 1/ })).toBeNull();
+    unmount();
+    render(
+      <ScreenLang.Provider value="de">
+        <CrewPage swiff={atCrew("c1")} />
+      </ScreenLang.Provider>,
+    );
+    expect(await screen.findByRole("button", { name: "Erinnern" })).toBeInTheDocument();
+  });
+
   it("puts the Zockrunde in the viewer's own calendar, with an alert an hour before", async () => {
     const crew = joinedCrew({ rsvp: "yes" }, { session: { ...dated, yes: 2 } });
     fetchFrom({ "GET /api/crews/c1": [200, { crew }] });
