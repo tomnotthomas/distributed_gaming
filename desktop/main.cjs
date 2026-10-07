@@ -383,6 +383,19 @@ ipcMain.handle("rental:run", async (event) => {
         results: [],
       };
   }
+  let record = null;
+  if (plan.steps.some((s) => s.ops.some((o) => o.op === "provision"))) {
+    try {
+      record = provisioning(machine);
+    } catch (error) {
+      return {
+        status: "failed",
+        done: [],
+        failed: { step: "provision", op: "provision", error: error.message },
+        results: [],
+      };
+    }
+  }
   rentalRun = {};
   restartReady = false;
   const tell = (e) => {
@@ -410,8 +423,7 @@ ipcMain.handle("rental:run", async (event) => {
   try {
     const outcome = await runPlan(plan, {
       // The provisioning gets this PC's machine key only here, on its way to the worker.
-      apply: async (op, progress) =>
-        worker.apply(op.op === "provision" ? { ...op, record: provisioning(machine) } : op, progress),
+      apply: async (op, progress) => worker.apply(op.op === "provision" ? { ...op, record } : op, progress),
       // The owner agreed to every step at once, with the OK that started this run.
       confirm: async () => true,
       only: plan.steps.filter((s) => !restarts(s)).map((s) => s.id),

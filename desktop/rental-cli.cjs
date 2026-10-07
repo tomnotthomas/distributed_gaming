@@ -154,9 +154,16 @@ function provisioningOf(opts, files = fs) {
   return { ...machine, machineKey: files.readFileSync(keyFile, "utf8").trim() };
 }
 
-/** `apply`, with a provision op given what it hands Swiff OS; a dry run sends none. */
-const provisioned = (apply, opts) => async (op, progress) =>
-  apply(op.op === "provision" && !opts["dry-run"] ? { ...op, record: provisioningOf(opts) } : op, progress);
+/**
+ * What wraps `apply` so a provision op gets what it hands Swiff OS; a dry run sends none. Read before
+ * any of `steps` runs, so missing flags or a missing key file stop the run before the PC changes.
+ */
+function provisioned(opts, steps, files = fs) {
+  const provisions = steps.some((s) => s.ops.some((o) => o.op === "provision"));
+  const record = provisions && !opts["dry-run"] ? provisioningOf(opts, files) : null;
+  return (apply) => async (op, progress) =>
+    apply(op.op === "provision" && record ? { ...op, record } : op, progress);
+}
 
 /** The lines appended to `file`, as they come: the file is read again every half second. */
 async function* follow(file) {
@@ -196,10 +203,11 @@ async function main([cmd, ...rest]) {
     const p = await plan(opts._[0], { image: opts.image, target: opts.target, code: codeOf(opts), store });
     codeOf(opts, p);
     say({ plan: shown(p) });
+    const keyed = provisioned(opts, p.steps);
     const w = await worker(opts.image, opts["dry-run"]);
     try {
       const outcome = await runPlan(p, {
-        apply: provisioned(w.apply, opts),
+        apply: keyed(w.apply),
         onEvent: (event) => {
           // Remove Swiff OS: recorded before its restart, as the app records it.
           if (!opts["dry-run"] && event.type === "step" && event.state === "done")
@@ -242,10 +250,14 @@ async function main([cmd, ...rest]) {
           const unknown = args.filter((id) => !current.steps.some((s) => s.id === id));
           if (!args.length || unknown.length)
             throw new Error(`No such steps: ${unknown.join(" ") || "none given"}.`);
+          const keyed = provisioned(
+            opts,
+            current.steps.filter((s) => args.includes(s.id)),
+          );
           w ??= await worker(opts.image, opts["dry-run"]);
           say({
             outcome: await runPlan(current, {
-              apply: provisioned(w.apply, opts),
+              apply: keyed(w.apply),
               only: args,
               onEvent: (event) => say({ event }),
             }),
@@ -262,7 +274,7 @@ async function main([cmd, ...rest]) {
   process.exitCode = 2;
 }
 
-module.exports = { codeOf, provisioningOf, shown, unkeyed };
+module.exports = { codeOf, provisioned, provisioningOf, shown, unkeyed };
 
 if (require.main === module)
   main(process.argv.slice(2)).catch((error) => {
