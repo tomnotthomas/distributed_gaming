@@ -311,6 +311,8 @@ export type CrewPc = {
   name: string | null;
   owner: string | null;
   mine: boolean;
+  /** For the viewer's own PC: whether only its crews play on it (crew_only), or anyone too. */
+  crewOnly?: boolean;
   state: CrewPcState;
   games: number[];
   playing: CrewPcPlay | null;
@@ -2587,8 +2589,9 @@ export class Platform {
       name: string | null;
       owner_id: string | null;
       status: MachineStatus;
+      crew_only: boolean;
     }>(
-      `SELECT q.id, q.name, q.owner_id, q.status FROM crew_machines p JOIN machines q ON q.id = p.machine_id
+      `SELECT q.id, q.name, q.owner_id, q.status, q.crew_only FROM crew_machines p JOIN machines q ON q.id = p.machine_id
          WHERE p.crew_id = $1 ORDER BY p.added_at, q.id`,
       crewId,
     );
@@ -2676,6 +2679,8 @@ export class Platform {
           name: q.name,
           owner: owner === null ? null : (persona.get(owner) ?? null),
           mine: owner === userId,
+          // Only its owner learns whether it plays for its crews alone or for anyone too.
+          ...(owner === userId ? { crewOnly: q.crew_only } : {}),
           state: state === "ready" && !this.#offerable(q.id) ? "offline" : state,
           games: installed.filter((g) => g.machine_id === q.id).map((g) => Number(g.appid)),
           playing: play

@@ -202,6 +202,61 @@ describe("taking a gaming PC out of a crew", () => {
   });
 });
 
+describe("what the PC panel promises", () => {
+  /** The squad as Jonas sees it, with `machines` his. */
+  const his = (machines: CrewDetail["machines"]) =>
+    squad({
+      own: false,
+      memberId: "m-jonas",
+      pcs: machines.length,
+      members: [{ ...LENA, you: false }, TOM, { ...JONAS, you: true, pcs: machines.length }],
+      machines,
+    });
+  const pc = (over: Partial<CrewDetail["machines"][number]>) => ({
+    ...squad().machines[0]!,
+    mine: true,
+    ...over,
+  });
+
+  it("says strangers never get on only for a crew-only PC, and says so plainly when it is open", async () => {
+    fetchFrom({
+      "GET /api/crews/c1": [200, { crew: his([pc({ crewOnly: true })]) }],
+      "GET /api/crews": [200, { crews: [] }],
+    });
+    const { unmount } = render(<CrewPage swiff={swiff} />);
+    expect(
+      await screen.findByText("Strangers never get onto your PC. Only these crews can play on it."),
+    ).toBeInTheDocument();
+    unmount();
+
+    fetchFrom({
+      "GET /api/crews/c1": [200, { crew: his([pc({ crewOnly: false })]) }],
+      "GET /api/crews": [200, { crews: [] }],
+    });
+    render(<CrewPage swiff={swiff} />);
+    expect(
+      await screen.findByText("Your PC is open to others too, not just to these crews."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Strangers never get onto/)).toBeNull();
+  });
+
+  it("names every PC of the owner's that taking it out of the crew takes out", async () => {
+    const crew = his([pc({ id: "q-1", name: "Wohnzimmer" }), pc({ id: "q-2", name: "Büro" })]);
+    const calls = fetchFrom({
+      "GET /api/crews/c1": [200, { crew }],
+      "GET /api/crews": [200, { crews: [] }],
+      "POST /api/crews/c1/pc": [200, { crew: { ...crew, machines: [], pcs: 0 } }],
+    });
+    render(<CrewPage swiff={swiff} />);
+    expect(await screen.findByText("Your 2 gaming PCs play for these crews")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Take it out of this crew" }));
+    const ask = screen.getByRole("dialog", { name: "Take your 2 PCs out of Friday Squad?" });
+    expect(ask).toHaveTextContent("This takes all of them out: Wohnzimmer, Büro.");
+    fireEvent.click(within(ask).getByRole("button", { name: "Take it out" }));
+    await vi.waitFor(() => expect(calls).toContainEqual(["POST", "/api/crews/c1/pc", '{"pc":"off"}']));
+  });
+});
+
 describe("remove and PC copy", () => {
   it("has every key in German and English, with the same slots, and never a long dash", () => {
     const keys = Object.keys(MANAGE_COPY.en) as (keyof typeof MANAGE_COPY.en)[];

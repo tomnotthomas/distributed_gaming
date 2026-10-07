@@ -151,8 +151,18 @@ export function PcCrews({
   const [others, setOthers] = useState<PcCrew[]>([]);
   const [asking, setAsking] = useState<PcCrew | null>(null);
   const [busy, setBusy] = useState(false);
-  const mine = crew.machines.find((m) => m.mine);
-  const pcName = mine ? pcTitle(lang, mine) : t("pcs.title");
+  // Taking the PC out of a crew takes every PC of the owner's out of it (bringPc): each is named.
+  const minePcs = crew.machines.filter((m) => m.mine);
+  const pcName = minePcs[0] ? pcTitle(lang, minePcs[0]) : t("pcs.title");
+  /** The owner's PCs in a crew, by their own names when there are several (all are "<owner>'s PC"). */
+  const pcsIn = (detail: CrewDetail | null) =>
+    (detail?.machines ?? []).filter((m) => m.mine).map((m) => m.name || pcTitle(lang, m));
+  // What strangers can do on the PCs, as the server says: crew-only, open to anyone too, or unknown.
+  const access = minePcs.every((m) => m.crewOnly === true)
+    ? "only"
+    : minePcs.some((m) => m.crewOnly === false)
+      ? "open"
+      : null;
 
   // The other crews the PC plays for: those of the owner's crews with a PC of theirs in.
   useEffect(() => {
@@ -201,8 +211,10 @@ export function PcCrews({
     // The Zockrunde is left without a gaming PC when the owner's are the only ones in.
     const lastPc = detail !== null && me !== undefined && detail.pcs <= me.pcs;
     const keep = rows.filter((r) => r.id !== row.id).map((r) => r.title);
+    const pcs = pcsIn(detail);
     return [
       ["x", t("pcs.cant", { crew: row.title })],
+      ...(pcs.length > 1 ? ([["desktop-tower", t("pcs.which", { pcs: pcs.join(", ") })]] as const) : []),
       ...(session && lastPc
         ? ([["warning", t("pcs.noPc", { day: sessionDay(lang, session.at) })]] as const)
         : []),
@@ -221,7 +233,9 @@ export function PcCrews({
       <div className="cm-screen">
         <p className="cm-pc-h">
           <PhIcon name="desktop-tower" size={22} />
-          <span>{t("pcs.plays", { pc: pcName })}</span>
+          <span>
+            {minePcs.length > 1 ? t("pcs.playsMany", { n: minePcs.length }) : t("pcs.plays", { pc: pcName })}
+          </span>
         </p>
         <ul className="cm-crews">
           {rows.map((row) => (
@@ -236,7 +250,19 @@ export function PcCrews({
             </li>
           ))}
         </ul>
-        <p>{t("pcs.strangers")}</p>
+        {access ? (
+          <p>
+            {t(
+              access === "only"
+                ? minePcs.length > 1
+                  ? "pcs.strangersMany"
+                  : "pcs.strangers"
+                : minePcs.length > 1
+                  ? "pcs.openMany"
+                  : "pcs.open",
+            )}
+          </p>
+        ) : null}
       </div>
       <p className="cm-note">
         <PhIcon name="users" size={18} />
@@ -250,7 +276,11 @@ export function PcCrews({
               <PhIcon name="desktop-tower" size={22} />
             </span>
           }
-          title={t("pcs.ask", { crew: asking.title })}
+          title={
+            pcsIn(asking.detail).length > 1
+              ? t("pcs.askMany", { crew: asking.title, n: pcsIn(asking.detail).length })
+              : t("pcs.ask", { crew: asking.title })
+          }
           lines={askLines(asking)}
           keep={t("pcs.keep")}
           go={t("pcs.go")}

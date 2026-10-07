@@ -621,6 +621,9 @@ describe("crews", () => {
       assert.equal((await offer("pc-1")).crew.only, false);
       const closed = await offer("pc-1", { crewOnly: true });
       assert.equal(closed.crew.only, true);
+      // Only its owner reads on the crew page whether the PC is open to anyone too.
+      assert.equal((await platform.crew(crewId, HOST))?.machines[0]?.crewOnly, true);
+      assert.equal((await platform.crew(crewId, ALEX))?.machines[0]?.crewOnly, undefined);
       assert.deepEqual(
         closed.crew.crews.map((c) => [c.id, c.plays]),
         [[crewId, true]],
@@ -1387,6 +1390,7 @@ describe("crew API", () => {
         name: "Nova-01",
         owner: "Sam",
         mine: true,
+        crewOnly: true,
         state: "ready",
         games: [570, 730],
         playing: null,
