@@ -59,6 +59,7 @@ VMS = os.path.join(STATE, "vms")
 
 
 def say(name, text):
+    """Prints a line about VM `name` on stderr, where the test's log has it."""
     print(f"vm-run[{name}]: {text}", file=sys.stderr, flush=True)
 
 
@@ -75,6 +76,7 @@ def mem_mib(cmd):
 
 
 def meminfo(key):
+    """A /proc/meminfo value (MemAvailable, ...) in MiB, 0 when it has none."""
     with open("/proc/meminfo") as f:
         for line in f:
             if line.startswith(key + ":"):
@@ -83,6 +85,7 @@ def meminfo(key):
 
 
 def psi_full_avg10():
+    """The share of the last 10 s all tasks were stalled on memory (PSI), in %, 0 without PSI."""
     try:
         with open("/proc/pressure/memory") as f:
             for line in f:
@@ -155,11 +158,26 @@ def wait_for_room(name, mem):
         time.sleep(5)
 
 
+def host_uid():
+    """This user's uid outside any user namespace (the session test runs as its root)."""
+    uid = os.getuid()
+    try:
+        with open("/proc/self/uid_map") as f:
+            for line in f:
+                inside, outside, count = map(int, line.split())
+                if inside <= uid < inside + count:
+                    return outside + uid - inside
+    except (OSError, ValueError):
+        pass
+    return uid
+
+
 def user_scope(mem):
     """systemd-run's arguments for a scope with QEMU's memory capped and unswapped, or [] without a user systemd."""
     env = os.environ
-    if not env.get("XDG_RUNTIME_DIR") and os.path.isdir(f"/run/user/{os.getuid()}"):
-        env["XDG_RUNTIME_DIR"] = f"/run/user/{os.getuid()}"
+    runtime = f"/run/user/{host_uid()}"
+    if not env.get("XDG_RUNTIME_DIR") and os.path.isdir(runtime):
+        env["XDG_RUNTIME_DIR"] = runtime
     scope = ["systemd-run", "--user", "--scope", "--quiet", "--collect"]
     try:
         subprocess.run(scope + ["true"], check=True, timeout=20,
@@ -191,6 +209,7 @@ def die_with_parent():
 
 
 def main():
+    """Waits for room, starts QEMU in its scope and watches it until it exits or is stopped."""
     parser = argparse.ArgumentParser(usage=__doc__.split("\n\n")[1].strip())
     parser.add_argument("--name", default="vm")
     parser.add_argument("--timeout", type=int, default=0)

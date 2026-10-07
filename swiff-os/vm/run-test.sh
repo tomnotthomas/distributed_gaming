@@ -126,12 +126,14 @@ if [ "$build" = 0 ]; then
 	uki=$out/swiffos-selftest.efi
 else
 	log "The test image (vm/build-image.sh selftest)"
-	base=$("$here/build-image.sh" selftest $([ "$build" = 2 ] && echo --rebuild))
+	rebuild=()
+	[ "$build" = 2 ] && rebuild=(--rebuild)
+	base=$("$here/build-image.sh" selftest "${rebuild[@]}")
 	disk_src=$base.raw
 	uki=$base.efi
 fi
 tools=$out/ubuntu-tools
-[ -e "$disk_src" ] || die "$disk_src not built"
+[ -e "$disk_src" ] && [ -e "$uki" ] || die "$disk_src or $uki not built (run without --no-build)"
 [ -x "$tools/usr/bin/ntfs-3g" ] || die "ntfs-3g missing from the tools tree $tools (rebuild without --no-build)"
 
 # Runs a command from the build's tools tree.

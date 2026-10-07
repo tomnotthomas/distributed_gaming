@@ -45,6 +45,7 @@ done
 # The suites a changed file touches.
 suites_for() { # path
 	case $1 in
+	swiff-os/streamer/src/vmStatus.test.ts) echo streamer ;;
 	*.md | *.test.ts | *.test.tsx) ;;
 	swiff-os/vm/vm-run.py | swiff-os/vm/vm-tests.sh) echo "$all" ;;
 	swiff-os/vm/build-image.sh | swiff-os/vm/inputs-key.py) echo selftest session streamer ;;
@@ -74,6 +75,8 @@ else
 		base=$(git -C "$repo" merge-base origin/main HEAD 2> /dev/null) ||
 			{ echo "vm-tests: no origin/main to compare with: pass --base REF or --only" >&2; exit 2; }
 	fi
+	git -C "$repo" rev-parse --verify --quiet "$base^{commit}" > /dev/null ||
+		{ echo "vm-tests: $base is not a commit" >&2; exit 2; }
 	wanted=" "
 	while read -r path; do
 		for s in $(suites_for "$path"); do

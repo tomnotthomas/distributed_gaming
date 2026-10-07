@@ -97,7 +97,9 @@ flock -n 9 || die "another session-test.sh is running"
 if [ "$build" = 0 ]; then
 	SWIFF_SESSION_IMAGE=$out/swiffos-sessiontest.raw
 else
-	SWIFF_SESSION_IMAGE=$("$here/build-image.sh" sessiontest $([ "$build" = 2 ] && echo --rebuild)).raw
+	rebuild=()
+	[ "$build" = 2 ] && rebuild=(--rebuild)
+	SWIFF_SESSION_IMAGE=$("$here/build-image.sh" sessiontest "${rebuild[@]}").raw
 fi
 # The build's UKI is next to its disk.
 uki=${SWIFF_SESSION_IMAGE%.raw}.efi

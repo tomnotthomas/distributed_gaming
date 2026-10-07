@@ -142,9 +142,11 @@ vm_start() { # disk vars tpm-dir [qemu args...]
 		-serial chardev:ser0 \
 		"$@" > "$run/qemu.log" 2>&1 9>&- &
 	vm_pid=$!
-	# vm-run.py may wait for room before QEMU makes its sockets.
+	# vm-run.py may wait for room (up to $SWIFF_VM_WAIT seconds) before QEMU makes its sockets.
+	local deadline=$((SECONDS + ${SWIFF_VM_WAIT:-3600} + 120))
 	until [ -S "$run/monitor.sock" ] && [ -S "$run/serial.sock" ]; do
 		[ -d "/proc/$vm_pid" ] || die "QEMU did not start: $(cat "$run/qemu.log")"
+		[ "$SECONDS" -lt "$deadline" ] || { vm_kill; die "QEMU made no sockets in time: $(cat "$run/qemu.log")"; }
 		sleep 0.1
 	done
 	# QEMU made its sockets before it dropped root (sudo ... -runas): hand them to this user.

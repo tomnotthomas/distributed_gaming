@@ -28,6 +28,7 @@ build_dir=${SWIFF_OS_BUILD_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/swiff-os}
 out=$build_dir/output
 store=$build_dir/images
 
+# Prints an error and exits.
 die() {
 	echo "build-image: $*" >&2
 	exit 1
