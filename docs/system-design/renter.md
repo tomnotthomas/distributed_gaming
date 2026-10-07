@@ -929,7 +929,8 @@ POST /crew-live/:sessionId/watch
   crew. Asked again while the watch is on, it is the same watch.
   → 404 when they are not in the crew of that session, it is not running now, or it is still starting. → 409 { code: "full" } when
   4 crewmates ask or watch already (`MAX_WATCHERS`). → 429 { code: "cooldown" } with
-  Retry-After for 60 s after the player said no, did not answer, or stopped them.
+  Retry-After for 60 s after the player said no, did not answer, or stopped them; the
+  player's own share is a fresh yes and clears it for the crew.
   → 503 when ROOM_SECRET is not set; 503 { code: "no-relay" } when no TURN relay that
   mints credentials is configured, or it minted none for this watch, since watching is
   relay-only (the viewer is told plainly). → 401 signed out.

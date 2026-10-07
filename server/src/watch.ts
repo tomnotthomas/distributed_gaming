@@ -217,7 +217,8 @@ export class Watches {
   /**
    * The player opens their screen to their crew, or closes it. Opening lets
    * everyone asking watch at once; closing stops nobody already watching.
-   * Returns the watches it let in.
+   * Opening is a fresh yes, so it clears every cooldown on the session: only
+   * its crew may ask (api.ts). Returns the watches it let in.
    */
   share(sessionId: string, open: boolean): Watch[] {
     const session = this.#session(sessionId);
@@ -226,6 +227,7 @@ export class Watches {
       this.#forget(sessionId);
       return [];
     }
+    for (const key of this.#cooldown.keys()) if (key.startsWith(`${sessionId}:`)) this.#cooldown.delete(key);
     const admitted: Watch[] = [];
     for (const watch of session.watches.values()) {
       if (watch.state === "asking") {

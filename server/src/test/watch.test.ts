@@ -92,6 +92,14 @@ describe("watch state", () => {
     assert.equal(asked(LEA).state, "asking");
   });
 
+  it("lets a viewer the player turned down watch at once when the player then shares", () => {
+    const watch = asked(LEA);
+    watches.answer("s1", watch.id, false);
+    now += 1_000;
+    watches.share("s1", true);
+    assert.equal(asked(LEA).state, "watching");
+  });
+
   it("takes an answer only for a viewer asking on the player's own session", () => {
     const watch = asked(LEA);
     assert.equal(watches.answer("s2", watch.id, true), null);
