@@ -352,7 +352,7 @@ test_run() {
 	on_vm 'manage-bde -status C:' | tr -d '\r' > "$run/bitlocker-before.txt"
 	on_vm '(Get-Partition -DriveLetter C).Size' | tr -d '\r\n' > "$run/c-before"
 	log "Copying the installer and the image set"
-	to_vm "$desktop"/{rental-cli,rental-exec,rental-worker,rental,rental-key,rental-removal,recovery-key,measured-boot,image-set,gpt,efi,pc,probe,build-kind}.cjs "$desktop"/image-trust*.json swiff@127.0.0.1:'C:/swiff/desktop/'
+	to_vm "$desktop"/*.cjs "$desktop"/image-trust*.json swiff@127.0.0.1:'C:/swiff/desktop/'
 	# Scenario 11 alone needs no image set.
 	[ "${SWIFF_SCENARIOS:-}" = 11 ] || to_vm "$image_set" swiff@127.0.0.1:'C:/swiff/image'
 	to_vm "$electron_dir" swiff@127.0.0.1:'C:/swiff/electron'
@@ -805,7 +805,7 @@ test_run() {
 # --- ek: Go live's TPM step, against a server on this host -----------------------------------
 #
 # swtpm makes no EK certificate by itself, so the base's TPM has none: Go live stops at its first
-# step there. BitLocker is then suspended for two starts, and each start gets a TPM that
+# step there. BitLocker is then suspended before each of two starts, and each start gets a TPM that
 # swtpm_setup manufactures with EK certificates from a local CA, which the server here trusts as
 # a firmware TPM's maker: Go live's step reads the EK as administrator (rental-worker.cjs, op ek),
 # the app's own read finds it (rental.cjs), and the app registers it (src/ek.ts, bundled) with the
@@ -883,7 +883,7 @@ writeFileSync(process.argv[1] + "/policy.pem", publicKey.export({ format: "pem",
 	vm_start "$run/disk.qcow2" "$run/vars.fd" "$run/tpm"
 	ssh_wait 1800 || die "Windows did not answer on SSH"
 	on_vm 'New-Item -ItemType Directory -Force C:\swiff\desktop, C:\swiff\vm, C:\swiff\no-image | Out-Null'
-	to_vm "$desktop"/{rental-worker,rental,rental-key,rental-removal,recovery-key,measured-boot,image-set,gpt,efi,pc,probe,build-kind}.cjs "$desktop"/image-trust*.json swiff@127.0.0.1:'C:/swiff/desktop/'
+	to_vm "$desktop"/*.cjs "$desktop"/image-trust*.json swiff@127.0.0.1:'C:/swiff/desktop/'
 	to_vm "$here/windows/ek-register.cjs" swiff@127.0.0.1:'C:/swiff/vm/'
 	to_vm "$run/ek/ek.cjs" swiff@127.0.0.1:'C:/swiff/'
 	go_live_ek none
@@ -891,8 +891,9 @@ writeFileSync(process.argv[1] + "/policy.pem", publicKey.export({ format: "pem",
 		test "$(ek_value "$run/ek-none.json" '/no endorsement key certificate/.test(v.worked.error)')" = true
 	expect ek-none-kept "the app's read keeps no certificate, and nothing is registered" \
 		test "$(ek_value "$run/ek-none.json" '[v.checked.ek, v.checked.certificate, v.registered]')" = '[false,null,null]'
-	# The next two starts get TPMs this one's BitLocker key is not sealed to.
-	on_vm 'manage-bde -protectors -disable C: -RebootCount 2' > "$run/ek/bitlocker-suspend.txt"
+	# The next start gets a TPM this one's BitLocker key is not sealed to. Windows seals it to
+	# each TPM it resumes on, so BitLocker is suspended again before each new TPM.
+	on_vm 'manage-bde -protectors -disable C: -RebootCount 1' > "$run/ek/bitlocker-suspend.txt"
 	on_vm 'Stop-Computer -Force' || true
 	vm_wait_off 600 || die "Windows did not shut down"
 
@@ -907,6 +908,7 @@ writeFileSync(process.argv[1] + "/policy.pem", publicKey.export({ format: "pem",
 	go_live_ek a-again
 	expect ek-a-again "Go live again: the same EK is not registered again" \
 		test "$(ek_value "$run/ek-a-again.json" 'v.registered')" = '{"ok":true,"registered":"already"}'
+	on_vm 'manage-bde -protectors -disable C: -RebootCount 1' >> "$run/ek/bitlocker-suspend.txt"
 	on_vm 'Stop-Computer -Force' || true
 	vm_wait_off 600 || die "Windows did not shut down"
 
