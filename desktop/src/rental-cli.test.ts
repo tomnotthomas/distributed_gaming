@@ -5,7 +5,7 @@
 // chooses the code and gives it with --code.
 
 import { describe, expect, it } from "vitest";
-import { codeOf, provisioningOf, shown, unkeyed } from "../rental-cli.cjs";
+import { codeOf, provisioned, provisioningOf, shown, unkeyed } from "../rental-cli.cjs";
 import { keyRemovalPlan, mokPlan, switchPlan } from "../rental.cjs";
 
 describe("the console installer's key code", () => {
@@ -52,6 +52,45 @@ describe("the console installer's provisioning", () => {
       /--machine-key-file/,
     );
     expect(() => provisioningOf({ ...opts, server: "ws://lanterel.example" }, key)).toThrow(/wss:\/\//);
+  });
+
+  it("refuses a plan with a provision step before any step runs, when its flags are missing", () => {
+    const steps = switchPlan("once").steps;
+    expect(() => provisioned({}, steps, key)).toThrow(/--machine-key-file/);
+    expect(() => provisioned({ ...opts, server: "ws://lanterel.example" }, steps, key)).toThrow(/wss:\/\//);
+    const missing = {
+      readFileSync: () => {
+        throw new Error("ENOENT: no such file");
+      },
+    };
+    expect(() => provisioned(opts, steps, missing)).toThrow(/ENOENT/);
+    const without = steps.filter((s) => s.id !== "provision");
+    expect(() => provisioned({}, without, key)).not.toThrow();
+    expect(() => provisioned({ "dry-run": true }, steps, key)).not.toThrow();
+  });
+
+  it("hands a provision op its record and leaves the other ops alone", async () => {
+    const applied: unknown[] = [];
+    const apply = provisioned(
+      opts,
+      switchPlan("once").steps,
+      key,
+    )(async (op) => {
+      applied.push(op);
+    });
+    await apply({ op: "provision" });
+    await apply({ op: "restart" });
+    expect(applied).toEqual([
+      {
+        op: "provision",
+        record: {
+          serverUrl: "wss://lanterel.example",
+          machineId: "gaming-pc-1",
+          machineKey: "the-machine-key-of-gaming-pc-1",
+        },
+      },
+      { op: "restart" },
+    ]);
   });
 
   it("never shows the machine key in a dry run's operations", () => {
