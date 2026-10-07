@@ -63,7 +63,8 @@ drive BitLocker protects later asks again. The install:
 3. turns off Fast Startup, shrinks C: by 24 GB (`Resize-Partition`), or uses free space
 4. adds Swiff OS's six partitions with the image's ids, names and attributes (`gpt.cjs`
    on `\\.\GLOBALROOT\Device\HarddiskN\Partition0`, then `Update-Disk`)
-5. writes the ESP and slot A, hashing as it writes and reading back
+5. writes the ESP and slot A, hashing as it writes and reading back, then, when the host app
+   has an error-reports project, `LANTEREL.ENV` onto the ESP ("Error reports" below)
 6. adds a `Boot####` entry for `\EFI\swiff\shimx64.efi` on Swiff OS's ESP, last in BootOrder
    (`desktop/efi.cjs`, through `SetFirmwareEnvironmentVariableEx`: bcdedit cannot name a
    second ESP without a drive letter)
