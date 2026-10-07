@@ -348,8 +348,7 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   installs the client into the renter's home, which every reboot wipes, and first asks
   whether to install it, a question nobody is at the PC to answer; the session answers it
   (`steam/bin/zenity`, first on the session's `PATH`). Once swiff-hostd has opened the
-  persistent state, `swiff-steam-client.service` (`steam/client prepare`), which only the
-  session pulls in so its wait holds nothing else in the boot, mounts it for
+  persistent state, `swiff-steam-client.service` (`steam/client prepare`) mounts it for
   itself (the agent's mount is its sandbox's alone) and lays the kept client under the
   renter's Steam folder (`~/.steam/debian-installation`, `~/.steam/steam` and `root` pointing
   to it) as an overlay: the kept client below, read-only, the renter's writes above it on the
@@ -360,7 +359,8 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   (`rsync --link-dest`), and the next boot lays that one out. swiff-hostd offers the PC only
   once that is done (at most 15 minutes, then without it), and closes it before it offers or
   serves anyone, so whatever a renter runs can change their own session's client, never the
-  next renter's. What is per-user or per-session (logs, config, userdata, caches, games,
+  next renter's. Only the session pulls in both units, so their wait holds no target and
+  nothing else in the boot. What is per-user or per-session (logs, config, userdata, caches, games,
   Steam's machine auth files) is never kept. After Windows ran, the state is formatted anew
   (session-keys.md, "Continuity"), and that boot downloads Steam again.
 - **The keyboard reaches nothing but the session.** Ctrl+Alt+Del never reboots:
