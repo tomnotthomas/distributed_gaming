@@ -182,10 +182,7 @@ const setMeta = (html: string, attr: string, name: string, value: string) =>
     (_, before: string, after: string) => before + value + after,
   );
 
-/**
- * An invite template rendered for one invite: its copy (invite-copy.ts), and
- * its buttons to the sign-up forms carrying `type:code` on as ?i=.
- */
+/** An invite template rendered for one invite: its copy (invite-copy.ts). */
 export function renderInvite(template: string, type: SiteInviteType, lang: Lang): string {
   const copy = inviteCopy(type, lang);
   let html = template.replace(/<title>[^<]*<\/title>/, () => `<title>${copy.title} | {{brand}}</title>`);
