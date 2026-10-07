@@ -37,7 +37,7 @@
       "name": "Who plays on my PC?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "At first only friends you invite. They sign in with their own Steam account and play their own games. Whether Mac players from our waitlist join later is up to you."
+        "text": "At first only friends you invite. They sign in with their own Steam account and play their own games."
       }
     },
     {
@@ -213,12 +213,6 @@
     color: var(--on-paper-2);
     max-width: 34ch;
   }
-  .strip .wl-row {
-    flex-direction: column;
-  }
-  .strip .wl-row .lpill {
-    width: 100%;
-  }
   @media (max-width: 1080px) {
     .strip {
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -385,16 +379,6 @@
   .steps {
     background: var(--paper);
   }
-  .close .wl {
-    max-width: 440px;
-  }
-  .close .wl-row {
-    flex-direction: column;
-  }
-  .close .wl-row .lpill {
-    width: 100%;
-    max-width: 420px;
-  }
   .pfoot .host-link a {
     color: var(--ink);
   }
@@ -412,9 +396,8 @@
 <link rel="alternate" hreflang="en" href="{{site}}/en/host/">
 <link rel="alternate" hreflang="x-default" href="{{site}}/host/">
 <meta property="og:url" content="{{site}}/en/host/">
-<meta name="form-endpoint" content="/api/signups">
 <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
-<script>window.SITE_T = {"form.fail": "That didn't work. Please try again in a moment.", "copy.done": "Copied"};</script>
+<script>window.SITE_T = {"copy.done": "Copied"};</script>
 </head>
 <body id="top">
 <header class="nav" data-nav>
@@ -506,7 +489,7 @@
     <div class="faq rv">
       <details><summary><span data-t="q2">Can guests get to my files?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a2">No. Guests play in {{brand}} OS, a separate, locked-down system. {{brand}} OS never writes to your Windows drives: your Steam drive is read-only, and it doesn't mount any other drive. The PC restarts after every session. <a href="#os">How {{brand}} OS works</a></p></details>
       <details><summary><span data-t="q3">What happens to my Windows?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a3">It stays as it is. {{brand}} OS takes a fixed 24 GB: free space on the disk, or it shrinks a drive that keeps at least 16 GB free. When you're not sharing, your PC starts Windows as usual.</p></details>
-      <details><summary><span data-t="q4">Who plays on my PC?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a4">At first only friends you invite. They sign in with their own Steam account and play their own games. Whether Mac players from our waitlist join later is up to you.</p></details>
+      <details><summary><span data-t="q4">Who plays on my PC?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a4">At first only friends you invite. They sign in with their own Steam account and play their own games.</p></details>
       <details><summary><span data-t="q5">How much electricity does it use?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a5">About as much as playing on it yourself, and only while a guest is playing. A gaming PC draws roughly 300 to 450 watts under load; at 40 cents per kWh that's 12 to 18 cents an hour. Two three-hour test sessions come to about one euro a month.</p></details>
       <details><summary><span data-t="q6">Can I take my PC back at any time?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a6">Yes, right at the PC, as long as no guest is playing. If a session is running, you wait until it ends.</p></details>
     <details><summary><span data-t="q7">I only run Linux on my PC. Does that work?</span><span class="pm" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></summary><p data-t="a7">Not yet. {{brand}} OS is installed from Windows and switches back to Windows afterwards, so you need a Windows gaming PC. Sign up anyway and we'll let you know if that changes.</p></details>

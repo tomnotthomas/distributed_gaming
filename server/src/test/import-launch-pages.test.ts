@@ -243,6 +243,15 @@ describe("importing the launch set", () => {
       withoutReminders("<h2>When you ask for reminders</h2><p>b</p><h2>Invites</h2>"),
       "<h2>Invites</h2>",
     );
+    // The last section on its page goes too, up to where the page's text ends.
+    assert.equal(
+      withoutReminders("<main><h2>Steam</h2><p>a</p><h2>When you ask for reminders</h2><p>b</p></main>"),
+      "<main><h2>Steam</h2><p>a</p></main>",
+    );
+    assert.equal(
+      withoutReminders("<h2>Steam</h2><h2>Wenn du dich erinnern lässt</h2><p>b</p>"),
+      "<h2>Steam</h2>",
+    );
   });
 
   it("says Zockrunde and gaming session, never an evening or a night, and leaves keys and routes alone", () => {
@@ -255,6 +264,18 @@ describe("importing the launch set", () => {
     );
     // A slip in marketing's build is corrected too.
     assert.equal(neutralWording("(§ 25(2) TDDDG). /</p>"), "(§ 25(2) TDDDG).</p>");
+    assert.equal(
+      neutralWording(
+        "Sie spielen ihre eigenen Spiele. Ob später auch Mac-Spieler von unserer Warteliste dazukommen, entscheidest du.</p>",
+      ),
+      "Sie spielen ihre eigenen Spiele.</p>",
+    );
+    assert.equal(
+      neutralWording(
+        "They play their own games. Whether Mac players from our waitlist join later is up to you.</p>",
+      ),
+      "They play their own games.</p>",
+    );
     assert.equal(neutralWording("Frei: meist abends ab 20 Uhr"), "Frei: wenn der PC frei ist");
     assert.equal(
       neutralWording("Eine Crew für unsere Zockabende, zwei Testabende, Testabend 1"),
