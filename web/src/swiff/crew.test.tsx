@@ -1224,6 +1224,28 @@ describe("CrewPage: the guided crew page", () => {
     expect(await screen.findByRole("heading", { name: "Ihr seid spielbereit!" })).toBeInTheDocument();
   });
 
+  it("leaves picking games for later while the crew has no date, so a PC in means ready", async () => {
+    fetchFrom({
+      "GET /api/crews/c1": [
+        200,
+        {
+          crew: joinedCrew(
+            {},
+            {
+              state: "ready",
+              pcs: 1,
+              machines: [{ name: "DESKTOP-7Q", owner: "Max", mine: false, state: "ready" }],
+            },
+          ),
+        },
+      ],
+    });
+    render(<CrewPage swiff={atCrew("c1")} />);
+    expect(await screen.findByRole("heading", { name: "You're ready to play!" })).toBeInTheDocument();
+    expect(stubs()).toContain("Pick games:later");
+    expect(stubs()).toContain("Play:now");
+  });
+
   it("offers to try again when the crew could not be read", async () => {
     let answer: [number, unknown] = [503, {}];
     fetchFrom({ "GET /api/crews/c1": () => answer });

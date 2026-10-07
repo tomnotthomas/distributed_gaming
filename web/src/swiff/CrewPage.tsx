@@ -213,7 +213,7 @@ type Step = { id: StepId; label: CopyKey; done: boolean; value?: string; change?
  * its admin sets the date, sends it out, gets a gaming PC in, picks games and
  * plays; someone who joined says yes or no, gets a gaming PC in, picks games
  * and plays. A step that cannot be done yet (answering before there is a date,
- * picking games before there is a PC) is never the current one. Picking stays
+ * picking games before there is a date and a PC) is never the current one. Picking stays
  * open while the viewer is at it (`picking`), and is done once they marked a
  * game or said they are done (`picked`).
  */
@@ -283,7 +283,7 @@ function currentStep(steps: Step[], crew: CrewDetail, now: number): StepId {
       !s.done &&
       (s.id !== "answer" || session) &&
       (s.id !== "people" || session) &&
-      (s.id !== "games" || crew.pcs > 0),
+      (s.id !== "games" || (session && crew.pcs > 0)),
   );
   return step?.id ?? "play";
 }
