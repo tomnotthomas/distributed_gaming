@@ -1246,6 +1246,48 @@ describe("CrewPage: the guided crew page", () => {
     ).toBeInTheDocument();
   });
 
+  it("takes back only the mark that failed while another is still on its way", async () => {
+    const game = (id: number, name: string) => ({
+      id,
+      name,
+      image: null,
+      free: true,
+      owners: 2,
+      everyone: true,
+      wants: [] as string[],
+      mine: false,
+    });
+    const CS = game(730, "Counter-Strike 2");
+    const DOTA = game(570, "Dota 2");
+    const crew = readyCrew({ session: dated, shared: true });
+    const answers: ((ok: boolean) => void)[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const json = (body: unknown, status = 200) =>
+          new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+        if (url === "/api/crews/c1") return json({ crew });
+        if (url === "/api/crews/c1/games" && !init?.method) return json({ games: [CS, DOTA], size: 2 });
+        const ok = await new Promise<boolean>((resolve) => answers.push(resolve));
+        const mine = { ...CS, wants: ["m-lena"], mine: true };
+        return ok ? json({ games: [mine, DOTA], size: 2 }) : json({ error: "no" }, 500);
+      }),
+    );
+    render(<CrewPage swiff={atCrew("c1")} />);
+    const cs = await screen.findByRole("button", { name: /^Counter-Strike 2/ });
+    const dota = screen.getByRole("button", { name: /^Dota 2/ });
+    // Dota 2 first, then Counter-Strike 2: Dota 2's snapshot is from before either mark.
+    fireEvent.click(dota);
+    fireEvent.click(cs);
+    await waitFor(() => expect(answers).toHaveLength(2));
+    // Counter-Strike 2 goes through while Dota 2 is still on its way, and then Dota 2 fails.
+    await act(async () => answers[1]!(true));
+    await act(async () => answers[0]!(false));
+    expect(await screen.findByText("That didn't work. Try again.")).toBeInTheDocument();
+    expect(dota).toHaveAttribute("aria-pressed", "false");
+    expect(cs).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("says so when there are no games on the PC yet, and lets the player go on", async () => {
     fetchFrom({
       "GET /api/crews/c1": [200, { crew: readyCrew({ session: dated, shared: true }) }],

@@ -2443,7 +2443,7 @@ export class Platform {
     const elsewhere = await this.#all<{ machine_id: string; at: number }>(
       `SELECT DISTINCT p.machine_id, o.session_at AS at FROM crew_machines p
          JOIN crew_machines op ON op.machine_id = p.machine_id AND op.crew_id <> p.crew_id
-         JOIN crews o ON o.id = op.crew_id
+         JOIN crews o ON o.id = op.crew_id AND o.archived_at IS NULL
          WHERE p.crew_id = $1 AND o.session_at IS NOT NULL AND o.session_at > $2
          ORDER BY at, p.machine_id`,
       crewId,

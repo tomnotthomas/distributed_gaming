@@ -520,7 +520,13 @@ export function GamesStep({
     if (answer) {
       if (!pending.current) setRead(answer);
     } else {
-      setRead(before);
+      // Only this game goes back: another mark still on its way, or already through, stays.
+      const previous = before.games.find((g) => g.id === game.id);
+      setRead((current) =>
+        current && current !== "failed" && previous
+          ? { ...current, games: current.games.map((g) => (g.id === game.id ? previous : g)) }
+          : current,
+      );
       say(t("toast.failed"));
     }
   };

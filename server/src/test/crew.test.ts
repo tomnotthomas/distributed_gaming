@@ -31,6 +31,7 @@ import {
 } from "../platform.js";
 import { SESSION_COOKIE } from "../signin.js";
 import { emptyProfile } from "../steam.js";
+import type { Database } from "../db.js";
 import { testDatabase } from "./db.js";
 import { REPORT } from "./report.js";
 
@@ -78,14 +79,17 @@ const MEDIA: Record<number, CatalogGame> = {
 
 let now: number;
 let platform: Platform;
+/** The database the platform under test runs on, for state no API call reaches. */
+let database: Database;
 /** Every crew-ready notice, in order: the crew and who was told. */
 let ready: { crewId: string; memberIds: string[] }[];
 const owners = parseMachineOwners(MACHINE_KEYS);
 
 const open = async () => {
   ready = [];
+  database = await testDatabase();
   platform = await Platform.open({
-    database: await testDatabase(),
+    database,
     now: () => now,
     owners,
     onCrewReady: (crewId, memberIds) => ready.push({ crewId, memberIds }),
@@ -920,6 +924,15 @@ describe("crew API", () => {
       [],
       "a crew's own Zockrunde never marks its own days",
     );
+
+    // An archived crew keeps no hold on the PC, even where its PC row was left behind.
+    await database.query("UPDATE crews SET archived_at = $1 WHERE id = $2", [now, other.id]);
+    assert.deepEqual(
+      (await call("GET", `/api/crews/${crew.id}`, ALEX)).body.crew.busy,
+      [],
+      "archived: free again",
+    );
+    await database.query("UPDATE crews SET archived_at = NULL WHERE id = $1", [other.id]);
 
     now = at + SESSION_OVER_MS;
     assert.deepEqual(
