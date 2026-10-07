@@ -1,0 +1,4 @@
+#!/bin/sh
+# swiff-hostd's attestation client (state.attestCommand): attests this boot with
+# the TPM and prints the host certificate it earns (hostd/src/swiff-attest.ts).
+exec /usr/bin/node /usr/lib/swiff/hostd/swiff-attest.mjs "$@"
