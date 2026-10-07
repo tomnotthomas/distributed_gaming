@@ -896,7 +896,7 @@ describe("CrewPage: the guided crew page", () => {
   });
 
   it("promises the PC plays for this crew only when it is crew-only, in English and German", async () => {
-    const crewOnly = readyCrew({ session: dated, shared: true });
+    const crewOnly = readyCrew({ session: dated, shared: true, picks: 1 });
     crewOnly.machines = [{ ...crewOnly.machines[0]!, crewOnly: true }];
     fetchFrom({ "GET /api/crews/c1": [200, { crew: crewOnly }] });
     const { unmount } = render(<CrewPage swiff={atCrew("c1", library)} />);
@@ -912,7 +912,7 @@ describe("CrewPage: the guided crew page", () => {
   });
 
   it("does not promise crew-only in German when the PC is open to others", async () => {
-    const open = readyCrew({ session: dated, shared: true });
+    const open = readyCrew({ session: dated, shared: true, picks: 1 });
     open.machines = [{ ...open.machines[0]!, crewOnly: false }];
     fetchFrom({ "GET /api/crews/c1": [200, { crew: open }] });
     render(

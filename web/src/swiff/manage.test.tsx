@@ -77,6 +77,9 @@ function squad(over: Partial<CrewDetail> = {}): CrewDetail {
       { id: "q-j", name: "DESKTOP", owner: "Jonas", mine: false, state: "ready", games: [], playing: null },
     ],
     shared: true,
+    busy: [],
+    picks: 0,
+    offered: 0,
     ...over,
   };
 }

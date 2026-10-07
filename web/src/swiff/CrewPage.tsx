@@ -825,7 +825,11 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
                     <Avatar name={m.name ?? (m.you ? t("cp.you") : null)} index={i} />
                     <span className="gc-nm">
                       <span>
-                        {m.you ? (m.name ? t("g.you", { name: m.name }) : t("cp.you")) : (m.name ?? t("cp.anon"))}
+                        {m.you
+                          ? m.name
+                            ? t("g.you", { name: m.name })
+                            : t("cp.you")
+                          : (m.name ?? t("cp.anon"))}
                       </span>
                     </span>
                     {m.you ? (
