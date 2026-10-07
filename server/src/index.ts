@@ -1167,8 +1167,12 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
         const open = msg.open === true;
         const was = watches.sharing(sessionId);
         // A share names one crew for the session: the one picked, else the first, kept from then on.
-        const crews = await currentCrews(sessionId);
-        if (open && !crews.length) return;
+        // A database that cannot say changes nothing: the share is dropped, the player's own seat stands.
+        const crews = await currentCrews(sessionId).catch((error: unknown) => {
+          console.error("[swiff] watch share failed:", error instanceof Error ? error.name : typeof error);
+          return null;
+        });
+        if (crews === null || (open && !crews.length)) return;
         const crew = msg.crew ?? (open && watches.crew(sessionId) === null ? crews[0]!.id : undefined);
         const picked = crew !== undefined && crew !== watches.crew(sessionId);
         if (picked) {
@@ -1177,9 +1181,16 @@ async function answer(ws: PeerSocket, msg: SignalMessage): Promise<void> {
           // Only that crew from now on: asks are checked against it at once, and anyone of another stops.
           watches.choose(sessionId, crew);
           const others = watches.list(sessionId);
-          const stopped = await platform.watchesStopped(
-            others.map((watch) => ({ sessionId, viewerId: watch.viewerId, picked: crew })),
-          );
+          // Unanswered, the watches stay as they are: the next checkWatches round asks again.
+          const stopped = await platform
+            .watchesStopped(others.map((watch) => ({ sessionId, viewerId: watch.viewerId, picked: crew })))
+            .catch((error: unknown) => {
+              console.error(
+                "[swiff] watch share failed:",
+                error instanceof Error ? error.name : typeof error,
+              );
+              return new Map<string, string>();
+            });
           for (const watch of others) {
             const why = stopped.get(`${sessionId}:${watch.viewerId}`);
             if (why) endWatch(watch.id, why === "ended" ? "watch-ended" : "not-crew");

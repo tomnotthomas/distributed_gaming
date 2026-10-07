@@ -1055,6 +1055,26 @@ describe("watching through the signaling server", () => {
     assert.equal((await heard(player, isWatchers, "watchers")).sharing, true);
   });
 
+  it("drops a share the database cannot answer, and leaves the player's own socket open", async () => {
+    const { player, viewer } = await scene();
+    // The crew read fails: its table is gone for the moment.
+    await database.exec("ALTER TABLE crew_machines RENAME TO crew_machines_away");
+    try {
+      send(player, { type: "watch-share", open: true });
+      await handled(player);
+      await wait(300);
+      assert.equal(player.readyState, WebSocket.OPEN);
+      assert.equal(viewer.readyState, WebSocket.OPEN);
+      assert.ok(!viewer.received.some((m) => m.type === "watching" && m.state === "watching"));
+    } finally {
+      await database.exec("ALTER TABLE crew_machines_away RENAME TO crew_machines");
+    }
+    // Once it can answer, the same share goes through.
+    send(player, { type: "watch-share", open: true });
+    await handled(player);
+    assert.equal((await heard(viewer, isWatching, "watching")).state, "watching");
+  });
+
   it("hands each viewer a relay credential minted for their own watch, never the player's or the relay's secret", async () => {
     const lea = await scene();
     const asked = await call("POST", `/api/crew-live/${lea.sessionId}/watch`, JON);
