@@ -401,7 +401,7 @@ describe("CrewPage: a crew's lobby", () => {
     const open = vi.spyOn(window, "open").mockImplementation(() => null);
     const swiff = atCrew("c1");
     render(<CrewPage swiff={swiff} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Share on WhatsApp" }));
+    fireEvent.click((await screen.findAllByRole("button", { name: "Share on WhatsApp" }))[0]!);
     await waitFor(() => expect(share).toHaveBeenCalledTimes(1));
     const { text } = share.mock.calls[0]![0];
     expect(text).toContain("who's got a gaming PC?");
@@ -417,7 +417,7 @@ describe("CrewPage: a crew's lobby", () => {
     fetchFrom({ "GET /api/crews/c1": [200, { crew: crewOf() }] });
     const open = vi.spyOn(window, "open").mockImplementation(() => null);
     render(<CrewPage swiff={atCrew("c1")} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Share on WhatsApp" }));
+    fireEvent.click((await screen.findAllByRole("button", { name: "Share on WhatsApp" }))[0]!);
     expect(open).toHaveBeenCalledTimes(1);
     const [url, target] = open.mock.calls[0]!;
     expect(String(url)).toMatch(/^https:\/\/wa\.me\/\?text=/);
@@ -668,12 +668,13 @@ describe("CrewPage: a crew's lobby", () => {
     const swiff = atCrew("c1");
     const { rerender } = render(<CrewPage swiff={swiff} />);
     expect(await screen.findByText("Almost ready.")).toBeInTheDocument();
-    expect(calls).toHaveLength(1);
+    const crewCalls = () => calls.filter(([, url]) => url.startsWith("/api/crews"));
+    expect(crewCalls()).toHaveLength(1);
 
     crew = readyCrew();
     rerender(<CrewPage swiff={{ ...swiff, crewChanges: 1 }} />);
     expect(await screen.findByText("Ready to play!")).toBeInTheDocument();
-    expect(calls).toEqual([
+    expect(crewCalls()).toEqual([
       ["GET", "/api/crews/c1"],
       ["GET", "/api/crews/c1"],
     ]);
@@ -993,5 +994,108 @@ describe("the ways into crews", () => {
     await act(async () => {});
     expect(calls).toEqual([]);
     expect(screen.queryByTestId("crew-ready")).toBeNull();
+  });
+});
+
+describe("CrewPage: landing from the marketing site", () => {
+  it("founds a crew at once for a player with none, and leaves one who has a crew in it", async () => {
+    history.replaceState(null, "", "/crews?found=1&pc=1");
+    fetchFrom({ "GET /api/crews": [200, { crews: [] }] });
+    const swiff = fakeSwiff();
+    const { unmount } = render(<CrewPage swiff={swiff} />);
+    await waitFor(() => expect(swiff.replaceCrew).toHaveBeenCalledWith("new"));
+    expect(location.pathname + location.search).toBe("/crews");
+    expect(sessionStorage.getItem("crew.pcFirst")).toBe("1");
+    unmount();
+
+    history.replaceState(null, "", "/crews?found=1");
+    fetchFrom({ "GET /api/crews": [200, { crews: [{ ...crewOf(), pcArrived: false }] }] });
+    const back = fakeSwiff();
+    render(<CrewPage swiff={back} />);
+    await waitFor(() => expect(back.replaceCrew).toHaveBeenCalledWith("c1"));
+    expect(back.replaceCrew).not.toHaveBeenCalledWith("new");
+  });
+
+  it("does not found another crew on its own for a player with several", async () => {
+    history.replaceState(null, "", "/crews?found=1");
+    const two = [
+      { ...crewOf(), pcArrived: false },
+      { ...crewOf({ id: "c2" }), pcArrived: false },
+    ];
+    fetchFrom({ "GET /api/crews": [200, { crews: two }] });
+    const swiff = fakeSwiff();
+    render(<CrewPage swiff={swiff} />);
+    expect(await screen.findByText("Your crews")).toBeInTheDocument();
+    expect(swiff.replaceCrew).not.toHaveBeenCalled();
+  });
+
+  it("shows someone from the host side the PC card first", async () => {
+    sessionStorage.setItem("crew.pcFirst", "1");
+    fetchFrom({ "GET /api/crews/c1": [200, { crew: crewOf() }] });
+    render(<CrewPage swiff={atCrew("c1")} />);
+    expect(await screen.findByTestId("pc-card")).toBeInTheDocument();
+    expect(sessionStorage.getItem("crew.pcFirst")).toBeNull();
+  });
+});
+
+describe("CrewPage: sharing and reminders", () => {
+  it("leads every crew's share block with WhatsApp", async () => {
+    fetchFrom({ "GET /api/crews/c1": [200, { crew: readyCrew() }] });
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    render(<CrewPage swiff={atCrew("c1")} />);
+    const buttons = await screen.findAllByRole("button", { name: "Share on WhatsApp" });
+    const primary = buttons.find((b) => b.classList.contains("lb-wa"));
+    expect(primary).toBeDefined();
+    fireEvent.click(primary!);
+    await waitFor(() => expect(open).toHaveBeenCalled());
+    expect(String(open.mock.calls[0]![0])).toMatch(/^https:\/\/wa\.me\/\?text=/);
+  });
+
+  it("offers no reminders while the server takes none", async () => {
+    fetchFrom({ "GET /api/crews/c1": [200, { crew: crewOf() }] });
+    render(<CrewPage swiff={atCrew("c1")} />);
+    await screen.findByText("Almost ready.");
+    expect(screen.queryByTestId("reminders")).toBeNull();
+  });
+
+  it("takes an optional address for reminders, which waits for its confirmation", async () => {
+    let reminders = { email: null as string | null, confirmed: false };
+    const calls = fetchFrom({
+      "GET /api/crews/c1": [200, { crew: crewOf() }],
+      "GET /api/signups/reminders": () => [200, reminders],
+      "POST /api/signups/reminders": () => {
+        reminders = { email: "lena@example.com", confirmed: false };
+        return [200, reminders];
+      },
+    });
+    render(<CrewPage swiff={atCrew("c1")} />);
+    const field = await screen.findByLabelText("Email address");
+    fireEvent.change(field, { target: { value: "not an address" } });
+    fireEvent.click(screen.getByRole("button", { name: "Remind me" }));
+    expect(await screen.findByText("That doesn't look like an email address.")).toBeInTheDocument();
+    expect(calls.some(([method, url]) => method === "POST" && url.includes("signups"))).toBe(false);
+
+    fireEvent.change(field, { target: { value: " lena@example.com " } });
+    fireEvent.click(screen.getByRole("button", { name: "Remind me" }));
+    expect(
+      await screen.findByText("Almost there: click the link in the email to lena@example.com."),
+    ).toBeInTheDocument();
+    const posted = calls.find(([method, url]) => method === "POST" && url === "/api/signups/reminders");
+    expect(JSON.parse(posted![2]!)).toEqual({ email: "lena@example.com", lang: "en" });
+  });
+
+  it("shows confirmed reminders with a way to stop them", async () => {
+    const calls = fetchFrom({
+      "GET /api/crews/c1": [200, { crew: crewOf() }],
+      "GET /api/signups/reminders": [200, { email: "lena@example.com", confirmed: true }],
+      "POST /api/signups/reminders/off": [200, { email: null, confirmed: false }],
+    });
+    render(<CrewPage swiff={atCrew("c1")} />);
+    expect(await screen.findByText("Reminders go to lena@example.com.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Stop reminders" }));
+    expect(await screen.findByLabelText("Email address")).toBeInTheDocument();
+    expect(calls.some(([method, url]) => method === "POST" && url === "/api/signups/reminders/off")).toBe(
+      true,
+    );
   });
 });

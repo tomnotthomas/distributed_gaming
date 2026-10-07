@@ -191,3 +191,65 @@ export async function removeCrewMember(id: string, get: typeof fetch = fetch): P
   );
   return answer.ok || answer.status === 404;
 }
+
+/** The signed-in player's reminders by email: the address they go to, and whether it confirmed. */
+export type Reminders = { email: string | null; confirmed: boolean };
+
+/** The player's reminders; null when the server takes none (the marketing site is off) or gave no answer. */
+export async function fetchReminders(get: typeof fetch = fetch): Promise<Reminders | null> {
+  const answer = await call<Reminders>("/api/signups/reminders", {}, get);
+  return answer.ok ? answer.body : null;
+}
+
+/** Send the reminders to `email` once it confirms (`email` null: stop them); the reminders after, or null when that failed. */
+export async function saveReminders(
+  email: string | null,
+  lang: Lang,
+  get: typeof fetch = fetch,
+): Promise<Reminders | null> {
+  const answer = await call<Reminders>(
+    email === null ? "/api/signups/reminders/off" : "/api/signups/reminders",
+    { method: "POST", body: JSON.stringify(email === null ? {} : { email, lang }) },
+    get,
+  );
+  return answer.ok ? answer.body : null;
+}
+
+/** Where this tab keeps that the player came from the host side, to see the PC card first. */
+const PC_FIRST_KEY = "crew.pcFirst";
+
+/**
+ * What the address the marketing site's buttons land on asks for
+ * (/crews?found=1&pc=1, server/scripts/import-launch-pages.mjs): found a crew
+ * when the player has none yet (`found`), and show the PC card first (`pc`,
+ * kept in this tab until a lobby shows it). Both leave the address.
+ */
+export function takeLanding(): { found: boolean } {
+  const params = new URLSearchParams(location.search);
+  const found = params.get("found") === "1";
+  if (params.get("pc") === "1") {
+    try {
+      sessionStorage.setItem(PC_FIRST_KEY, "1");
+    } catch {
+      // Blocked storage: the lobby leads as it would anyway, which is harmless.
+    }
+  }
+  if (params.has("found") || params.has("pc")) {
+    params.delete("found");
+    params.delete("pc");
+    const rest = params.toString();
+    history.replaceState(history.state, "", `${location.pathname}${rest ? `?${rest}` : ""}`);
+  }
+  return { found };
+}
+
+/** Whether a lobby should open the PC card first, once: the player came from the host side. */
+export function takePcFirst(): boolean {
+  try {
+    const first = sessionStorage.getItem(PC_FIRST_KEY) === "1";
+    sessionStorage.removeItem(PC_FIRST_KEY);
+    return first;
+  } catch {
+    return false;
+  }
+}

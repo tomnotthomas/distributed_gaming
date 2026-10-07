@@ -682,7 +682,7 @@ describe("MARKETING_PAGES on the real server", () => {
       assert.match(landing.body, /<a href="https:\/\/app\.lanterel\.test\/" data-t="lib.check">/);
       assert.match(
         landing.body,
-        /href="https:\/\/app\.lanterel\.test\/auth\/steam\/login\?to=%2Fcrews%2Fnew"/,
+        /href="https:\/\/app\.lanterel\.test\/auth\/steam\/login\?to=%2Fcrews%3Ffound%3D1"/,
       );
       assert.match(landing.body, new RegExp(`<link rel="canonical" href="http://${HOST}/">`));
       assert.doesNotMatch((await ask(HTTP, "/", { host: `127.0.0.1:${PORT}` })).body, /lanterel\.localhost/);

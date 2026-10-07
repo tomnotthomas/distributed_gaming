@@ -213,8 +213,8 @@ describe("importing the launch set", () => {
   });
 
   it("sends every sign-in button to Steam on the app's origin, landing on its crew pages", () => {
-    assert.equal(signInPath("/share/"), "/crews/new");
-    assert.equal(signInPath("/en/share/?pc=1"), "/crews/new?pc=1");
+    assert.equal(signInPath("/share/"), "/crews?found=1");
+    assert.equal(signInPath("/en/share/?pc=1"), "/crews?found=1&pc=1");
     assert.equal(signInPath("/share/?joined=1&state=ready"), "/crews");
     const html = wireSignIn(
       '<a href="/auth/steam/login?to=/share/%3Fpc%3D1" data-signin>a</a>' +
@@ -223,9 +223,9 @@ describe("importing the launch set", () => {
     );
     assert.equal(
       html,
-      '<a href="{{app}}/auth/steam/login?to=%2Fcrews%2Fnew%3Fpc%3D1" data-signin>a</a>' +
-        '<a href="{{app}}/auth/steam/login?to=%2Fcrews%2Fnew">b</a>' +
-        '<a href="{{app}}/auth/steam/login?to=%2Fcrews%2Fnew">c</a><a href="/elsewhere/">d</a>',
+      '<a href="{{app}}/auth/steam/login?to=%2Fcrews%3Ffound%3D1%26pc%3D1" data-signin>a</a>' +
+        '<a href="{{app}}/auth/steam/login?to=%2Fcrews%3Ffound%3D1">b</a>' +
+        '<a href="{{app}}/auth/steam/login?to=%2Fcrews%3Ffound%3D1">c</a><a href="/elsewhere/">d</a>',
     );
   });
 

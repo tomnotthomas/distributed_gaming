@@ -142,15 +142,16 @@ export function neutralWording(text) {
 
 /**
  * Where the app takes a sign-in the set sends to its static crew page
- * (`to`, decoded): someone bringing the gaming PC (?pc=1) founds a crew with
- * the PC card first, someone joining (?joined=1, from an invite page) lands on
- * their crews, everyone else founds one. The app picks its own language.
+ * (`to`, decoded): its crews (/crews), founding one at once for a player who
+ * has none yet (found=1, web/src/swiff/crews.ts takeLanding), with the PC card
+ * first for someone bringing the gaming PC (?pc=1). Someone joining (?joined=1,
+ * from an invite page) lands on their crews. The app picks its own language.
  */
 export function signInPath(to) {
   const url = new URL(to, "https://x.invalid");
-  if (url.searchParams.get("pc") === "1") return "/crews/new?pc=1";
   if (url.searchParams.get("joined") === "1") return "/crews";
-  return "/crews/new";
+  if (url.searchParams.get("pc") === "1") return "/crews?found=1&pc=1";
+  return "/crews?found=1";
 }
 
 /** The set's links to the app's Steam sign-in, on the app's origin and into its crew pages. */
@@ -160,7 +161,7 @@ export function wireSignIn(html) {
     try {
       path = signInPath(decodeURIComponent(to));
     } catch {
-      path = "/crews/new";
+      path = "/crews?found=1";
     }
     return `href="{{app}}/auth/steam/login?to=${encodeURIComponent(path)}"`;
   });
