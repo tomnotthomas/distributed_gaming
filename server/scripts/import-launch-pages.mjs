@@ -176,6 +176,9 @@ export const CORRECTIONS = [
   // There is no waitlist: the host FAQ does not promise players from one.
   [" Ob später auch Mac-Spieler von unserer Warteliste dazukommen, entscheidest du.", ""],
   [" Whether Mac players from our waitlist join later is up to you.", ""],
+  // Nor does the Linux answer ask anyone to sign up for news.
+  [" Trag dich trotzdem ein, dann erfährst du, wenn sich das ändert.", ""],
+  [" Sign up anyway and we'll let you know if that changes.", ""],
 ];
 
 /** `text` with the set's meetup and time-of-day wording put the app's way (MEETUP_WORDING), and its slips corrected. */
