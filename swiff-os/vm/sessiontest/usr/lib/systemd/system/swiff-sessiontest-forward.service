@@ -1,0 +1,14 @@
+# VM session test build only: the test's platform server on this machine's
+# loopback (sessiontest-forward).
+[Unit]
+Description=Lanterel OS session test: the platform server on 127.0.0.1:8080
+After=swiff-sessiontest-provision.service nftables.service
+Requires=swiff-sessiontest-provision.service
+Before=swiff-hostd.service
+
+[Service]
+ExecStart=/usr/libexec/swiff/sessiontest-forward
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,19 @@
+#!/bin/bash
+# VM session test build only: xwd -silent -id <window> -out <file>, grabbing
+# Steam's sign-in window. The grab is a picture of the code this Steam shows:
+# the first for 10 s after the agent first looked, then a fresh one, as Steam
+# shows a new code every 20 to 25 s. The image's own zbarimg reads it back.
+state=${XDG_RUNTIME_DIR:?}/swiff-standin
+mkdir -p "$state"
+out=
+while [ $# -gt 0 ]; do
+	case $1 in
+	-out) out=$2; shift ;;
+	esac
+	shift
+done
+[ -n "$out" ] || exit 2
+[ -e "$state/first-read" ] || touch "$state/first-read"
+code=1
+[ $(($(date +%s) - $(stat -c %Y "$state/first-read"))) -ge 10 ] && code=2
+cp "/run/swiff-sessiontest/qr/$code.xwd" "$out"

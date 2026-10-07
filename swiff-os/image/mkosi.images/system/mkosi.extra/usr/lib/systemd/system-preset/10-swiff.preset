@@ -8,3 +8,4 @@ enable systemd-resolved.service
 enable systemd-timesyncd.service
 enable swiff-hwcheck.service
 enable swiff-vtlock.service
+enable swiff-hostd.service

@@ -168,6 +168,7 @@ A release is built and signed on the GEEKOM with those files in place of the VM 
 
 ```sh
 k=~/.lanterel-keys/release
+swiff-os/image/stage.sh ~/.cache/swiff-os/release
 sudo mkosi -C swiff-os/image --secure-boot-key="$k/secure-boot.key" --secure-boot-certificate="$k/secure-boot.crt" \
   --output-dir ~/.cache/swiff-os/release --cache-dir ~/.cache/swiff-os/cache -f build
 SWIFF_OS_SIGNING_KEY=$k/image-signing-key.pem SWIFF_OS_KEY_PASSPHRASE=$(cat "$k/image-signing-key.passphrase") \
@@ -260,10 +261,20 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   data are gone after a reboot.
 - **The renter user is unprivileged.** `renter` (uid 1000) has no password, no login shell, no sudo and
   no supplementary groups. The root has no setuid or setgid programs at all.
-- **The session is the whole UI.** `swiff-session.service` runs gamescope with Steam on tty1 as
-  `renter`, with `NoNewPrivileges`. It starts only after `nftables.service` has loaded the firewall
-  and does not start at all if loading fails. There is no display manager, desktop, getty, serial
-  console login or sshd.
+- **The session is the whole UI.** `swiff-session.service` runs gamescope on tty1 as `renter`, with
+  `NoNewPrivileges`, and gamescope runs the Steam sign-in agent (`steam/session`, below): Steam at
+  its sign-in window, then the game the renter booked, never Steam's own UI. It starts only after
+  `nftables.service` has loaded the firewall and does not start at all if loading fails. There is no
+  display manager, desktop, getty, serial console login or sshd.
+- **The rental-mode agents are in the image.** `swiff-hostd` (root, `swiff-hostd.service`), the
+  streamer it starts for each renter as `swiff-stream`, and the Steam sign-in agent run on Ubuntu's
+  Node 22 from the same pinned snapshot. That Node is built without TypeScript type stripping, so
+  each is one bundled file. The streamer's GStreamer encodes on the GPU through VA-API (AMD
+  through Mesa, Intel through its media driver) or with x264; NVIDIA stays out of the image with
+  NVIDIA's driver. The renter's PipeWire carries gamescope's picture and the game's sound.
+  `image/stage.sh <output-dir>` builds and stages them into the output directory, which the image
+  takes as an extra tree; run it before every build. `swiff-hostd` starts only on a machine that
+  has its config, `/var/lib/swiff/hostd.json` (see swiff-hostd's "Not yet here").
 - **The keyboard reaches nothing but the session.** Ctrl+Alt+Del never reboots:
   `ctrl-alt-del.target` is masked, and `CtrlAltDelBurstAction=none` turns off systemd's forced
   reboot after 7 presses within 2 s. Alt+Up (`kbrequest.target`) is masked too. Before the session
@@ -400,7 +411,7 @@ anything the user drives has started can be trusted:
    Steam fetched in this boot. A depot whose manifest is unchanged is checked against the table.
 3. **`swiff-verify close-seal`** runs before anything the user drives starts. It waits for a seal
    that is still running, and afterwards nothing can be sealed in this boot. `swiff-session.service`
-   runs it at start, because the Stage 1 session is Steam's own UI. The session agent will call it
+   runs it at start, before the Steam sign-in agent starts Steam. The agent will call it instead
    just before it launches the game.
 4. **Promotion** runs at shutdown (`ExecStop`), after the session has stopped, so it fits the reboot
    between renters (D5). For each sealed game, the files that the session layer still holds
@@ -424,7 +435,9 @@ VM starts.
 ```sh
 swiff-os/vm/run-test.sh             # build the test image, boot it twelve times, check everything
 swiff-os/vm/run-test.sh --no-build  # boot the last build again
+swiff-os/vm/session-test.sh         # a renter plays on rental mode end to end (below)
 # the shipped image only, as swiffos.raw in the given output directory
+swiff-os/image/stage.sh ~/.cache/swiff-os/output
 sudo mkosi -C swiff-os/image --output-dir ~/.cache/swiff-os/output --cache-dir ~/.cache/swiff-os/cache build
 ```
 
@@ -433,6 +446,9 @@ source tree. The build runs as root, and the root-only directories it leaves wou
 walk the repository, such as `prettier --check .`. The first build downloads about 2 GB and takes
 a while; later builds reuse the caches. If `image/mkosi.key` and `image/mkosi.crt` do not exist, the test makes a
 throwaway Secure Boot key pair there. The key pair is git-ignored and for VMs only.
+systemd-repart makes the root's erofs in a tmpfs inside mkosi's sandbox, half the build
+machine's RAM, and needs about twice the root's size there: on a 10 GB machine such as the
+GEEKOM, a root of up to about 2.4 GB. The root is about 2.3 GB.
 
 `run-test.sh` builds the `selftest` profile. That is the shipped image plus a serial console and
 `swiff-selftest.service` (`vm/selftest/`). In the test build the session starts only after the
@@ -491,7 +507,13 @@ host's view. Together they cover:
   slot A, and slot B is present.
 - The renter user is unprivileged, with no shell and no password. Root is locked, and there is no
   sudo and no setuid binary.
-- The session is gamescope with Steam as `renter`, and no login of any kind is offered.
+- The session is gamescope with the Steam sign-in agent as `renter`, and no login of any kind is
+  offered.
+- The rental-mode agents: Node 22 with `fetch` and `WebSocket`, the three bundles root's and
+  loadable, `swiff-hostd.service` enabled (it does not start without a config), the streamer's
+  user (961, no shell, no other group), `/dev/uinput` for that user's group only, the agent's
+  socket directory, the renter's PipeWire and the streamer's grant enabled, and every GStreamer
+  element the streamer's pipelines name, VA-API's plugin, and x264 encoding frames.
 - Keys pressed on the VM's keyboard through QEMU's monitor do nothing: 10 Ctrl+Alt+Del within
   2 s reach systemd and neither reboot the VM nor queue a reboot, and Ctrl+Alt+F2, Alt+F2,
   Alt+Left/Right and Alt+Up leave tty1 active, as does `VT_ACTIVATE` as root. As a control,
@@ -527,7 +549,64 @@ host's view. Together they cover:
 - The disk image fits the 24 GiB budget.
 
 The VM has no GPU, so gamescope cannot start there and the session unit keeps restarting. The test
-checks the session's wiring, not a running game.
+checks the session's wiring, not a running game; the session test (below) plays one.
+
+### The session test
+
+`vm/session-test.sh` plays a renter's session on the image end to end. It builds the
+`sessiontest` profile, the shipped image plus `vm/sessiontest/`, and runs `vm/session-harness.mjs`
+in a network namespace of its own, where the real server (with the `insecure-dev` attestation
+verifier) and a TURN relay (coturn) have addresses that look public to the VM (TEST-NET-2), so
+the image's firewall treats them as the internet. The VM boots under OVMF with Secure Boot and
+swtpm, 2 GiB and 2 vCPUs, and the harness reports each step PASS or FAIL:
+
+1. The owner offers the PC with the machine key, as their app does before the PC restarts into
+   rental mode. A fixture disk gives `swiff-hostd` its config and key, as the owner's app will.
+2. `swiff-hostd` attests, formats its persistent state (a disk of its own here) with U XOR V, and
+   offers the PC on its machine-key socket in rental mode.
+3. A renter on the hosted site (headless Chromium, signed in) sees the PC on the wall and holds
+   Launch; Ignition waits on the PC. `swiff-hostd` hears the claim, starts the host session and
+   the streamer, as `swiff-stream` with no capabilities, no other group and only its three
+   settings in its environment; the renter can read neither.
+4. The streamer asks the Steam agent to play; Ignition draws exactly the code the PC's screen
+   shows, then Steam's fresh one, and bills nothing meanwhile. Steam signs in, the game comes on
+   screen, and the renter plays it in Swiff, billed from the first frame after sign-in. Both
+   seats hold a relay allocation on credentials the server minted for each, and the test records
+   the candidate types of the pair ICE picked, never their addresses.
+5. The renter reloads the page mid-session and reconnects to the same session, then ends it.
+6. The streamer stops; `swiff-hostd` takes the PC off offer and restarts it clean. In the next
+   boot it attests again, opens the same state with U unsealed from the TPM, and offers the PC
+   again.
+
+Two things stand in for what a VM cannot have. gamescope needs a GPU, so a test picture under
+gamescope's PipeWire node name and a tone stand in for it. The tone plays through `pw-cat`, not
+GStreamer's `pipewiresink`: under PipeWire 1.6 a playing `pipewiresink` audio stream stalls every
+capture stream in the session (games play through PipeWire's Pulse and ALSA layers, which do
+not). Steam needs an account and a phone, so
+`sessiontest/bin` stands in for Steam and for the X tools the agent reads it through: a
+`steam` that signs in 20 s after the agent first read its code, and an `xwd` that hands out
+X window dumps of two sign-in codes, which the image's own `zbarimg` decodes. The agent, the
+streamer, `swiff-hostd`, the firewall and everything else are the shipped image's. Two pieces
+of the test are not in the image yet: the attestation client (`sessiontest-attest` attests to
+the `insecure-dev` verifier with the machine key) and the persistent state and key disks.
+`swiff-hostd` takes plain `ws://` only from a server on its own machine, so a forwarder on the
+VM's loopback carries its signaling to the test's server; the streamer's media does not.
+
+It needs coturn's `turnserver` (`TURNSERVER=path`), Playwright's Chromium
+(`PLAYWRIGHT_BROWSERS_PATH`), user and network namespaces (`unshare`) and a `/dev/kvm` this user
+can open; it waits while another VM runs or the PC has under 4 GB free. `--no-build` runs it on
+the last build. The run's serial console, server log and
+`results.json` are in `$SWIFF_OS_BUILD_DIR/session-vm`. In the last run all 43 steps passed:
+Steam's first code was on the renter's page within a second of the claim, and the PC was offered
+again 25 s after the session ended.
+
+`SWIFF_SESSION_RELAY_ONLY=1` puts the renter's browser in a home network of its own, at a private
+address the image's firewall refuses, so only the relay can carry the stream. That run does not
+pass yet. Both seats get a relay allocation, but the streamer's werift peer loses consent on the
+first pair it nominates (its host candidate to the renter's relayed one), and on the connection
+the page opens after sign-in it fails every check within 1.6 s without using its own relayed
+candidate. Whether a PC behind a real NAT, with a relay elsewhere, does the same is the next thing
+to find out: renters only TURN can reach depend on it.
 
 ## Follow-ups
 
@@ -537,8 +616,9 @@ checks the session's wiring, not a running game.
   deferred.
 - **Steam client persistence.** The Steam client's runtime is downloaded into the ephemeral `/home` on
   first start of each boot. It moves to the sealed state partition with attestation (stage 3).
-- **Starting the game directly.** The Steam sign-in agent is in `steam/` (below). Running it as the
-  image's session is still to do; see "Not yet here" there.
+- **Starting the game directly.** The image's session is the Steam sign-in agent (`steam/`,
+  below), which starts the game once Steam signs in. What is still to do is in "Not yet here"
+  there.
 - **Steam's sandbox.** Ubuntu's AppArmor restriction on unprivileged user namespaces may need a Steam
   profile for pressure-vessel. This can only be tested with a GPU.
 - **NVIDIA.** Modules must be signed for `module.sig_enforce`, for example Ubuntu's prebuilt signed
@@ -640,15 +720,17 @@ npm run build -w @swiff/os-streamer    # dist/swiff-streamer.mjs, one file, weri
 swiff-os/streamer/vm/run-test.sh       # the VM test (below)
 ```
 
-**For the image.** Install `dist/swiff-streamer.mjs` and `helpers/` side by side (for
-example `/usr/lib/swiff/streamer/dist/` and `/usr/lib/swiff/streamer/helpers/`), and
+**In the image.** `image/stage.sh` installs `dist/swiff-streamer.mjs` and `helpers/` side
+by side (`/usr/lib/swiff/streamer/dist/` and `/usr/lib/swiff/streamer/helpers/`), and
 `system/` as sysusers, tmpfiles, udev rule, `/usr/libexec/swiff/swiff-pipewire-grant` and
-the renter's user unit. It needs Node 22, Python 3 with GObject introspection, GStreamer
-1.24 or later (base, good, bad, ugly, PipeWire) and `acl`. swiff-hostd's `streamer`
-setting is then `{"command": "/usr/bin/node", "args":
+the renter's user unit, enabled for every user. The image has what it needs: Node 22,
+Python 3 with GObject introspection, GStreamer 1.28 (base, good, bad, ugly, PipeWire, the
+VA-API plugin with Mesa's and Intel's drivers) and `acl`. swiff-hostd's `streamer` setting
+is then `hostd/hostd.example.json`'s: `{"command": "/usr/bin/node", "args":
 ["/usr/lib/swiff/streamer/dist/swiff-streamer.mjs", "--pipewire-remote",
-"/run/user/1000/pipewire-0"], "uid": 961, "gid": 961}`. `--help` lists the other
-options: picture size, frame rate, bitrate, encoder, a test source.
+"/run/user/1000/pipewire-0", "--steam-socket", "/run/swiff/steam/login.sock"], "uid":
+961, "gid": 961}`. `--help` lists the other options: picture size, frame rate, bitrate,
+encoder, a test source.
 
 **The VM test.** `vm/run-test.sh` builds a small Ubuntu 24.04 test image with mkosi
 (not Swiff OS; only what the streamer needs), boots it in QEMU/KVM with 2 GiB and 2
@@ -793,22 +875,35 @@ SWIFF_HOSTD_CONFIG=hostd.json node swiff-os/hostd/src/main.ts status
 SWIFF_HOSTD_CONFIG=hostd.json node swiff-os/hostd/src/main.ts return-to-windows
 ```
 
-The agent runs as TypeScript source on Node 22.18 or later, using Node's own type
-stripping, so there is no build step. The config format is in
-`hostd/hostd.example.json`. `serverUrl` must be `wss://`, since the machine key rides on
-it; plain `ws://` is accepted only for a server on this machine. `status` and
-`return-to-windows` talk to the running agent over its control socket, which only root
-can use.
+From a checkout the agent runs as TypeScript source on Node 22.18 or later, using Node's own
+type stripping. The image's Node (Ubuntu's) is built without it, so the image runs one
+bundled file, `dist/swiff-hostd.mjs` (`npm run build -w @swiff/hostd`, which
+`image/stage.sh` runs), from `swiff-hostd.service`. The unit starts it once the firewall is
+up and the games are checked, and only when its config is there. It runs as root in a
+sandbox of its own (private `/tmp`, `/home` hidden, no new privileges, no kernel modules,
+logs or control groups); the streamer it starts inherits that and drops to its own user. The
+config format is in `hostd/hostd.example.json`, with the image's streamer. `serverUrl` must
+be `wss://`, since the machine key rides on it; plain `ws://` is accepted only for a server
+on this machine. `status` and `return-to-windows` talk to the running agent over its control
+socket, which only root can use.
 
 **Not yet here.** These come in later stages:
 
 - The end-of-session steps that come before the reboot: wait for Steam Cloud, upload
   saves that are not in Steam Cloud, log Steam out.
+- Its config on a real PC. The image starts the agent only once `/var/lib/swiff/hostd.json`
+  and the machine key are there, and `/var` is a tmpfs: how the owner's app hands Swiff OS the
+  machine id, key and server is still to decide and build. The session test gives it them on
+  a fixture disk.
 - The persistent state partition in the image (the agent already formats it and enrols
-  its key, sealing U and taking V, the first time the server has no V for the machine).
-- Attesting, and hosting on the host certificate it earns in place of the machine key
-  (the server side is merged; `HOSTING_ATTESTATION=optional` serves the machine key at
-  the `unattested` tier meanwhile), then re-attesting before each session.
+  its key, sealing U and taking V, the first time the server has no V for the machine). The
+  agent's `stateDir` belongs on it: on the tmpfs `/var` the agent would forget, across its
+  own restart, that it took the PC off offer itself, and go back to Windows. The session
+  test has both on disks of their own.
+- The attestation client (`state.attestCommand`; the session test stands one in for the
+  `insecure-dev` verifier), attesting, and hosting on the host certificate it earns in place
+  of the machine key (the server side is merged; `HOSTING_ATTESTATION=optional` serves the
+  machine key at the `unattested` tier meanwhile), then re-attesting before each session.
 - Holding the PC back until its games are verified.
 
 ## Steam sign-in, straight into the game (`steam/`)
@@ -863,9 +958,14 @@ npm test -w @swiff/steam-login                            # unit tests
 SWIFF_STEAM_SOCKET=/tmp/login.sock node swiff-os/steam/src/main.ts   # on an X display, with Steam installed
 ```
 
-The agent runs as TypeScript source on Node 22.18 or later, with no build step. It
-needs `steam`, `xwininfo`, `xprop`, `xwd` (x11-utils, x11-apps) and `zbarimg`
-(zbar-tools).
+From a checkout the agent runs as TypeScript source on Node 22.18 or later. The image runs
+it as one bundled file, `/usr/lib/swiff/steam/swiff-steam-login.mjs` (`npm run build -w
+@swiff/steam-login`, staged by `image/stage.sh`), with `steam/session` as the renter
+session. The image has what it needs: `steam`, `xwininfo`, `xprop`, `xwd` (x11-utils,
+x11-apps) and `zbarimg` (zbar-tools). Its socket directory, `/run/swiff/steam`, is the
+renter's with the streamer's group (2750), and the streamer gets `--steam-socket
+/run/swiff/steam/login.sock` from swiff-hostd's config, with `SWIFF_APPID` set once the
+agent knows the game booked.
 
 ### Measured in a VM
 
@@ -897,14 +997,11 @@ the approval to `signed-in` (and checks the `Success` line), the launch to
 
 - **Play-to-first-frame** on real GPU hardware with a real Steam account, in a
   supervised session with the captain at the PC.
-- **The image** runs `steam/session` as the renter session. It also needs:
-  - the Steam client installed outside the wiped home. Otherwise every boot would show
-    Ubuntu's installer prompt and then download Steam for about 2.5 minutes;
-  - the socket directory `/run/swiff/steam`, owned by `renter`, with the streamer's
-    group;
-  - `--steam-socket /run/swiff/steam/login.sock` among the streamer's arguments in
-    swiff-hostd's config. With it the streamer needs `SWIFF_APPID`, which swiff-hostd
-    sets once it knows the game booked.
+- **The Steam client installed outside the wiped home.** The image runs `steam/session`
+  as the renter session, but Steam's client is fetched into the renter's home on each
+  boot: every boot would show Ubuntu's installer prompt and then download Steam for about
+  2.5 minutes, before the PC is offered. It moves to the sealed state partition with
+  attestation (stage 3).
 - **Which city to expect.** The report wants the page to say which city Steam's map
   should show, as a phishing check, but the platform has no host location yet.
 - **Phone-only renters** (D7's fallback: password and phone approval through the

@@ -1,0 +1,190 @@
+#!/bin/bash
+# VM session test build only. Reports on the serial console what
+# vm/session-harness.mjs cannot see from outside the VM, one result per line:
+#   SWIFF-SESSIONTEST <PASS|FAIL|INFO> <name> <detail>
+# What the image is, how swiff-hostd gets from attesting to offered, and, while
+# it serves a renter, how the streamer and the Steam sign-in agent run. The
+# harness drives the renter and the boots, and judges the run.
+set -u
+
+say() { echo "SWIFF-SESSIONTEST $*"; }
+# Runs a command and reports PASS or FAIL under the given name.
+check() { # name detail command...
+	local name=$1 detail=$2
+	shift 2
+	if "$@" > /dev/null 2>&1; then say PASS "$name" "$detail"; else say FAIL "$name" "$detail"; fi
+}
+# Succeeds once the command does, trying twice a second for up to $1 seconds.
+wait_for() { # seconds command...
+	local tries=$(($1 * 2))
+	shift
+	for _ in $(seq "$tries"); do
+		"$@" > /dev/null 2>&1 && return 0
+		sleep 0.5
+	done
+	return 1
+}
+
+say INFO boot "$(cat /proc/sys/kernel/random/boot_id)"
+
+# --- The image ---------------------------------------------------------------------
+sb=$(od -An -t u1 /sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c 2> /dev/null | awk '{ print $NF }')
+check secure-boot "SecureBoot=$sb" test "$sb" = 1
+check root-is-verity "$(findmnt -no SOURCE /)" test "$(findmnt -no SOURCE /)" = /dev/mapper/root
+check node-22 "$(node --version 2>&1)" bash -c 'node --version | grep -q "^v22\."'
+# What the session asks gamescope to run: /usr/libexec/swiff/session run as the
+# renter, in a mount namespace of its own where gamescope is a stand-in that
+# writes down its arguments, one per line.
+session_argv() {
+	local dir
+	dir=$(mktemp -d /run/swiff-session-argv.XXXXXX)
+	chmod 755 "$dir"
+	printf '#!/bin/sh\nprintf "%%s\\n" "$@" > %s/argv\n' "$dir" > "$dir/gamescope"
+	chmod 755 "$dir/gamescope"
+	install -o renter -m 600 /dev/null "$dir/argv"
+	unshare -m sh -c 'mount --bind "$1/gamescope" /usr/games/gamescope &&
+		exec setpriv --reuid=renter --regid=renter --init-groups env -i /usr/libexec/swiff/session' _ "$dir" > /dev/null 2>&1
+	paste -sd' ' "$dir/argv"
+	rm -rf "$dir"
+}
+agent=/usr/lib/swiff/steam/swiff-steam-login.mjs
+session_args=$(session_argv)
+check session-runs-steam-agent "gamescope $session_args" \
+	test "$session_args" = "--steam -- node $agent" -a -f "$agent"
+# The image's zbarimg reads a grab of Steam's code as the agent runs it: as the renter.
+zbar=$(setpriv --reuid=renter --regid=renter --init-groups zbarimg --raw --quiet -Sdisable -Sqrcode.enable \
+	/run/swiff-sessiontest/qr/1.xwd 2>&1)
+check zbar-reads-steam-code "zbarimg read $(grep -c '^https://s\.team/q/' <<< "$zbar") sign-in link(s) off an X window dump" \
+	grep -q '^https://s\.team/q/[0-9]*/[0-9]*$' <<< "$zbar"
+
+# --- swiff-hostd: attested, its state open, offered -------------------------------------
+hostd() { SWIFF_HOSTD_CONFIG=/var/lib/swiff/hostd.json node /usr/lib/swiff/hostd/swiff-hostd.mjs "$@"; }
+phase() { hostd status 2> /dev/null | sed -n 's/.*"phase":"\([a-z-]*\)".*/\1/p'; }
+last=
+# Follows the agent's phase, saying each new one, until it is $1; fails after $2 seconds.
+follow() { # phase seconds
+	local now
+	for _ in $(seq "$2"); do
+		now=$(phase)
+		if [ -n "$now" ] && [ "$now" != "$last" ]; then
+			say INFO hostd-phase "$now"
+			last=$now
+		fi
+		[ "$now" = "$1" ] && return 0
+		sleep 1
+	done
+	return 1
+}
+
+wait_for 180 systemctl -q is-active swiff-hostd.service
+check hostd-active "$(systemctl is-active swiff-hostd.service)" systemctl -q is-active swiff-hostd.service
+follow offered 600
+check hostd-offered "phase $last" test "$last" = offered
+attested=$(cat /run/swiff-sessiontest/attested 2> /dev/null)
+check hostd-attested "attestations in this boot: ${attested:-none}" test -n "$attested"
+pid=$(systemctl show -P MainPID swiff-hostd.service)
+# The agent mounts the state in its own mount namespace (its unit's sandbox).
+state=$(nsenter -t "$pid" -m findmnt -no SOURCE,FSTYPE /var/lib/swiff/state 2>&1)
+check state-open "$state" grep -q '^/dev/mapper/swiff-state ext4$' <<< "$state"
+say INFO state-kept "$(ls /var/lib/swiff/keep | paste -sd' ' -)"
+
+# --- The renter session: what the streamer's user can capture -----------------------------
+# The renter's PipeWire nodes, as the renter sees them.
+nodes() {
+	setpriv --reuid=renter --regid=renter --init-groups env XDG_RUNTIME_DIR=/run/user/1000 pw-dump 2> /dev/null |
+		python3 -c 'import json, sys
+print(" ".join(sorted({o["info"]["props"].get("node.name", "") for o in json.load(sys.stdin)
+                       if o.get("type") == "PipeWire:Interface:Node"} - {""})))' 2> /dev/null
+}
+for _ in $(seq 60); do
+	nodes | grep -qw gamescope && break
+	sleep 1
+done
+say INFO pipewire-nodes "$(nodes)"
+say INFO renter-processes "$(for p in /proc/[0-9]*; do [ "$(stat -c %u "$p" 2> /dev/null)" = 1000 ] &&
+	tr '\0' ' ' < "$p/cmdline" 2> /dev/null | cut -c1-60 && echo; done | sort -u | paste -sd'|' -)"
+say INFO pipewire-grant "$(getfacl -p /run/user/1000/pipewire-0 2>&1 | grep swiff-stream | paste -sd' ' -)"
+# Three frames of gamescope's node through the renter's PipeWire socket, by
+# the GStreamer element the streamer captures with, as it names its stream.
+capture() { # setpriv options...
+	setpriv "$@" env PIPEWIRE_REMOTE=/run/user/1000/pipewire-0 HOME=/run/swiff-sessiontest \
+		GST_REGISTRY=/run/swiff-sessiontest/gst-$$.bin python3 -c '
+import gi
+gi.require_version("Gst", "1.0")
+from gi.repository import Gst
+Gst.init(None)
+p = Gst.parse_launch("pipewiresrc target-object=gamescope num-buffers=3 "
+                     "stream-properties=\"props,media.category=Capture,media.type=Video\" ! fakesink")
+p.set_state(Gst.State.PLAYING)
+m = p.get_bus().timed_pop_filtered(20 * Gst.SECOND, Gst.MessageType.EOS | Gst.MessageType.ERROR)
+p.set_state(Gst.State.NULL)
+print("frames" if m and m.type == Gst.MessageType.EOS else
+      "error: " + m.parse_error()[0].message if m else "no frames in 20 s")' 2>&1 | tail -n 1
+}
+say INFO renter-captures-gamescope "$(capture --reuid=renter --regid=renter --init-groups)"
+# The streamer's user, with its primary group alone, through the grant on that socket.
+streamer_capture=$(capture --reuid=961 --regid=961 --clear-groups)
+check streamer-user-captures-gamescope "$streamer_capture" test "$streamer_capture" = frames
+
+# --- Serving a renter: the streamer as its own user, the Steam agent's socket -----------
+if ! follow serving 1200; then
+	say FAIL hostd-serving "phase $last"
+	exit 0
+fi
+say INFO session "$(hostd status 2> /dev/null)"
+# The streamer's process: swiff-streamer.mjs, run by the streamer's user.
+streamer_pid() {
+	local p
+	for p in /proc/[0-9]*; do
+		[ "$(stat -c %u "$p" 2> /dev/null)" = 961 ] && grep -qa swiff-streamer.mjs "$p/cmdline" 2> /dev/null &&
+			basename "$p" && return 0
+	done
+	return 1
+}
+wait_for 60 streamer_pid
+spid=$(streamer_pid)
+if [ -z "$spid" ]; then
+	say FAIL streamer-running "no swiff-streamer process"
+else
+	ids=$(awk '/^(Uid|Gid|Groups):/' "/proc/$spid/status" | tr '\t' ' ' | paste -sd' ' -)
+	check streamer-own-user "$ids" \
+		awk '/^Uid:/ { u = $2 } /^Gid:/ { g = $2 } /^Groups:/ { n = NF - 1 } END { exit !(u == 961 && g == 961 && n == 0) }' \
+		"/proc/$spid/status"
+	caps=$(awk '/^CapEff:/ { print $2 }' "/proc/$spid/status")
+	check streamer-no-capabilities "CapEff=$caps" test "$caps" = 0000000000000000
+	# Only hostd's three settings: the session key came on stdin, never in the environment.
+	env=$(tr '\0' '\n' < "/proc/$spid/environ" | cut -d= -f1 | sort | paste -sd' ' -)
+	check streamer-environment "$env" test "$env" = "PATH SWIFF_APPID SWIFF_HOST_ID SWIFF_SERVER_URL"
+	args=$(tr '\0' ' ' < "/proc/$spid/cmdline")
+	check streamer-steam-socket "$args" grep -q -- '--steam-socket /run/swiff/steam/login.sock' <<< "$args"
+	check renter-cannot-read-streamer "the renter reads neither its environment nor its memory" \
+		bash -c "! setpriv --reuid=renter --regid=renter --init-groups cat /proc/$spid/environ && ! setpriv --reuid=renter --regid=renter --init-groups head -c1 /proc/$spid/mem"
+fi
+# The renter's PipeWire graph once the streamer captures: its nodes, the
+# links between them and their state, and the clients' users.
+sleep 10
+graph=$(setpriv --reuid=renter --regid=renter --init-groups env XDG_RUNTIME_DIR=/run/user/1000 pw-dump 2> /dev/null |
+	python3 -c 'import json, sys
+objs = json.load(sys.stdin)
+props = lambda o: o.get("info", {}).get("props", {})
+names = {o["id"]: props(o).get("node.name", "?") for o in objs if o.get("type") == "PipeWire:Interface:Node"}
+out = []
+for o in objs:
+    t, i = o.get("type", ""), o.get("info", {})
+    if t == "PipeWire:Interface:Link":
+        out.append("link %s->%s %s %s" % (names.get(i.get("output-node-id")), names.get(i.get("input-node-id")),
+                                          i.get("state"), i.get("error") or ""))
+    elif t == "PipeWire:Interface:Client":
+        out.append("client %s uid %s" % (props(o).get("application.name"), props(o).get("pipewire.sec.uid")))
+    elif t == "PipeWire:Interface:Node" and props(o).get("node.name") not in ("Dummy-Driver", "Freewheel-Driver", "Midi-Bridge"):
+        out.append("node %s %s %s" % (props(o).get("node.name"), props(o).get("media.class"), i.get("state")))
+print("; ".join(out))' 2>&1)
+say INFO pipewire-graph "$graph"
+sock=$(stat -c '%U:%G %a' /run/swiff/steam/login.sock 2> /dev/null)
+check agent-socket "$sock" test "$sock" = "renter:swiff-stream 660"
+registry=/home/renter/.steam/registry.vdf
+check steam-remembers-nothing "$(grep -o '"RememberPassword"[^"]*"[^"]*"' "$registry" 2> /dev/null)" \
+	grep -q '"RememberPassword"[[:space:]]*"0"' "$registry"
+
+# The session's end, the streamer stopping and the restart that follows are in
+# swiff-hostd's own log on this console, which the harness reads.

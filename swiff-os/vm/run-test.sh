@@ -126,6 +126,7 @@ fi
 if [ "$build" = 1 ]; then
 	log "Building the test image (mkosi --profile=selftest)"
 	mkdir -p "$out" "$build_dir/cache"
+	"$image_dir/stage.sh" "$out"
 	sudo mkosi -C "$image_dir" --output-dir "$out" --cache-dir "$build_dir/cache" --profile=selftest -f build
 fi
 disk_src=$out/swiffos-selftest.raw

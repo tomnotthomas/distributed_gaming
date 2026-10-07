@@ -19,6 +19,12 @@ export const VIDEO_PT = 96;
 export const AUDIO_PT = 111;
 /** Room for SRTP and a TURN header inside a 1280-byte path MTU. */
 export const RTP_MTU = 1200;
+/**
+ * What every capture stream tells PipeWire about itself, with its media.type.
+ * WirePlumber 0.5 links a stream without media.type only by luck: its fallback
+ * fails on one, so a capture started again can find no target.
+ */
+const CAPTURE_PROPS = "media.category=Capture";
 /** The raw formats taken from gamescope's PipeWire stream (system memory). */
 export const GAMESCOPE_FORMATS = ["BGRx", "BGRA", "RGBx", "RGBA", "NV12", "I420"];
 /** A keyframe at least this often, for a decoder whose PLI got lost. */
@@ -55,7 +61,8 @@ export function videoPipeline(s: VideoSettings, encoder: Encoder): string {
       : // keepalive-time repeats the last frame of a still screen, so the stream never stalls.
         // The formats are gamescope's shared-memory ones: left open, pipewiresrc offers
         // everything videoconvert takes, DMA-BUF layouts included, and negotiation fails.
-        `pipewiresrc target-object=${s.pipewireTarget} do-timestamp=true keepalive-time=1000 ! ` +
+        `pipewiresrc target-object=${s.pipewireTarget} do-timestamp=true keepalive-time=1000 ` +
+        `stream-properties="props,${CAPTURE_PROPS},media.type=Video" ! ` +
         `video/x-raw,format={${GAMESCOPE_FORMATS.join(",")}}`;
   // A frame the encoder cannot take yet is dropped, never queued: latency over smoothness.
   const leaky = "queue max-size-buffers=1 max-size-time=0 max-size-bytes=0 leaky=downstream";
@@ -114,7 +121,7 @@ export function audioPipeline(s: AudioSettings): string | null {
     s.audio === "test"
       ? "audiotestsrc is-live=true wave=sine freq=440 volume=0.05"
       : // What the renter's session plays: the default sink's monitor.
-        'pipewiresrc do-timestamp=true stream-properties="props,stream.capture.sink=true"';
+        `pipewiresrc do-timestamp=true stream-properties="props,stream.capture.sink=true,${CAPTURE_PROPS},media.type=Audio"`;
   return [
     source,
     "audioconvert",

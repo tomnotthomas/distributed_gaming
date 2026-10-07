@@ -1,0 +1,19 @@
+#!/bin/sh
+# VM session test build only: the renter session (steam/session) as far as a
+# VM without a GPU can run it. gamescope cannot start here: it needs a Vulkan
+# driver that names its DRM device. So a test picture under gamescope's
+# PipeWire node name (fake-gamescope.py) stands in for it, and a tone
+# (test-tone.py) for the game's sound; Steam and the X tools the agent reads
+# Steam through stand in for a Steam account (sessiontest/bin). The agent
+# itself is the image's, run as steam/session runs it.
+set -eu
+export PATH=/usr/lib/swiff/sessiontest/bin:/usr/games:/usr/local/bin:/usr/bin
+(while :; do
+	python3 /usr/lib/swiff/sessiontest/fake-gamescope.py || true
+	sleep 1
+done) &
+(while :; do
+	python3 /usr/lib/swiff/sessiontest/test-tone.py | pw-cat --playback --raw --format s16 --rate 48000 --channels 2 - || true
+	sleep 1
+done) &
+exec node /usr/lib/swiff/steam/swiff-steam-login.mjs

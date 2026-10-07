@@ -1,21 +1,41 @@
 # swiff-hostd, the rental-mode agent. Runs as root: it holds the machine key,
-# starts the streamer as its own user, and restarts the machine. The image
-# stage installs it; the paths below are where that stage puts things.
+# opens the persistent state, starts the streamer as its own user
+# (swiff-stream) for each renter session, and restarts the machine. The image
+# installs it (image/stage.sh) as one bundled file for Ubuntu's Node.
+#
+# It is offered only once the firewall is up and the games library is checked,
+# and it runs only on a machine given its config (machine id, key file,
+# server, streamer).
 [Unit]
 Description=Lanterel rental-mode agent
 Wants=network-online.target
-After=network-online.target
+After=network-online.target nftables.service swiff-hwcheck.service swiff-games.service
+Requires=nftables.service swiff-games.service
+ConditionPathExists=/var/lib/swiff/hostd.json
 
 [Service]
 Environment=SWIFF_HOSTD_CONFIG=/var/lib/swiff/hostd.json
-ExecStart=/usr/bin/node /usr/lib/swiff/hostd/src/main.ts
+ExecStart=/usr/bin/node /usr/lib/swiff/hostd/swiff-hostd.mjs
 Restart=on-failure
 RestartSec=5
 # The control socket's directory: root's alone.
 RuntimeDirectory=swiff-hostd
 RuntimeDirectoryMode=0700
 PrivateTmp=yes
-ProtectHome=yes
+# Not ProtectHome=, which would also hide /run/user: the streamer it starts
+# reaches the renter's PipeWire socket there.
+InaccessiblePaths=-/home -/root
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK AF_ALG
 
 [Install]
 WantedBy=multi-user.target
