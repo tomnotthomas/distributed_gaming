@@ -39,7 +39,10 @@ ENTER = b"\r"
 
 
 class Vm:
+    """A QEMU VM whose serial console is read and typed on."""
+
     def __init__(self, qemu, log, sock=None):
+        """Starts qemu with its serial port on stdio, or attaches to its serial socket sock, keeping everything it prints in log."""
         if sock:
             self.proc = None
             self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -53,6 +56,7 @@ class Vm:
             self.out = self.proc.stdout
 
             def send(data):
+                """Types data on QEMU's stdin."""
                 self.proc.stdin.write(data)
                 self.proc.stdin.flush()
 
@@ -115,6 +119,7 @@ class Vm:
             time.sleep(0.3)
 
     def stop(self):
+        """Detaches from the socket, or stops QEMU, killing it if it has not exited within 10 seconds."""
         if not self.proc:
             self.sock.close()
             return
@@ -127,6 +132,7 @@ class Vm:
 
 
 def main(log, mode, *rest):
+    """Boots or attaches to the VM, then misses, confirms or removes on MokManager's screen, or waits, as mode says."""
     if "--socket" in rest:
         vm = Vm(None, log, rest[rest.index("--socket") + 1])
     else:
@@ -135,6 +141,7 @@ def main(log, mode, *rest):
     loose = "--loose" in rest
     # A screen that may come in pieces: waited for, but not required, with --loose.
     def screen(text, timeout=30):
+        """Waits for text on the screen."""
         vm.expect(text, 8 if loose else timeout, required=not loose)
     try:
         if mode == "wait":

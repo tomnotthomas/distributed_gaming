@@ -43,11 +43,13 @@ NV_BS_RT = 7
 
 
 def load(path):
+    """The variable store at `path`, and its variables."""
     store = autodetect.open_varstore(path)
     return store, store.get_varlist()
 
 
 def save(store, varlist, path):
+    """Write `varlist` back to `store`'s file at `path`."""
     store.write_varstore(path, varlist)
 
 
@@ -64,6 +66,7 @@ def cert_from_auth(path):
 
 
 def hd_path(part, start, size, uuid, path):
+    """A device path to the file `path` on GPT partition `part` (start and size in sectors)."""
     hd = devpath.DevicePathElem()
     hd.set_gpt(int(part), int(start), int(size), uuid)
     fp = devpath.DevicePathElem()
@@ -88,6 +91,7 @@ def entries(varlist):
 
 
 def index_of(varlist, title):
+    """The Boot#### index of the entry titled `title`; exits when there is none."""
     for index, name in entries(varlist).items():
         if name == title:
             return index
@@ -95,6 +99,7 @@ def index_of(varlist, title):
 
 
 def order(varlist):
+    """BootOrder, as a list of Boot#### indexes."""
     var = varlist.get("BootOrder")
     if not var:
         return []
@@ -102,11 +107,13 @@ def order(varlist):
 
 
 def set_order(varlist, indexes):
+    """Set BootOrder to `indexes`, creating it when missing."""
     var = varlist.get("BootOrder") or varlist.create("BootOrder")
     var.set_boot_order(indexes)
 
 
 def main(cmd, vars_path, *args):
+    """Run one command from the usage above; `vars_path` is its first argument (VARS, or DB_AUTH for cert)."""
     if cmd == "init":
         template, db_auth, part, start, size, uuid = args
         store, varlist = load(template)

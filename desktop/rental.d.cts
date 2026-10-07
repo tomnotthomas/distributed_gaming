@@ -204,16 +204,24 @@ export const BOOT_CHANGES: Set<string>;
 /** The drives BitLocker protects that a boot change can ask the recovery key of: C:, and the games drive. */
 export function bitlockerDrives(rental: RentalRead | null): string[];
 export const SCRIPT: string;
+/** The graphics vendor from a PCI device id: locale-proof, unlike the names. */
 export function gpuVendor(pnp: string): GpuVendor;
+/** BitLocker on a drive, from the shell's System.Volume.BitLockerProtection: on, off, or null when unknown. */
 export function bitlockerState(value: unknown): "on" | "off" | null;
+/** The TPM's maker, from `tpmtool getdeviceinformation`, and whether it is built into the processor. */
 export function tpmMaker(info: unknown): { maker: string | null; firmware: boolean | null };
+/** The script's output as plain, checked facts. Anything it could not read is null. */
 export function factsOf(raw: unknown): RentalFacts;
+/** What an install recorded so far (rental-install.json), checked; null when nothing was installed. */
 export function installOf(raw: unknown): InstallRecord | null;
+/** The unused stretches of a GPT disk, MiB-aligned, with room left for the backup table at the end. */
 export function freeSpans(
   disk: RentalFacts["disks"][number],
   partitions: RentalFacts["partitions"],
 ): { offset: number; bytes: number }[];
+/** Where Swiff OS can go, best first: free space on a GPT disk, then shrinking C:, then another fixed NTFS drive. */
 export function targetsOf(facts: RentalFacts, need?: number): RentalTarget[];
+/** Steam's libraries on this PC by drive, with how many games each holds. */
 export function libraryDrives(options?: {
   platform?: string;
   env?: Record<string, string | undefined>;
@@ -221,12 +229,16 @@ export function libraryDrives(options?: {
   steamPath?: string | null;
   files?: { readFileSync(file: string, encoding: "utf8"): string; readdirSync(dir: string): string[] };
 }): { letter: string; games: number }[];
+/** The drive Swiff OS shares games from: the one whose Steam libraries hold the most games. */
 export function gamesDriveOf(
   facts: RentalFacts,
   libraries: { letter: string; games: number }[],
 ): GamesDrive | null;
+/** The last live run in Swiff OS (last-live.json), checked; null when there is none or it does not read as one. */
 export function lastLiveOf(raw: unknown): LastLive | null;
+/** Everything the rental-mode screen shows, from the script's output and Steam's libraries. */
 export function rentalOf(raw: unknown, libraries?: { letter: string; games: number }[]): RentalRead;
+/** What rental mode needs from this PC, read fresh; null where it cannot be read (off Windows). */
 export function readRental(options?: {
   platform?: string;
   run?: (script: string) => Promise<string>;
@@ -236,15 +248,22 @@ export function readRental(options?: {
   home?: string;
   files?: { readFileSync(file: string, encoding: "utf8"): string; readdirSync(dir: string): string[] };
 }): Promise<RentalRead | null>;
+/** Swiff OS's partitions as an image's own GPT has them, in disk order; throws unless they are the ones SWIFF_OS expects. */
 export function imageLayout(gpt: Gpt): LayoutPartition[];
+/** The image file a partition's contents come from: swiffos_0.1.0.esp.raw. */
 export function splitFile(split: string, version?: string): string;
+/** A one-time code for the MOK confirmation: 8 random digits. */
 export function mokCode(random?: (max: number) => number): string;
+/** MokNew, MokAuth and MokTimeout, the variables that queue `cert` (DER) for enrolment with `code`. */
 export function mokRequest(
   cert: Uint8Array,
   code: string,
 ): { guid: string; attributes: number; MokNew: Buffer; MokAuth: Buffer; MokTimeout: Buffer };
+/** Queue Swiff's key with a one-time code and point the next start at Swiff OS, then restart once into its confirmation. */
 export function mokSteps(code: string): PlanStep[];
+/** Confirm Swiff's key again after a missed confirmation, with a new code, BitLocker on C: suspended as `rental` says. */
 export function mokPlan(code?: string, rental?: RentalRead | null): RentalPlan;
+/** The steps that install Swiff OS next to Windows, for the target the owner chose, then queue Swiff's key. */
 export function installPlan(
   rental: RentalRead,
   options?: {
@@ -254,10 +273,17 @@ export function installPlan(
     errorReports?: { key: string; host: string } | null;
   },
 ): RentalPlan;
+/** LANTEREL.ENV's lines for `project`, or null unless it is a PostHog project key and an https origin on posthog.com, as Swiff OS takes them. */
 export function errorReportsFile(project: { key?: unknown; host?: unknown }): string | null;
+/** The steps that take Swiff OS off this PC again, from what the install recorded; also what undoes an install that stopped half way. */
 export function uninstallPlan(rental: RentalRead): RentalPlan;
+/** Ask the PC to stop trusting Swiff's key: MokManager removes it once the owner confirms at the PC with a new code. */
 export function keyRemovalPlan(code?: string, rental?: RentalRead | null): RentalPlan;
+/** Remove Swiff OS, in two parts (`phase`): Swiff's key off through MokManager first when `key`, then the disk. */
 export function removePlan(rental: RentalRead, options?: { key?: boolean; code?: string }): RentalPlan;
+/** Start Swiff OS once, start sharing (Swiff OS first in the boot order), or stop (Windows first again). */
 export function switchPlan(kind: "once" | "start" | "stop"): RentalPlan;
+/** The PowerShell lines an operation is; null for the operations the worker does itself, in bytes. */
 export function shellOf(op: PlanOp): string[] | null;
+/** What an operation does, as the commands it is or, for the worker's own byte-level ones, in words. */
 export function commandsOf(op: PlanOp): string[];
