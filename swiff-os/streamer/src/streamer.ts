@@ -127,10 +127,14 @@ export function startStreamer({
     attachInput(pc, receiver, current);
 
     const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
     if (peer !== current) return;
-    const local = pc.localDescription!;
-    send({ type: "offer", sdp: { type: local.type, sdp: local.sdp } });
+    // The offer goes before werift gathers, and the candidates follow it as werift
+    // finds them (onIceCandidate above). Its setLocalDescription waits for every
+    // candidate, up to 5 s for a STUN server that does not answer (UDP blocked, or
+    // its name not resolving), and a renter who reconnects joins again every 4 s
+    // while no offer has come: an offer held that long never reaches them.
+    send({ type: "offer", sdp: { type: offer.type, sdp: offer.sdp } });
+    await pc.setLocalDescription(offer);
   };
 
   /** The renter's input channels, created before the offer so they are in the first negotiation. */

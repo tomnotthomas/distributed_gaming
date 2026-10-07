@@ -46,7 +46,8 @@ const INSTALL: RentalPlan = {
     step("check", "Check the Secure Boot keys and the TPM (asks for administrator)"),
     step("fast-startup", "Turn off Fast Startup so Lanterel OS can read your drives"),
     step("room", "Shrink C: by 24 GB"),
-    step("partitions", "Create 6 partitions for Lanterel OS on disk 0"),
+    step("partitions", "Create 8 partitions for Lanterel OS on disk 0"),
+    step("provision", "Give Lanterel OS this PC's machine key", [{ op: "provision" }]),
     step("write", "Copy Lanterel OS onto them", [
       { op: "write", disk: 0, offset: AT, bytes: 1 * GiB, source: "esp" },
       { op: "write", disk: 0, offset: AT + GiB, bytes: 8 * GiB, source: "root-x86-64" },
@@ -79,7 +80,7 @@ const UNINSTALL: RentalPlan = {
   kind: "uninstall",
   steps: [
     step("boot-entry", "Take Lanterel OS out of the boot menu"),
-    step("partitions", "Remove Lanterel OS's 6 partitions from disk 0"),
+    step("partitions", "Remove Lanterel OS's 8 partitions from disk 0"),
     step("room", "Give C: its 24 GB back"),
   ],
 };
@@ -99,7 +100,7 @@ const REMOVE_DISK: RentalPlan = {
   phase: "disk",
   steps: [
     step("boot-entry", "Take Lanterel OS out of the boot menu"),
-    step("partitions", "Remove Lanterel OS's 6 partitions from disk 0"),
+    step("partitions", "Remove Lanterel OS's 8 partitions from disk 0"),
     step("room", "Give C: its 24 GB back"),
     step("verify", "Check nothing of Lanterel OS is left"),
     step("forget", "Forget the install"),
@@ -110,10 +111,14 @@ const REMOVE_DISK: RentalPlan = {
 const ONCE: RentalPlan = {
   kind: "once",
   steps: [
+    step("provision", "Give Lanterel OS this PC's machine key", [{ op: "provision" }]),
     step("once", "Start Lanterel OS on the next restart only"),
     { ...restart("Restart into Lanterel OS"), id: "restart" },
   ],
 };
+
+/** Where the install's step `id` is in its list. */
+const stepAt = (id: string) => INSTALL.steps.findIndex((s) => s.id === id);
 
 const PLANS: Partial<Record<RentalPlan["kind"], RentalPlan>> = {
   install: INSTALL,
@@ -205,7 +210,7 @@ function runAt(plan: RentalPlan, at: number, state: "running" | "failed", elapse
 
 /** A write `share` of the way through, its rate measured for `elapsed` seconds. */
 function writing(run: RentalRun, share: number, elapsed: number): RentalRun {
-  const total = writesOf(INSTALL.steps[4]!).reduce((a, b) => a + b, 0);
+  const total = writesOf(INSTALL.steps[stepAt("write")]!).reduce((a, b) => a + b, 0);
   const done = total * share;
   const now = Date.now();
   const m: RateMeter = {
@@ -257,14 +262,14 @@ function startOf(c: RentalCase): Start {
         ...idle,
         read: ready,
         preview: INSTALL,
-        run: writing(runAt(INSTALL, 4, "running", 131), 0.42, 131),
+        run: writing(runAt(INSTALL, stepAt("write"), "running", 131), 0.42, 131),
       };
     case "rental-run-late":
       return {
         ...idle,
         read: ready,
         preview: INSTALL,
-        run: writing(runAt(INSTALL, 4, "running", 286), 0.91, 286),
+        run: writing(runAt(INSTALL, stepAt("write"), "running", 286), 0.91, 286),
       };
     case "rental-restart":
       return {
@@ -272,9 +277,9 @@ function startOf(c: RentalCase): Start {
         read: ready,
         preview: INSTALL,
         run: {
-          ...runAt(INSTALL, 8, "running", 0),
+          ...runAt(INSTALL, stepAt("mok-restart"), "running", 0),
           status: "done",
-          steps: Object.fromEntries(INSTALL.steps.slice(0, 8).map((s) => [s.id, "done"])),
+          steps: Object.fromEntries(INSTALL.steps.slice(0, stepAt("mok-restart")).map((s) => [s.id, "done"])),
         },
       };
     case "rental-restarting":
@@ -283,9 +288,9 @@ function startOf(c: RentalCase): Start {
         read: ready,
         preview: INSTALL,
         run: {
-          ...runAt(INSTALL, 8, "running", 7),
+          ...runAt(INSTALL, stepAt("mok-restart"), "running", 7),
           status: "restarting",
-          steps: Object.fromEntries(INSTALL.steps.slice(0, 8).map((s) => [s.id, "done"])),
+          steps: Object.fromEntries(INSTALL.steps.slice(0, stepAt("mok-restart")).map((s) => [s.id, "done"])),
         },
       };
     case "rental-ask":

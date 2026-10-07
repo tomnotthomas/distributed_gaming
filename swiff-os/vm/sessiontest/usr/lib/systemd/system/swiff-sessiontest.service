@@ -2,7 +2,7 @@
 # harness (vm/session-harness.mjs) cannot see from outside the VM.
 [Unit]
 Description=Lanterel OS session test: what swiff-hostd, the streamer and the agent do
-After=swiff-sessiontest-provision.service
+After=swiff-sessiontest-fixtures.service
 
 [Service]
 ExecStart=/usr/libexec/swiff/sessiontest-monitor

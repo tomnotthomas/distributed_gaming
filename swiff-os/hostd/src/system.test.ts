@@ -100,3 +100,21 @@ describe("a command with a time limit", () => {
     await expect(runWithin(50)("sleep", ["5"])).rejects.toThrow();
   });
 });
+
+describe("the Steam client kept for the next boot (steam/client)", () => {
+  it("is ready once keeping it is done, and is closed under the lock a keeping holds", async () => {
+    const root = await machine({});
+    const runs: string[][] = [];
+    const system = linuxSystem(ALL, root, async (command, args) => {
+      runs.push([command, ...args]);
+      return "";
+    });
+    expect(await system.steamClientReady()).toBe(false);
+    await mkdir(join(root, "run/swiff/steam-client"), { recursive: true });
+    await writeFile(join(root, "run/swiff/steam-client/done"), "saved\n");
+    expect(await system.steamClientReady()).toBe(true);
+    await system.closeSteamClient();
+    const dir = join(root, "run/swiff/steam-client");
+    expect(runs).toEqual([["flock", join(dir, "lock"), "touch", join(dir, "closed")]]);
+  });
+});

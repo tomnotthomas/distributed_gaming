@@ -8,6 +8,7 @@
 //       where Remove Swiff OS stands
 //   node rental-cli.cjs run <install|uninstall|unkey|remove|mok|once|start|stop> --image <dir>
 //           [--target <id>] [--dry-run] [--code <8 digits>]
+//           [--server <wss://...> --machine-id <id> --machine-key-file <file>]
 //       plan it and run every step: typing this command is the confirmation.
 //       remove runs Remove Swiff OS's next part: its key (MokManager, after the
 //       restart), or, once that restart is behind it, the disk, its check and
@@ -30,11 +31,17 @@
 // it chooses the code and gives it with --code, so they have it already, and a
 // plan that needs one is refused without it (a dry run still goes). Answers
 // and a dry run's operations show it as (hidden).
+//
+// The install and each start of Swiff OS hand it this PC's server, machine id
+// and machine key (provision.cjs): --server, --machine-id, and the key read
+// from --machine-key-file, never from the command line, which every user can
+// read. Without them that step fails; nothing here shows the key.
 
 const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
 const readline = require("node:readline");
+const { machineProblem } = require("./provision.cjs");
 const { dryRun, runPlan, startWorker } = require("./rental-exec.cjs");
 const { readImageSet, trustOf } = require("./image-set.cjs");
 const { bootTrail } = require("./rental-key.cjs");
@@ -130,9 +137,26 @@ function codeOf(opts, p = null) {
   return code;
 }
 
-/** A dry run's operations as an answer shows them: without any key code. */
+/** A dry run's operations as an answer shows them: without any key code, nor a machine key. */
 const unkeyed = (ops) =>
-  ops.map(({ code, ...op }) => (code === undefined ? op : { ...op, code: "(hidden)" }));
+  ops.map(({ code, record, ...op }) => (code === undefined ? op : { ...op, code: "(hidden)" }));
+
+/** What a plan's provision op hands Swiff OS from this console's flags (see the top of this file). */
+function provisioningOf(opts, files = fs) {
+  const { server, "machine-id": machineId, "machine-key-file": keyFile } = opts;
+  if (typeof server !== "string" || typeof machineId !== "string" || typeof keyFile !== "string")
+    throw new Error(
+      "This step hands Lanterel OS this PC's machine key: give --server, --machine-id and --machine-key-file.",
+    );
+  const machine = { serverUrl: server, machineId };
+  const problem = machineProblem(machine);
+  if (problem) throw new Error(problem);
+  return { ...machine, machineKey: files.readFileSync(keyFile, "utf8").trim() };
+}
+
+/** `apply`, with a provision op given what it hands Swiff OS; a dry run sends none. */
+const provisioned = (apply, opts) => async (op, progress) =>
+  apply(op.op === "provision" && !opts["dry-run"] ? { ...op, record: provisioningOf(opts) } : op, progress);
 
 /** The lines appended to `file`, as they come: the file is read again every half second. */
 async function* follow(file) {
@@ -175,7 +199,7 @@ async function main([cmd, ...rest]) {
     const w = await worker(opts.image, opts["dry-run"]);
     try {
       const outcome = await runPlan(p, {
-        apply: w.apply,
+        apply: provisioned(w.apply, opts),
         onEvent: (event) => {
           // Remove Swiff OS: recorded before its restart, as the app records it.
           if (!opts["dry-run"] && event.type === "step" && event.state === "done")
@@ -221,7 +245,7 @@ async function main([cmd, ...rest]) {
           w ??= await worker(opts.image, opts["dry-run"]);
           say({
             outcome: await runPlan(current, {
-              apply: w.apply,
+              apply: provisioned(w.apply, opts),
               only: args,
               onEvent: (event) => say({ event }),
             }),
@@ -238,7 +262,7 @@ async function main([cmd, ...rest]) {
   process.exitCode = 2;
 }
 
-module.exports = { codeOf, shown, unkeyed };
+module.exports = { codeOf, provisioningOf, shown, unkeyed };
 
 if (require.main === module)
   main(process.argv.slice(2)).catch((error) => {

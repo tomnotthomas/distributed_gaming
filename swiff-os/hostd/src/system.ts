@@ -7,7 +7,7 @@
 // and reboots (rental-mode report §5.1).
 
 import { execFile } from "node:child_process";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { FloorCheck, HardwareFloor } from "./config.ts";
@@ -21,6 +21,10 @@ export type System = {
   unmetFloor(): Promise<FloorCheck[]>;
   /** The kernel's id for this boot: a new one after every restart. */
   bootId(): Promise<string>;
+  /** Whether the Steam client is at its sign-in window and kept for the next boot, or will not be (steam/client). */
+  steamClientReady(): Promise<boolean>;
+  /** Keep nothing more of the Steam client in this boot; waits for a keeping under way to finish. */
+  closeSteamClient(): Promise<void>;
 };
 
 /** Runs a command and resolves with its stdout. */
@@ -34,6 +38,12 @@ export const runWithin =
   (timeoutMs: number): Run =>
   async (command, args) =>
     (await promisify(execFile)(command, args, { timeout: timeoutMs })).stdout;
+
+/**
+ * Where steam/client says how keeping the Steam client went in this boot
+ * (`done`), takes its lock while it keeps it, and finds keeping closed.
+ */
+export const STEAM_CLIENT_RUN = "run/swiff/steam-client";
 
 /** The EFI global variable that says whether Secure Boot is enforcing. */
 const SECURE_BOOT_VAR = "sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c";
@@ -66,6 +76,13 @@ export function linuxSystem(floor: HardwareFloor, root = "/", exec: Run = run): 
       return checks.filter((_, i) => !met[i]);
     },
     bootId: async () => (await readFile(at("proc/sys/kernel/random/boot_id"), "utf8")).trim(),
+    steamClientReady: () => exists(at(`${STEAM_CLIENT_RUN}/done`)),
+    closeSteamClient: async () => {
+      const dir = at(STEAM_CLIENT_RUN);
+      await mkdir(dir, { recursive: true, mode: 0o755 });
+      // Under the lock a keeping holds while it copies: one under way finishes first, and none starts after.
+      await exec("flock", [join(dir, "lock"), "touch", join(dir, "closed")]);
+    },
   };
 }
 

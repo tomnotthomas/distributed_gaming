@@ -8,10 +8,12 @@
 //                  Fast Startup, and what an install has done so far.
 //   installPlan    the exact steps that install Swiff OS next to Windows:
 //                  suspend BitLocker, shrink a drive (or use free space), add
-//                  Swiff OS's partitions, write it (and the project Lanterel Host
-//                  reports errors to, onto its ESP), add its UEFI boot entry, name
-//                  the games drive, then queue Swiff's key for the owner to
-//                  confirm once at the PC (MOK) and restart into that confirmation.
+//                  Swiff OS's partitions, hand it this PC's machine key
+//                  (provision.cjs), write it (and the project Lanterel Host
+//                  reports errors to, onto its ESP), add its UEFI boot entry,
+//                  name the games drive, then queue Swiff's key for the owner
+//                  to confirm once at the PC (MOK) and restart into that
+//                  confirmation.
 //   uninstallPlan  the steps that take it all back off, from what the install
 //                  recorded: also what undoes an install that stopped half way.
 //   removePlan     Remove Swiff OS, as one action in two parts: Swiff's key off
@@ -20,7 +22,8 @@
 //                  restart that shows Windows still starts.
 //   switchPlan     the steps that start Swiff OS once (BootNext), start sharing
 //                  (Swiff OS first in the boot order, BootNext, restart) and stop
-//                  it (Windows first).
+//                  it (Windows first). Each restart into Swiff OS hands it this
+//                  PC's machine key again first.
 //
 // Each step carries its operations (`ops`) and the Windows commands they
 // stand for (commandsOf). The installer (rental-exec.cjs) runs the ops through
@@ -59,7 +62,10 @@ const NO_AUTO = "0x800000000000000";
 /**
  * Swiff OS's partitions, as swiff-os/image/mkosi.repart lays them out: a fixed
  * 23.6 GiB with no size choice (captain decision D6). `split` names the image
- * file a partition's contents come from; slot B and the scratch start empty.
+ * file a partition's contents come from; slot B, the scratch, the keep and the
+ * state start empty. The keep is where this app leaves the provisioning
+ * (provision.cjs) and Swiff OS keeps it sealed; the state is Swiff OS's
+ * persistent state, which it formats itself.
  * The unique ids, names and attributes are the image's own: an installer reads them from
  * the image it writes (imageLayout), because Swiff OS finds its root by an id
  * derived from the root hash.
@@ -72,7 +78,9 @@ const SWIFF_OS = {
     { role: "verity-a", type: TYPE.verity, bytes: 128 * MiB, split: "root-x86-64-verity", attrs: READ_ONLY },
     { role: "root-b", type: TYPE.root, bytes: 8 * GiB, split: null, attrs: NO_AUTO },
     { role: "verity-b", type: TYPE.verity, bytes: 128 * MiB, split: null, attrs: READ_ONLY },
-    { role: "scratch", type: TYPE.linux, bytes: 6528 * MiB, split: null, attrs: "0x0" },
+    { role: "scratch", type: TYPE.linux, bytes: 3440 * MiB, split: null, attrs: "0x0" },
+    { role: "keep", type: TYPE.linux, bytes: 16 * MiB, split: null, attrs: "0x0" },
+    { role: "state", type: TYPE.linux, bytes: 3072 * MiB, split: null, attrs: "0x0" },
   ],
 };
 
@@ -702,6 +710,11 @@ function commandsOf(op) {
             ]
           : []),
       ];
+    case "provision":
+      return [
+        "# Lanterel Host's provisioning record (provision.cjs): the server, this PC's machine id and its machine key, written raw at the start of Lanterel OS's keep partition, then read back",
+        "#   Lanterel OS seals it to this PC's TPM at its next start and zeroes it there; the machine key is never shown or logged",
+      ];
     case "installed":
       return [`# Record in ${INSTALL_FILE} that Lanterel OS is installed`];
     case "forget":
@@ -719,6 +732,20 @@ const step = (id, title, ops, confirm = null) => ({
   ops,
   commands: ops.flatMap(commandsOf),
 });
+
+/**
+ * Hand Swiff OS what its agent needs to offer this PC: the server, the machine
+ * id and the machine key (provision.cjs). The op names none of them: the app
+ * fills them in as the step runs, from the machine key it keeps encrypted, so
+ * neither the plan on screen nor a report carries the key.
+ */
+const provisionStep = () =>
+  step(
+    "provision",
+    "Give Lanterel OS this PC's machine key",
+    [{ op: "provision" }],
+    "Lanterel OS gets this PC's machine id and machine key on its own partition, and at its next start seals them to this PC's TPM, so only Lanterel OS on this PC can read them.",
+  );
 
 /**
  * The steps that install Swiff OS next to Windows, for the target the owner
@@ -807,6 +834,8 @@ function installPlan(
         `Disk ${disk}'s partition table gets Lanterel OS's ${parts.length} partitions, in the ${gb(SWIFF_OS_BYTES)} ${shrink ? `${target.letter}: gave` : "that was free"}.`,
       ),
     );
+  // Before the long write: a PC without its machine key in the app stops here, with nothing to write again.
+  steps.push(provisionStep());
   steps.push(
     step(
       "write",
@@ -1077,6 +1106,7 @@ function switchPlan(kind) {
     return {
       kind,
       steps: [
+        provisionStep(),
         step("once", "Start Lanterel OS on the next restart only", [{ op: "boot-next", entry: "swiff" }]),
         step(
           "restart",
@@ -1091,6 +1121,7 @@ function switchPlan(kind) {
     return {
       kind,
       steps: [
+        provisionStep(),
         step("boot-order", "Put Lanterel OS first in the boot order", [{ op: "boot-first", entry: "swiff" }]),
         step("boot-next", "Start Lanterel OS on this restart", [{ op: "boot-next", entry: "swiff" }]),
         step(

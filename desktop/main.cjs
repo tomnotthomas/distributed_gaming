@@ -29,6 +29,7 @@ const { readPc, readSteamArt, steamPathOnce, steamRootOnce, watchSteamGames } = 
 const { testBuild } = require("./build-kind.cjs");
 const { MANIFEST, readImageSet, trustOf } = require("./image-set.cjs");
 const { downloadSet, sourceOf } = require("./image-download.cjs");
+const { machineProblem } = require("./provision.cjs");
 const { runPlan, startWorker } = require("./rental-exec.cjs");
 const { BITLOCKER_PANEL, drivesOff, recoveryOf, recoveryStore } = require("./recovery-key.cjs");
 const { bootTrail, canAnswer, keyOf, keyStep, keyStore } = require("./rental-key.cjs");
@@ -255,6 +256,8 @@ const restarts = (step) => step.ops.some((o) => o.op === "restart");
 /** The plan on the window's screen, which `rental:run` runs; whether a run is under way. */
 let rentalPlan = null;
 let rentalRun = null;
+/** The server and machine id the window planned with, for the plan's provisioning (provision.cjs). */
+let rentalMachine = null;
 /** What a remove plan's disk part must leave (rental-removal.cjs expectOf), from the read it was planned on. */
 let rentalExpect = null;
 /** A run finished up to its restart: Restart now may restart the PC. */
@@ -288,10 +291,34 @@ ipcMain.handle("rental:read", async (event) => {
     recovery: recoveryNow(read),
   };
 });
+/** The server and machine id the window asks a plan with, checked; null when they cannot be provisioned. */
+function machineOf(machine) {
+  if (!machine || typeof machine !== "object") return null;
+  const asked = { serverUrl: String(machine.serverUrl ?? ""), machineId: String(machine.machineId ?? "") };
+  return machineProblem(asked) ? null : asked;
+}
+/**
+ * What a plan's provision op hands Swiff OS: the planned server and machine id,
+ * and the machine key from its encrypted file, read only as the step runs and
+ * sent nowhere but to the elevated worker.
+ */
+function provisioning(machine) {
+  if (!machine) throw new Error("Set this PC's server address and machine id in Settings first.");
+  let machineKey = "";
+  try {
+    if (safeStorage.isEncryptionAvailable())
+      machineKey = safeStorage.decryptString(fs.readFileSync(keyFile()));
+  } catch {
+    machineKey = "";
+  }
+  if (!machineKey.trim()) throw new Error("Lanterel needs this PC's machine key: paste it in Settings.");
+  return { ...machine, machineKey: machineKey.trim() };
+}
 ipcMain.handle("rental:plan", async (event, ask) => {
   if (!fromApp(event) || !ask || typeof ask !== "object" || rentalRun) return null;
   rentalPlan = null;
   rentalExpect = null;
+  rentalMachine = null;
   let plan = null;
   try {
     if (ask.kind === "start" || ask.kind === "stop" || ask.kind === "once") plan = switchPlan(ask.kind);
@@ -320,7 +347,10 @@ ipcMain.handle("rental:plan", async (event, ask) => {
   } catch {
     return null;
   }
-  if (plan && RUNNABLE.has(plan.kind)) rentalPlan = plan;
+  if (plan && RUNNABLE.has(plan.kind)) {
+    rentalPlan = plan;
+    rentalMachine = machineOf(ask.machine);
+  }
   return plan;
 });
 /**
@@ -339,6 +369,7 @@ ipcMain.handle("rental:run", async (event) => {
   if (!fromApp(event) || !rentalPlan || rentalRun) return null;
   const plan = rentalPlan;
   const expect = rentalExpect;
+  const machine = rentalMachine;
   // Nothing changes what the PC starts while a drive's BitLocker recovery key is not saved: read the
   // PC now, since BitLocker may have been turned on since the screen's read, and refuse when it cannot be read.
   if (BOOT_CHANGES.has(plan.kind)) {
@@ -378,7 +409,9 @@ ipcMain.handle("rental:run", async (event) => {
   }
   try {
     const outcome = await runPlan(plan, {
-      apply: worker.apply,
+      // The provisioning gets this PC's machine key only here, on its way to the worker.
+      apply: async (op, progress) =>
+        worker.apply(op.op === "provision" ? { ...op, record: provisioning(machine) } : op, progress),
       // The owner agreed to every step at once, with the OK that started this run.
       confirm: async () => true,
       only: plan.steps.filter((s) => !restarts(s)).map((s) => s.id),

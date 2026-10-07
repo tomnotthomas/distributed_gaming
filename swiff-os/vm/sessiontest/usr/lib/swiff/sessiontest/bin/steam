@@ -1,16 +1,57 @@
 #!/bin/bash
-# VM session test build only: stands in for the Steam client, which needs an
-# account, a phone and Valve's servers. Steam's sign-in log is what the agent
-# watches (steam/src/steam.ts): the renter "approves" the sign-in 20 s after the
-# agent first read a code off the screen (xwd here), long enough for the
-# renter's page to show both codes this Steam shows. Then it is signed in,
-# and -applaunch puts the game "on screen" (xprop here).
+# VM session test build only: stands in for Steam, which needs an account, a
+# phone and Valve's servers: Ubuntu's launcher (/usr/games/steam) and the
+# client it starts.
+#
+# As the launcher does, it finds the client through ~/.steam/steam (where the
+# image's kept client is laid, steam/client) or else installs it into
+# ~/.steam/debian-installation, first asking zenity's "Steam installer"
+# question, which the image's zenity answers (steam/bin/zenity). The install
+# stands in for the download: the client's files, one of them 8 MiB of fresh
+# random bytes, over 15 s. It writes down whether it installed the client or
+# found it, with a digest of that file, in $XDG_RUNTIME_DIR/swiff-standin/client,
+# for sessiontest-monitor to report: a client kept from the boot before has
+# that boot's digest.
+#
+# Then Steam's sign-in log, as the agent watches it (steam/src/steam.ts): the
+# renter "approves" the sign-in 20 s after the agent first read a code off
+# the screen (xwd here), long enough for the renter's page to show both codes
+# this Steam shows. Then it is signed in, and -applaunch puts the game "on
+# screen" (xprop here).
 set -u
 state=${XDG_RUNTIME_DIR:?}/swiff-standin
 mkdir -p "$state"
 case ${1:-} in
 -silent)
-	log=$HOME/.steam/steam/logs/steamui_login.txt
+	if [ -L "$HOME/.steam/steam" ]; then
+		steamdir=$(readlink -e "$HOME/.steam/steam")
+	else
+		steamdir=$HOME/.steam/debian-installation
+		mkdir -p "$steamdir"
+		ln -sfn "$steamdir" "$HOME/.steam/steam"
+		ln -sfn "$steamdir" "$HOME/.steam/root"
+	fi
+	needed="steam.sh ubuntu12_32/steam ubuntu12_32/steam-runtime/run.sh ubuntu12_32/steam-runtime/setup.sh"
+	install=
+	for file in $needed; do [ -x "$steamdir/$file" ] || install=yes; done
+	client=$steamdir/package/steam_client_standin.zip
+	if [ -n "$install" ]; then
+		if ! zenity --question --title="Steam installer" --text="Steam will be installed into: $steamdir"; then
+			echo "steam: Installation cancelled" >&2
+			exit 1
+		fi
+		mkdir -p "$steamdir/ubuntu12_32/steam-runtime" "$steamdir/package"
+		for file in $needed; do
+			printf '#!/bin/sh\n' > "$steamdir/$file"
+			chmod +x "$steamdir/$file"
+		done
+		head -c 8M /dev/urandom > "$client"
+		sleep 15
+		echo "installed $(sha256sum < "$client" | cut -c1-16)" > "$state/client"
+	else
+		echo "found $(sha256sum < "$client" | cut -c1-16)" > "$state/client"
+	fi
+	log=$steamdir/logs/steamui_login.txt
 	mkdir -p "$(dirname "$log")"
 	echo "[$(date '+%F %T')] SetLoginState: WaitingForCredentials - OK" > "$log"
 	while :; do

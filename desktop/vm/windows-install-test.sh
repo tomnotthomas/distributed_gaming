@@ -277,7 +277,9 @@ test_run() {
 	[ -x "$electron_dir/electron.exe" ] || die "no Electron for Windows in \$SWIFF_WIN_ELECTRON"
 	# The app's runtime: Electron as Node, which the worker it starts inherits. Electron is a
 	# windowed program: PowerShell waits for it and hands on its output only through a pipe.
-	local cli='function swiff-cli { $env:ELECTRON_RUN_AS_NODE = 1; & C:\swiff\electron\electron.exe C:\swiff\desktop\rental-cli.cjs @args | Write-Output }; swiff-cli'
+	# What the install and each start of Lanterel OS hand it (provision.cjs), as the app's Settings and
+	# its encrypted key would: given on every command, used only by a plan's provision step.
+	local cli='function swiff-cli { $env:ELECTRON_RUN_AS_NODE = 1; & C:\swiff\electron\electron.exe C:\swiff\desktop\rental-cli.cjs @args --server wss://lanterel.test --machine-id lanterel-windows-vm --machine-key-file C:\swiff\machine-key | Write-Output }; swiff-cli'
 	local img='C:\swiff\image'
 	local fail=0
 
@@ -341,7 +343,9 @@ test_run() {
 	on_vm 'manage-bde -status C:' | tr -d '\r' > "$run/bitlocker-before.txt"
 	on_vm '(Get-Partition -DriveLetter C).Size' | tr -d '\r\n' > "$run/c-before"
 	log "Copying the installer and the image set"
-	to_vm "$desktop"/{rental-cli,rental-exec,rental-worker,rental,rental-key,rental-removal,recovery-key,measured-boot,image-set,gpt,efi,pc,probe,build-kind}.cjs "$desktop"/image-trust*.json swiff@127.0.0.1:'C:/swiff/desktop/'
+	to_vm "$desktop"/{rental-cli,rental-exec,rental-worker,rental,rental-key,rental-removal,recovery-key,measured-boot,image-set,gpt,efi,pc,probe,build-kind,provision}.cjs "$desktop"/image-trust*.json swiff@127.0.0.1:'C:/swiff/desktop/'
+	# The machine key the provisioning hands Lanterel OS, in a file the console reads (never its command line).
+	on_vm "Set-Content -NoNewline C:\\swiff\\machine-key $(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
 	# Scenario 11 alone needs no image set.
 	[ "${SWIFF_SCENARIOS:-}" = 11 ] || to_vm "$image_set" swiff@127.0.0.1:'C:/swiff/image'
 	to_vm "$electron_dir" swiff@127.0.0.1:'C:/swiff/electron'
@@ -489,8 +493,8 @@ test_run() {
 		expect files-kept-1 "C: holds its file after the install" cmp -s <(tr -d '\n' < "$run/marker") "$run/marker-1"
 		expect installed "the app reads Lanterel OS as installed" test "$(json "$run/read-confirmed.json" read '.read.installed' || true)" = true
 		on_vm 'Get-Partition -DiskNumber 0 | Select-Object PartitionNumber, Offset, Size, GptType, Guid | ConvertTo-Json -Compress' | tr -d '\r' > "$run/partitions-installed.json"
-		expect partitions "Windows sees Lanterel OS's 6 partitions after its 4" \
-			test "$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).length)' "$run/partitions-installed.json")" = 10
+		expect partitions "Windows sees Lanterel OS's 8 partitions after its 4" \
+			test "$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).length)' "$run/partitions-installed.json")" = 12
 
 	fi
 	if want 8; then

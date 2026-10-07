@@ -17,7 +17,10 @@
 // behind (its keys die), and ask the server where the machine stands. A renter
 // already served in this same boot means the reset's reboot never happened:
 // nobody is served or offered on it, and it restarts again, off offer unless a
-// session is live. A session still live there is served at once. A machine off
+// session is live. Unless a renter already waits on the PC, the agent then
+// waits for the Steam client to be ready and kept for the next boot (it is kept
+// only from before any renter: steam/client), and closes that keeping before
+// anyone is served. A session still live there is served at once. A machine off
 // offer is one the agent paused before its reset reboot, and is offered again
 // on the owner's terms; otherwise its owner stopped sharing it, and it goes
 // back to Windows.
@@ -49,7 +52,15 @@ import type { LaunchStreamer, Streamer } from "./streamer.ts";
 import type { System } from "./system.ts";
 
 export type Phase =
-  "starting" | "unfit" | "locked" | "refused" | "offered" | "serving" | "resetting" | "returning";
+  | "starting"
+  | "unfit"
+  | "locked"
+  | "preparing"
+  | "refused"
+  | "offered"
+  | "serving"
+  | "resetting"
+  | "returning";
 
 export type LockReason = StateKeyError["error"] | "unseal-failed";
 
@@ -84,6 +95,10 @@ export type Timing = {
   streamerSettledMs: number;
   /** Waits between tries to open the persistent state; the last one repeats. */
   unlockRetryMs: readonly number[];
+  /** How long a boot waits for the Steam client before the PC is offered without it. */
+  steamClientWaitMs: number;
+  /** Between looks at whether the Steam client is ready. */
+  steamClientPollMs: number;
 };
 
 export const DEFAULT_TIMING: Timing = {
@@ -93,6 +108,9 @@ export const DEFAULT_TIMING: Timing = {
   maxStreamerStarts: 4,
   streamerSettledMs: 60_000,
   unlockRetryMs: [5_000, 15_000, 30_000, 60_000, 120_000, 300_000],
+  // A first download of the Steam client takes minutes; a cached one starts in well under one.
+  steamClientWaitMs: 15 * 60_000,
+  steamClientPollMs: 2_000,
 };
 
 export type AgentDeps = {
@@ -206,6 +224,13 @@ export function createAgent(deps: AgentDeps): Agent {
     const served = await resume.servedBoot();
     if (served !== null && served.bootId === (await system.bootId())) return "unclean";
     if (served !== null) await resume.forgetServed();
+    // A renter held through the restart is served at once; anyone else waits for a ready Steam.
+    if (!view.session && !(await system.steamClientReady())) {
+      if (!(await steamClientReady())) return "windows";
+      view = await beatUntilAnswered();
+    }
+    // From here on a renter may run things as the renter: nothing of theirs is kept for the next boot.
+    await system.closeSteamClient();
     // Kept on disk until the server has the machine on offer again: an agent
     // restarted while offerAgain() retries must still know the reset was its own.
     const resumed = await resume.read();
@@ -222,6 +247,7 @@ export function createAgent(deps: AgentDeps): Agent {
         log("the share-until passed during the reset");
         return "windows";
       }
+      log("offering the PC again after its own reset, on the terms it kept");
       view = await offerAgain(resumed.until);
     }
     await resume.clear();
@@ -272,6 +298,28 @@ export function createAgent(deps: AgentDeps): Agent {
       if (!asked) await inbox.next(wait);
       if (asked) return false;
     }
+  }
+
+  /**
+   * Wait for the Steam client to be ready at its sign-in window and kept for
+   * the next boot, up to `steamClientWaitMs`: a renter offered the PC before
+   * would wait on a download. False when the owner asked for the PC back meanwhile.
+   */
+  async function steamClientReady(): Promise<boolean> {
+    // The owner may take the PC back throughout.
+    phase = "preparing";
+    const deadline = now() + timing.steamClientWaitMs;
+    for (;;) {
+      if (asked) return false;
+      if (await system.steamClientReady()) break;
+      if (now() >= deadline) {
+        log("the Steam client is not ready yet: offering the PC without waiting longer");
+        break;
+      }
+      await inbox.next(timing.steamClientPollMs);
+    }
+    phase = "starting";
+    return !asked;
   }
 
   /** Hold the room with the machine key until a claim, or until the PC should go back to Windows. */

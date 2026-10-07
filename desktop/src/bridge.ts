@@ -32,6 +32,8 @@ export type HostBridge = {
     target?: string | null;
     /** Remove Swiff OS: start with Swiff's key (true), or without it (false); main decides when absent. */
     key?: boolean;
+    /** This PC's server and machine id, which a plan's provisioning hands Swiff OS with the machine key. */
+    machine?: { serverUrl: string; machineId: string };
   }): Promise<RentalPlan | null>;
   /** Run the plan main last showed; null when there is none to run. */
   runRental(): Promise<RunOutcome | null>;

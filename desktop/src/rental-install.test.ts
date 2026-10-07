@@ -17,6 +17,7 @@ import { testBuild } from "../build-kind.cjs";
 import { fat32Volume, readRootFile } from "./test/fat32.ts";
 import { copyChecked, MANIFEST, SIGNATURE, readImageSet, trustOf } from "../image-set.cjs";
 import { channelOf, clientOf, dryRun, handshake, runPlan, startWorker } from "../rental-exec.cjs";
+import { provisionRecord, RECORD_BYTES } from "../provision.cjs";
 import { checkOp, createWorker, diskPath, serve, type Windows } from "../rental-worker.cjs";
 import {
   installOf,
@@ -42,7 +43,22 @@ const MSR = "e3c9e316-0b5c-4db8-817d-f92df00215ae";
 const RECOVERY = "de94bba4-06d1-4d40-a16a-bfd50179d6ac";
 const CERT = Buffer.from("3082010a0282010100c0ffee", "hex");
 const ID = (i: number) => `00000000-0000-4000-8000-00000000000${i}`;
-const NAMES = ["esp", "swiffos_0.1.0", "swiffos_0.1.0", "_empty", "_empty", "swiff-scratch"];
+const NAMES = [
+  "esp",
+  "swiffos_0.1.0",
+  "swiffos_0.1.0",
+  "_empty",
+  "_empty",
+  "swiff-scratch",
+  "swiff-keep",
+  "swiff-state",
+];
+/** What main hands a plan's provision op as it runs: the server, the machine id and the machine key. */
+const MACHINE = {
+  serverUrl: "wss://lanterel.example",
+  machineId: "gaming-pc-1",
+  machineKey: "the-machine-key-of-gaming-pc-1",
+};
 const sha256 = (data: Buffer) => createHash("sha256").update(data).digest("hex");
 
 /** Swiff's signing key, for the tests, and what the app trusts of it. */
@@ -233,7 +249,9 @@ async function setup() {
 const skipping =
   (apply: (op: PlanOp) => Promise<unknown>) =>
   async (op: PlanOp): Promise<Record<string, unknown>> =>
-    op.op === "write" || op.op === "image-check" ? {} : ((await apply(op)) as Record<string, unknown>);
+    op.op === "write" || op.op === "image-check"
+      ? {}
+      : ((await apply(op.op === "provision" ? { ...op, record: MACHINE } : op)) as Record<string, unknown>);
 
 describe("firmware variables", () => {
   it("writes a boot entry byte for byte as efibootmgr and virt-firmware do", () => {
@@ -380,10 +398,18 @@ describe("the elevated worker", () => {
     expect(pc.shell.join("\n")).toMatch(/manage-bde -protectors -disable C: -RebootCount 3/);
     expect(pc.hiberboot()).toBe("0");
     expect(pc.label()).toBe("SWIFFGAMES");
-    // C: gave Lanterel OS its room, and the image's six partitions are in it, with its ids and names.
+    // C: gave Lanterel OS its room, and the image's eight partitions are in it, with its ids and names.
     expect(pc.cSize()).toBeLessThan(before);
     const added = pc.gpt().entries.filter((e) => e.index > 3);
     expect(added.map((e) => [e.id, e.name])).toEqual(layout.map((p) => [p.id, p.name]));
+    // This PC's provisioning at the start of the keep, for Lanterel OS to seal at its first start;
+    // the machine key nowhere in what the install recorded.
+    const keep = added.find((e) => e.name === "swiff-keep")!;
+    const provisioned = () => pc.disk.read(keep.first * 512, RECORD_BYTES);
+    expect(provisioned().equals(provisionRecord(MACHINE))).toBe(true);
+    expect(fs.readFileSync(path.join(dir, "state", "rental-install.json"), "utf8")).not.toContain(
+      MACHINE.machineKey,
+    );
     // The boot entry starts the shim on Lanterel OS's ESP, last in the order; BootNext for the restart.
     const option = efi.parseLoadOption(pc.vars.get(pc.key(efi.GLOBAL, "Boot0001"))!);
     expect(option).toMatchObject({
@@ -419,13 +445,22 @@ describe("the elevated worker", () => {
     expect(JSON.stringify(worker.state())).not.toMatch(/"bootEntry":\d/);
     expect(rentalOf(pc.facts()).installed).toBe(true);
 
-    // Once: BootNext alone.
+    // Once: the provisioning again (Lanterel OS seals it anew after Windows ran), then BootNext alone.
+    pc.disk.write([{ offset: keep.first * 512, bytes: Buffer.alloc(RECORD_BYTES) }]);
     pc.vars.delete(pc.key(efi.GLOBAL, "BootNext"));
-    expect(await runPlan(switchPlan("once"), { apply: worker.apply })).toMatchObject({ status: "done" });
+    expect(await runPlan(switchPlan("once"), { apply: skipping(worker.apply) })).toMatchObject({
+      status: "done",
+    });
+    expect(provisioned().equals(provisionRecord(MACHINE))).toBe(true);
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootNext")))).toEqual([1]);
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootOrder")))).toEqual([0, 1]);
+    // Without the machine's provisioning, nothing is written.
+    expect(await runPlan(switchPlan("once"), { apply: worker.apply })).toMatchObject({
+      status: "failed",
+      failed: { step: "provision", error: "A bad provisioning." },
+    });
     // Sharing: Lanterel OS first; stopping: Windows first.
-    await runPlan(switchPlan("start"), { apply: worker.apply });
+    await runPlan(switchPlan("start"), { apply: skipping(worker.apply) });
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootOrder")))).toEqual([1, 0]);
     await runPlan(switchPlan("stop"), { apply: worker.apply });
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootOrder")))).toEqual([0, 1]);

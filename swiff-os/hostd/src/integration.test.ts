@@ -146,6 +146,8 @@ async function bootAgent(stateDir: string, launch: LaunchStreamer, bootId: strin
       returnToWindows: async () => void system.windows++,
       unmetFloor: async () => [],
       bootId: async () => bootId,
+      steamClientReady: async () => true,
+      closeSteamClient: async () => {},
     },
     resume: fileResumeStore(stateDir),
     ownerTakeover: "when-idle",

@@ -1,0 +1,30 @@
+# The renter's Steam client kept for the next boot, as Steam left it at its
+# sign-in window, before anyone is served (steam/client save). swiff-hostd
+# offers the PC only once this is done, and closes it for the rest of the boot.
+[Unit]
+Description=Lanterel renter's Steam client, kept for the next boot before any renter
+After=swiff-steam-client.service
+Wants=swiff-steam-client.service
+
+[Service]
+Type=exec
+ExecStart=/usr/libexec/swiff/steam-client save
+IPAddressDeny=any
+PrivateNetwork=yes
+ProtectSystem=strict
+ReadWritePaths=-/var/lib/swiff/state/steam /run/swiff/steam-client
+ProtectHome=read-only
+PrivateTmp=yes
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

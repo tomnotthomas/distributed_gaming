@@ -12,7 +12,7 @@ import type { Streamer } from "./streamer.ts";
 import type { FloorCheck } from "./config.ts";
 import { StateKeyRefused, UnsealFailed } from "./state-key.ts";
 
-const FAST = { sessionBeatMs: 10, offeredBeatMs: 10, offlineBeatMs: 10 };
+const FAST = { sessionBeatMs: 10, offeredBeatMs: 10, offlineBeatMs: 10, steamClientPollMs: 5 };
 const HOUR = 3_600_000;
 
 /** One machine as the server holds it. */
@@ -136,6 +136,7 @@ function harness(
     served: servedBefore = null,
     bootId = "boot-now",
     rebootFails = false,
+    steamReady = () => true,
     ...deps
   }: {
     unmet?: FloorCheck[];
@@ -145,11 +146,15 @@ function harness(
     bootId?: string;
     /** `systemctl reboot` fails: the agent is left running in the same boot. */
     rebootFails?: boolean;
+    /** Whether the Steam client is ready and kept, each time the agent looks. */
+    steamReady?: () => boolean;
   } & Partial<AgentDeps> = {},
 ) {
   const streamers: FakeStreamer[] = [];
   const sockets: { emit: (event: SocketEvent) => void; closed: boolean }[] = [];
   const system = { reboots: 0, windows: 0 };
+  /** When keeping the Steam client was closed: the server calls and streamers there had been by then. */
+  const steam = { closed: null as { calls: string[]; streamers: number } | null };
   let saved: Resume | null = initial;
   let served: Served | null = servedBefore;
   const agent = createAgent({
@@ -184,6 +189,9 @@ function harness(
       returnToWindows: async () => void system.windows++,
       unmetFloor: async () => unmet,
       bootId: async () => bootId,
+      steamClientReady: async () => steamReady(),
+      closeSteamClient: async () =>
+        void (steam.closed ??= { calls: [...server.calls], streamers: streamers.length }),
     },
     resume: {
       save: async (resume) => void (saved = resume),
@@ -207,6 +215,7 @@ function harness(
     streamers,
     sockets,
     system,
+    steam,
     running,
     saved: () => saved,
     served: () => served,
@@ -733,6 +742,51 @@ describe("the owner taking the PC back (D8)", () => {
     await until(() => phase(h.agent) === "offered", "the offer");
     expect(await h.running).toBe("windows");
     expect(h.server.state.status).toBe("idle");
+  });
+});
+
+describe("the Steam client, kept for the next boot only from before any renter", () => {
+  it("waits for it before offering the PC, and closes its keeping before the offer", async () => {
+    let ready = false;
+    const h = harness(fakeServer({ status: "idle" }), {
+      saved: { until: null },
+      steamReady: () => ready,
+    });
+    await until(() => phase(h.agent) === "preparing", "preparing");
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    // Nothing offers the PC while Steam is not ready: a renter would wait on its download.
+    expect(h.server.calls.filter((c) => c.startsWith("availability"))).toEqual([]);
+    expect(h.sockets).toHaveLength(0);
+    expect(h.steam.closed).toBeNull();
+    ready = true;
+    await until(() => phase(h.agent) === "offered", "the offer");
+    expect(h.steam.closed?.calls).not.toContain("availability true");
+    expect(h.server.calls).toContain("availability true");
+  });
+
+  it("serves a renter held through the restart at once, closing the keeping first", async () => {
+    const server = fakeServer();
+    server.claim("held");
+    const h = harness(server, { steamReady: () => false });
+    await until(() => h.streamers.length === 1, "the streamer");
+    expect(h.steam.closed).toEqual({ calls: ["session end", "heartbeat"], streamers: 0 });
+  });
+
+  it("offers the PC without it once the wait runs out", async () => {
+    const h = harness(fakeServer(), {
+      steamReady: () => false,
+      timing: { ...FAST, steamClientWaitMs: 40 },
+    });
+    await until(() => phase(h.agent) === "offered", "the offer");
+    expect(h.steam.closed).not.toBeNull();
+  });
+
+  it("goes back to Windows when the owner asks while it waits", async () => {
+    const h = harness(fakeServer(), { steamReady: () => false });
+    await until(() => phase(h.agent) === "preparing", "preparing");
+    expect(await h.agent.requestReturnToWindows()).toEqual({ ok: true });
+    expect(await h.running).toBe("windows");
+    expect(h.sockets).toHaveLength(0);
   });
 });
 

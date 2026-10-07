@@ -148,6 +148,8 @@ export type PlanOp =
   | { op: "mok-cancel" }
   | { op: "boot-first"; entry: "swiff" | "windows" }
   | { op: "boot-next"; entry: "swiff" }
+  /** `record` is filled in by main as the step runs, never planned: it holds the machine key. */
+  | { op: "provision"; record?: { serverUrl: string; machineId: string; machineKey: string } }
   | { op: "installed" }
   | { op: "removal-check"; disk: number | null; ids: string[] }
   | { op: "forget" }

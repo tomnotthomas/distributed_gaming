@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { StateKeyError } from "../../../server/src/protocol.ts";
 import {
+  announcedUnlock,
   combineShares,
   commandAttestation,
   linuxStateDisk,
@@ -532,6 +533,25 @@ describe("the machine's side", () => {
         "-",
       ],
     ]);
+  });
+
+  it("says the state is open, for units outside its sandbox, only once it is", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "swiff-run-"));
+    const marker = join(dir, "swiff", "state-open");
+    let fail = true;
+    const state = announcedUnlock(
+      {
+        unlock: async () => {
+          if (fail) throw new Error("not yet");
+        },
+      },
+      marker,
+    );
+    await expect(state.unlock()).rejects.toThrow("not yet");
+    await expect(readFile(marker)).rejects.toThrow();
+    fail = false;
+    await state.unlock();
+    expect(await readFile(marker, "utf8")).toBe("");
   });
 
   it("takes the host certificate the attestation client prints, and refuses anything else", async () => {

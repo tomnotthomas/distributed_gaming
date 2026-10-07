@@ -36,7 +36,8 @@
 
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { readFile, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import type { StateKeyError, StateKeyGrant } from "../../../server/src/protocol.ts";
 import { isLoopback } from "./config.ts";
 import type { Run } from "./system.ts";
@@ -204,6 +205,24 @@ export function stateUnlock({ attest, api, local, disk, log = () => {} }: StateK
 }
 
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
+
+/**
+ * Where the agent says the state is open, for the units that use it outside
+ * the agent's sandbox, whose mount of it is the sandbox's alone: the Steam
+ * client's (steam/client) mounts the open mapping for itself.
+ */
+export const STATE_OPEN_MARKER = "/run/swiff/state-open";
+
+/** `state`, writing `marker` once the state is open. */
+export function announcedUnlock(state: StateUnlock, marker = STATE_OPEN_MARKER): StateUnlock {
+  return {
+    unlock: async () => {
+      await state.unlock();
+      await mkdir(dirname(marker), { recursive: true, mode: 0o755 });
+      await writeFile(marker, "");
+    },
+  };
+}
 
 /** A grant's share, decoded. */
 function share(grant: StateKeyGrant): { keyId: string; bytes: Buffer } {
@@ -412,8 +431,11 @@ export type RunBytes = (command: string, args: string[]) => Promise<Buffer>;
 /** Runs a command with `input` on its stdin; resolves once it exits 0. */
 export type RunWithInput = (command: string, args: string[], input: Uint8Array) => Promise<void>;
 
+/** Runs a command with `input` on its stdin; resolves with its stdout as bytes. */
+export type RunFilter = (command: string, args: string[], input: Uint8Array) => Promise<Buffer>;
+
 /** `RunBytes` on a child process; its stdout is zeroed once copied out. */
-const runBytes: RunBytes = (command, args) =>
+export const runBytes: RunBytes = (command, args) =>
   new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ["ignore", "pipe", "inherit"] });
     const chunks: Buffer[] = [];
@@ -428,6 +450,27 @@ const runBytes: RunBytes = (command, args) =>
         reject(new Error(`${command} exited with ${code}`));
       }
     });
+  });
+
+/** `RunFilter` on a child process. */
+export const runFilter: RunFilter = (command, args, input) =>
+  new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: ["pipe", "pipe", "inherit"] });
+    const chunks: Buffer[] = [];
+    child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+    child.on("error", reject);
+    // EPIPE when the command exits before reading all of its input.
+    child.stdin.on("error", reject);
+    child.on("close", (code) => {
+      const out = Buffer.concat(chunks);
+      for (const chunk of chunks) chunk.fill(0);
+      if (code === 0) resolve(out);
+      else {
+        out.fill(0);
+        reject(new Error(`${command} exited with ${code}`));
+      }
+    });
+    child.stdin.end(input);
   });
 
 /** `RunWithInput` on a child process. */
