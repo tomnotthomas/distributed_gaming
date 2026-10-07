@@ -1684,6 +1684,7 @@ describe("useSwiff", () => {
         return { read: (() => read) as unknown as () => Response, answer };
       }
 
+      /** Press Reconnect on screen A, once the page has put it up. */
       const pressReconnect = async () => {
         const away = await screen.findByTestId("away");
         act(() => within(away).getByRole("button", { name: "Reconnect" }).click());

@@ -144,6 +144,10 @@ const track = (event: string, props?: Record<string, unknown>) => {
 /** No machines at all: what the wall is outside the demo before any host is read. */
 const NO_MACHINES: Record<string, SeedMachine> = {};
 
+/**
+ * The player app's one source of state: the wall, the open game, the booking
+ * and its claim, the session and coming back to it. Every screen reads it.
+ */
 export function useSwiff({ demo = isDemo() }: { demo?: boolean } = {}) {
   const [screen, setScreen] = useState<Screen>(() => screenAt(location.pathname));
   const [phase, setPhase] = useState<Phase>("idle");
