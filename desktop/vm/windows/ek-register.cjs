@@ -21,7 +21,7 @@ async function main() {
   } catch (error) {
     worked = { error: String(error?.message ?? error) };
   }
-  const checked = (await readRental()).facts.checked;
+  const checked = (await readRental())?.facts.checked ?? null;
   const registered = checked?.certificate ? await registerEk({ url, machineId, machineKey }, checked) : null;
   console.log(JSON.stringify({ worked, checked, registered }));
 }
