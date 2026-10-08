@@ -1258,9 +1258,12 @@ describe("watching through the signaling server", () => {
   });
 
   /** A room playing for Mara's first crew and a fresh one the stranger is in; Lea asks, Mara shares, pinning the first. */
+  /** How many crews pinnedThenLeft founded: each is a new one, by a name of its own. */
+  let leftCrews = 0;
   async function pinnedThenLeft() {
     const first = await crew();
-    const other = await call("POST", "/api/crews", MARA, { name: "Still Here" });
+    const other = await call("POST", "/api/crews", MARA, { name: `Still Here ${++leftCrews}` });
+    assert.equal(other.status, 201);
     const otherId = other.body.crew.id as string;
     for (const member of [STRANGER, OWNER]) {
       assert.equal((await call("POST", `/api/invites/${other.body.crew.token}/join`, member)).status, 200);
