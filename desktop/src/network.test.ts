@@ -174,6 +174,29 @@ describe("parseNetwork", () => {
     });
   });
 
+  it("keeps the password of the connected network's profile only, never another saved network's", () => {
+    const out = printed({
+      wired: false,
+      wifi: {
+        network: "Brammiball",
+        ipv4: "Internet",
+        ipv6: "NoTraffic",
+        profiles: [profileXml({ name: "Nachbar", key: "neighbours secret" }), profileXml()],
+      },
+    });
+    const read = parseNetwork(out);
+    expect(read?.wifi[0]?.profiles.map((p) => [p.ssid, p.key])).toEqual([
+      ["Nachbar", null],
+      ["Brammiball", "correct horse 15"],
+    ]);
+    expect(JSON.stringify(read)).not.toContain("neighbours secret");
+    expect(wifiToHand(read, "Brammiball")).toEqual({
+      ssid: "Brammiball",
+      security: "sae",
+      passphrase: "correct horse 15",
+    });
+  });
+
   it("keeps a cable it could not read apart from no cable, and skips profiles that name no network", () => {
     expect(parseNetwork(printed({ wired: null, wifi: [] }))).toEqual({ wired: null, wifi: [] });
     expect(parseNetwork(printed({ wifi: [{ network: "", profiles: ["<x/>"] }] }))).toEqual({

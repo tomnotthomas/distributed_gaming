@@ -12,8 +12,9 @@
 // connected SSID from WLAN's own calls without location access), whether it
 // reaches the internet (Get-NetConnectionProfile), and the connected Wi-Fi's
 // saved profile from the WLAN API, as Windows' own profile XML: the same in
-// every display language. The password is in that profile only when the run
-// asks for it (`withKey`): only the elevated installer worker does, as it
+// every display language. The connected network's password, and no other
+// saved network's, is in what the read gives only when the run asks for it
+// (`withKey`): only the elevated installer worker does, as it
 // writes Go live's record (rental-worker.cjs), since Windows gives it in the
 // clear to administrators only. It goes nowhere but into the record, and is
 // never logged, reported or shown. Nothing is written to disk.
@@ -29,7 +30,8 @@ const NETWORK_TIMEOUT_MS = 30_000;
 // 256-WCHAR description, the state; 1 is connected), each connected one's
 // profiles (WLAN_PROFILE_INFO, 516 bytes: a 256-WCHAR name, flags) and their
 // XML. WLAN_PROFILE_GET_PLAINTEXT_KEY (4) puts the password in it in the
-// clear; without it the key is dropped from the XML before it is printed.
+// clear; the key is dropped from the XML before it is printed without it, and
+// with it from every profile but the connected network's.
 const networkScript = (withKey) => String.raw`
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -94,11 +96,16 @@ public static class SwiffWlan {
       $index = (Get-NetAdapter -Physical | Where-Object { $_.InterfaceGuid -eq $guid }).InterfaceIndex
       $connection = Get-NetConnectionProfile -InterfaceIndex $index | Select-Object -First 1
     } catch {}
+    $network = if ($connection) { $described[$connection.Name] } else { $null }
     @{
-      network = if ($connection) { $described[$connection.Name] } else { $null }
+      network = $network
       ipv4 = if ($connection) { [string]$connection.IPv4Connectivity } else { $null }
       ipv6 = if ($connection) { [string]$connection.IPv6Connectivity } else { $null }
-      profiles = @($_[1] | ForEach-Object { ${withKey ? "$_" : "$_ -replace '<keyMaterial>[^<]*</keyMaterial>', ''"} })
+      profiles = @($_[1] | ForEach-Object { ${
+        withKey
+          ? "if ($network -and @(try { ([xml]$_).WLANProfile.SSIDConfig.SSID.name } catch {}) -contains $network) { $_ } else { $_ -replace '<keyMaterial>[^<]*</keyMaterial>', '' }"
+          : "$_ -replace '<keyMaterial>[^<]*</keyMaterial>', ''"
+      } })
     }
   })
 } catch {}
@@ -161,7 +168,8 @@ function profileOf(xml) {
 /**
  * What the read printed: whether a network cable is plugged in (null when
  * unread), and each connected Wi-Fi interface with its network's name, how
- * far Windows says it reaches, and the profiles saved on it. Null when the
+ * far Windows says it reaches, and the profiles saved on it, a password only
+ * on the connected network's. Null when the
  * output is not the read's.
  */
 function parseNetwork(stdout) {
@@ -184,7 +192,11 @@ function parseNetwork(stdout) {
       network: text(w?.network),
       ipv4: text(w?.ipv4),
       ipv6: text(w?.ipv6),
-      profiles: list(w?.profiles).flatMap((xml) => profileOf(xml) ?? []),
+      profiles: list(w?.profiles).flatMap((xml) => {
+        const profile = profileOf(xml);
+        if (!profile) return [];
+        return profile.ssid === text(w?.network) ? profile : { ...profile, key: null };
+      }),
     })),
   };
 }
