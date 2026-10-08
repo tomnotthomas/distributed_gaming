@@ -5,11 +5,13 @@
 // is the test's, on the host.
 //
 //   node pair-register.cjs start  <server ws url>   a new key, kept DPAPI-protected; the page to open
+//   node pair-register.cjs add    <server ws url>   the owner adds this PC, as the /pair page does, with the
+//                                                   Steam session cookie the test hands over on stdin
 //   node pair-register.cjs finish <server ws url>   ask until the server knows the key, then register the EK
 //   node pair-register.cjs forget                   delete the protected key
 //
-// Prints one JSON line. The key itself is never printed or written in the
-// clear: between the steps (and across the restart onto another TPM) it is
+// Prints one JSON line. Neither the key nor its hash (the pairing's claim
+// ticket) is ever printed, and the key is never written in the clear: between the steps (and across the restart onto another TPM) it is
 // kept as the app keeps it, encrypted by Windows' DPAPI (the app's safeStorage),
 // here with the machine's scope, which an SSH session without a password can use.
 
@@ -59,8 +61,7 @@ async function main() {
     // Before the owner has added it, the server knows no such key.
     const before = await askPaired(url, key);
     const out = {
-      // The hash is for the test's owner to add the PC with, as the /pair page does; the test keeps it in memory only.
-      hash,
+      hashIsSha256: /^[0-9a-f]{64}$/.test(hash),
       linkCarriesHash:
         link ===
         `${new URL(url).protocol === "wss:" ? "https" : "http"}://${new URL(url).host}/pair?k=${hash}`,
@@ -71,10 +72,27 @@ async function main() {
         dpapi("unprotect", fs.readFileSync(KEY_FILE, "utf8")) === key,
     };
     const line = JSON.stringify(out);
-    console.log(JSON.stringify({ ...out, keyInOutput: line.includes(key) }));
+    console.log(
+      JSON.stringify({ ...out, keyInOutput: line.includes(key), hashInOutput: line.includes(hash) }),
+    );
     return;
   }
-  if (step !== "finish") throw new Error("usage: pair-register.cjs start|finish <server ws url> | forget");
+  if (step === "add") {
+    // The owner's side of /pair: the hash goes from this process straight to the server, never to any output.
+    const cookie = fs.readFileSync(0, "utf8").trim();
+    const hash = await keyHashOf(dpapi("unprotect", fs.readFileSync(KEY_FILE, "utf8")));
+    const origin = `${new URL(url).protocol === "wss:" ? "https" : "http"}://${new URL(url).host}`;
+    const res = await fetch(`${origin}/api/pairings`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: `swiff_session=${cookie}` },
+      body: JSON.stringify({ keyHash: hash }),
+    });
+    const body = await res.json().catch(() => null);
+    console.log(JSON.stringify({ status: res.status, machineId: body?.machineId ?? null }));
+    return;
+  }
+  if (step !== "finish")
+    throw new Error("usage: pair-register.cjs start|add|finish <server ws url> | forget");
   const key = dpapi("unprotect", fs.readFileSync(KEY_FILE, "utf8"));
   const paired = await waitPaired(url, key, 60);
   if (typeof paired !== "object") {

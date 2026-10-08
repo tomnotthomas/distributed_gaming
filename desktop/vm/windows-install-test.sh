@@ -1007,14 +1007,14 @@ writeFileSync(process.argv[1] + "/policy.pem", publicKey.export({ format: "pem",
 	server_pid=$!
 	for _ in $(seq 30); do curl -fsS "http://127.0.0.1:$server_port/api/ping" > /dev/null 2>&1 && break; sleep 1; done
 	expect pair-server "the server answers, knowing no machine" grep -q "no PC paired yet" "$run/ek/server.log"
-	# The owner adds the PC by its key's hash, signed in with Steam, as the /pair page does.
-	add_pc() { # key-hash
-		local cookie
-		cookie=$(cd "$repo/server" && node --input-type=module -e '
+	# The owner adds the PC, signed in with Steam, as the /pair page does: the test signs a session for
+	# them and hands it to the VM on stdin, so the key's hash (the claim ticket) never leaves Windows.
+	add_pc() { # name -> the answer's HTTP status
+		(cd "$repo/server" && node --input-type=module -e '
 import { mintRenterSession } from "./dist/access.js";
-console.log(mintRenterSession(process.argv[1], process.argv[2], 3600));' "$session_secret" "$owner")
-		curl -sS -o "$run/pair-add.json" -w '%{http_code}' -X POST -H 'content-type: application/json' \
-			-H "cookie: swiff_session=$cookie" --data "{\"keyHash\":\"$1\"}" "http://127.0.0.1:$server_port/api/pairings"
+process.stdout.write(mintRenterSession(process.argv[1], process.argv[2], 3600));' "$session_secret" "$owner") |
+			on_vm "C:\\node\\node.exe C:\\swiff\\vm\\pair-register.cjs add $server_url" | tr -d '\r' > "$run/pair-$1.json" || true
+		pair_value "$run/pair-$1.json" 'v.status'
 	}
 	"$repo/node_modules/.bin/esbuild" "$desktop/src/pairing.ts" --bundle --platform=node --format=cjs --log-level=warning --outfile="$run/ek/pair.cjs"
 	"$repo/node_modules/.bin/esbuild" "$desktop/src/ek.ts" --bundle --platform=node --format=cjs --log-level=warning --outfile="$run/ek/ek.cjs"
@@ -1037,19 +1037,16 @@ console.log(mintRenterSession(process.argv[1], process.argv[2], 3600));' "$sessi
 	to_vm "$here/windows/pair-register.cjs" swiff@127.0.0.1:'C:/swiff/vm/'
 	to_vm "$run/ek/pair.cjs" "$run/ek/ek.cjs" swiff@127.0.0.1:'C:/swiff/'
 	on_vm "C:\\node\\node.exe C:\\swiff\\vm\\pair-register.cjs start $server_url" | tr -d '\r' > "$run/pair-start.json" || true
-	# The hash is a claim ticket: the test holds it in memory to add the PC, and keeps no file with it.
-	local hash
-	hash=$(pair_value "$run/pair-start.json" 'v.hash' | tr -d '"')
 	expect pair-link "the app's page to open carries its key's hash, and the code is the hash's" \
-		test "$(pair_value "$run/pair-start.json" '/^[0-9a-f]{64}$/.test(v.hash) && v.linkCarriesHash && v.codeIsHash')" = true
+		test "$(pair_value "$run/pair-start.json" 'v.hashIsSha256 && v.linkCarriesHash && v.codeIsHash')" = true
 	expect pair-unknown "before the owner adds it, the server knows no such key" test "$(pair_value "$run/pair-start.json" 'v.before')" = '"waiting"'
-	expect pair-key-private "the key is kept DPAPI-protected, never in the clear, and is in no output" \
-		test "$(pair_value "$run/pair-start.json" 'v.keyProtected && !v.keyInOutput')" = true
-	node -e 'const f=process.argv[1]; const v=JSON.parse(require("fs").readFileSync(f,"utf8")); delete v.hash; require("fs").writeFileSync(f, JSON.stringify(v))' "$run/pair-start.json"
-	expect pair-added "the owner, signed in with Steam, adds the PC" test "$(add_pc "$hash")" = 201
+	expect pair-key-private "the key is kept DPAPI-protected, never in the clear, and neither it nor its hash is in any output" \
+		test "$(pair_value "$run/pair-start.json" 'v.keyProtected && !v.keyInOutput && !v.hashInOutput')" = true
+	expect pair-added "the owner, signed in with Steam, adds the PC" test "$(add_pc add)" = 201
 	local machine
 	machine=$(pair_value "$run/pair-add.json" 'v.machineId' | tr -d '"')
-	expect pair-again "adding it again gives the same machine" test "$(add_pc "$hash")" = 200
+	expect pair-again "adding it again gives the same machine" test "$(add_pc add-again)" = 200
+	expect pair-again-same "the same machine id both times" test "$(pair_value "$run/pair-add-again.json" 'v.machineId')" = "\"$machine\""
 	pair_finish none
 	expect pair-learned "the app learns its machine id with its key" test "$(pair_value "$run/pair-none.json" 'v.paired.machineId')" = "\"$machine\""
 	expect pair-none-stops "no EK certificate on this TPM: Go live's step stops there, nothing registered" \
