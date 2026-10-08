@@ -618,11 +618,13 @@ function startVm(extra = []) {
       ],
       { stdio: ["ignore", "ignore", openSync(join(RUN, "qemu.log"), "a")] },
     );
-    qemu.on("exit", (code) => {
-      // vm-run.py stopped it (no room, a hang, the PC out of memory) or QEMU failed: say why now.
-      if (code)
-        vmStopped = `the VM stopped (exit ${code}): ${readFileSync(join(RUN, "qemu.log"), "utf8").trim()}`;
-      if (code) console.log(`----  ${vmStopped}`);
+    qemu.on("exit", (code, signal) => {
+      // vm-run.py stopped it (no room, a hang, the PC out of memory), QEMU failed, or the runner
+      // was killed: say why now. powerOff's cut ends it with 0.
+      if (!code && !signal) return;
+      const how = code ? `exit ${code}` : signal;
+      vmStopped = `the VM stopped (${how}): ${readFileSync(join(RUN, "qemu.log"), "utf8").trim()}`;
+      console.log(`----  ${vmStopped}`);
     });
     vm = [qemu, swtpm];
     return qemu;

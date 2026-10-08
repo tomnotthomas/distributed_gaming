@@ -82,7 +82,7 @@ else
 		for s in $(suites_for "$path"); do
 			[[ "$wanted" == *" $s "* ]] || wanted="$wanted$s "
 		done
-	done < <(git -C "$repo" diff --name-only "$base" -- && git -C "$repo" ls-files --others --exclude-standard)
+	done < <(git -C "$repo" diff --no-renames --name-only "$base" -- && git -C "$repo" ls-files --others --exclude-standard)
 fi
 # In the suites' own order.
 suites=

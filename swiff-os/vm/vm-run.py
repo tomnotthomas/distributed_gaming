@@ -193,6 +193,13 @@ def registered():
     vms = {}
     for entry in os.listdir(VMS):
         t = start_time(int(entry)) if entry.isdigit() else None
+        try:
+            with open(os.path.join(VMS, entry)) as f:
+                # Its pid may have gone to another process since: the start times must match.
+                if t is not None and int(f.read().split()[0]) != t:
+                    t = None
+        except (OSError, ValueError, IndexError):
+            t = None
         if t is None:
             try:
                 os.unlink(os.path.join(VMS, entry))
@@ -270,7 +277,7 @@ def main():
     registered()
     mark = os.path.join(VMS, str(proc.pid))
     with open(mark, "w") as f:
-        f.write(f"{name} {mem}\n")
+        f.write(f"{start_time(proc.pid)} {name} {mem}\n")
     # Holds the start lock until QEMU counts: the child itself once it has
     # exec'd into QEMU, or (through sudo) one of its children.
     is_vm = any(os.path.basename(a).startswith("qemu-system") for a in cmd[:4])
