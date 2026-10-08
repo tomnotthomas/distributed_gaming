@@ -20,7 +20,7 @@ cp .env.example .env              # then set ROOM_SECRET and SESSION_SECRET
 # http://localhost:$PORT.
 # Set STEAM_API_KEY (https://steamcommunity.com/dev/apikey) too, or a signed-in renter's
 # Steam name and game library stay empty and only free-to-play games can be booked.
-npm run machine-key -- gaming-pc-1 <owner-steam-id>   # key for the host app, entry for MACHINE_KEYS
+npm run machine-key -- gaming-pc-1 <owner-steam-id>   # a hand-made key and MACHINE_KEYS entry; host apps pair with Steam instead
 ```
 
 The server keeps its data in Postgres at `DATABASE_URL` (a Neon connection string works as

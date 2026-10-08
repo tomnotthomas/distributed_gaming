@@ -18,7 +18,7 @@ function statement(pairing: Pairing): { title: string; line: string } {
     case "unpaired":
       return {
         title: "Pair this PC with Steam",
-        line: "Sign in with the Steam account you play with, and this PC is yours on Lanterel. Lanterel makes this PC's key itself and keeps it here, so there's nothing to copy.",
+        line: "Sign in with the Steam account you play with, and this PC is yours on Lanterel. There's no key to copy.",
       };
     case "waiting":
       return {
