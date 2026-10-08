@@ -20,7 +20,9 @@
 # Steam (no account, no network here) and gamescope (no GPU) are stood in for
 # (vm/sessiontest/); everything else is the shipped image's.
 #
-#   swiff-os/vm/session-test.sh             build the image, then run the test
+#   swiff-os/vm/session-test.sh             build the image if what goes into it
+#                                           changed (vm/build-image.sh), then run the test
+#   swiff-os/vm/session-test.sh --rebuild   build the image anyway
 #   swiff-os/vm/session-test.sh --no-build  run it on the last build
 #
 # SWIFF_SESSION_RELAY_ONLY=1 puts the renter's browser behind a home router of
@@ -36,8 +38,9 @@
 # certtool), OVMF (/usr/share/OVMF), unshare (user and network
 # namespaces), mkfs.ext4, coturn's turnserver (TURNSERVER=path, else on PATH)
 # and Playwright's Chromium (PLAYWRIGHT_BROWSERS_PATH, or npx playwright install
-# chromium-headless-shell). It waits while another VM runs or the PC has under
-# 4 GB free. The VM gets 2 GiB of RAM and 2 vCPUs.
+# chromium-headless-shell). The VM gets 2 GiB of RAM and 4 vCPUs ($SWIFF_VM_CPUS)
+# and starts through vm/vm-run.py, which waits for room among this PC's test
+# VMs and stops the VM when it hangs.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -60,21 +63,22 @@ if [ "${SWIFF_SESSION_INSIDE:-}" = 1 ]; then
 	ip link set lo up
 	ip addr add 198.51.100.10/32 dev lo
 	ip addr add 198.51.100.20/32 dev lo
-	exec node "$here/session-harness.mjs" --run "$run" --image "$out/swiffos-sessiontest.raw"
+	exec node "$here/session-harness.mjs" --run "$run" --image "$SWIFF_SESSION_IMAGE"
 fi
 
 build=1
 for arg in "$@"; do
 	case $arg in
 	--no-build) build=0 ;;
+	--rebuild) build=2 ;;
 	*)
-		echo "usage: $0 [--no-build]" >&2
+		echo "usage: $0 [--no-build|--rebuild]" >&2
 		exit 2
 		;;
 	esac
 done
 
-for tool in qemu-system-x86_64 swtpm swtpm_setup swtpm_localca mkosi unshare; do
+for tool in qemu-system-x86_64 qemu-img swtpm swtpm_setup swtpm_localca mkosi unshare; do
 	command -v "$tool" > /dev/null || die "$tool not found"
 done
 [ -w /dev/kvm ] || die "/dev/kvm is not usable by $(id -un)"
@@ -90,44 +94,29 @@ mkdir -p "$build_dir"
 exec 9> "$build_dir/session-vm.lock"
 flock -n 9 || die "another session-test.sh is running"
 
-if [ "$build" = 1 ]; then
-	if [ ! -e "$image_dir/mkosi.key" ]; then
-		echo "== generating a VM-only test Secure Boot key"
-		(
-			umask 077
-			openssl req -new -x509 -newkey rsa:2048 -sha256 -nodes -days 3650 \
-				-subj "/CN=Lanterel OS VM test Secure Boot key/" \
-				-keyout "$image_dir/mkosi.key" -out "$image_dir/mkosi.crt"
-		)
-	fi
-	echo "== building the session test image (mkosi --profile=sessiontest)"
-	mkdir -p "$out" "$build_dir/cache"
-	"$image_dir/stage.sh" "$out"
-	sudo mkosi -C "$image_dir" --output-dir "$out" --cache-dir "$build_dir/cache" --profile=sessiontest -f build
+if [ "$build" = 0 ]; then
+	SWIFF_SESSION_IMAGE=$out/swiffos-sessiontest.raw
+else
+	rebuild=()
+	[ "$build" = 2 ] && rebuild=(--rebuild)
+	SWIFF_SESSION_IMAGE=$("$here/build-image.sh" sessiontest "${rebuild[@]}").raw
 fi
-[ -e "$out/swiffos-sessiontest.raw" ] || die "$out/swiffos-sessiontest.raw not built"
+# The build's UKI is next to its disk.
+uki=${SWIFF_SESSION_IMAGE%.raw}.efi
+[ -e "$SWIFF_SESSION_IMAGE" ] && [ -e "$uki" ] || die "$SWIFF_SESSION_IMAGE or $uki not built"
+export SWIFF_SESSION_IMAGE
 
 # What PCR 11 holds once the UKI has booted to `ready`: the release's in the boot policy.
 tools=$out/ubuntu-tools
 SWIFF_SESSION_PCR11=$(bwrap --ro-bind "$tools/usr" /usr \
 	--symlink usr/bin /bin --symlink usr/sbin /sbin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
-	--ro-bind "$out/swiffos-sessiontest.efi" /uki.efi --ro-bind "$here/measure-uki.py" /measure-uki.py \
+	--ro-bind "$uki" /uki.efi --ro-bind "$here/measure-uki.py" /measure-uki.py \
 	--proc /proc --dev /dev --tmpfs /tmp \
 	python3 /measure-uki.py /uki.efi) || die "systemd-measure could not predict PCR 11 for the UKI"
 export SWIFF_SESSION_PCR11
 
 echo "== building the server and the web app"
 (cd "$repo" && npm run build) > /dev/null
-
-# One VM at a time on this PC, and only with memory to spare.
-tries=0
-while pgrep -x 'qemu-system-.*' > /dev/null 2>&1 ||
-	[ "$(free -m | awk '/^Mem:/ { print $7 }')" -lt 4096 ]; do
-	tries=$((tries + 1))
-	[ "$tries" -le 20 ] || die "no room for a VM after 60 minutes (another VM, or under 4 GB free)"
-	echo "== another VM is running or memory is short; checking again in 3 minutes"
-	sleep 180
-done
 
 # The run's files hold a machine key and the VM's state: this user's alone.
 umask 077

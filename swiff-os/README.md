@@ -452,19 +452,32 @@ access to `/dev/kvm`, QEMU is started through `sudo` and drops back to the user 
 VM starts.
 
 ```sh
-swiff-os/vm/run-test.sh             # build the test image, boot it twelve times, check everything
-swiff-os/vm/run-test.sh --no-build  # boot the last build again
+swiff-os/vm/vm-tests.sh             # the VM tests this branch's changes touch (--list, --only selftest,...)
+swiff-os/vm/run-test.sh             # build the test image if its inputs changed, boot it twelve times, check everything
+swiff-os/vm/run-test.sh --no-build  # boot the last build again (--rebuild: build it anyway)
 swiff-os/vm/session-test.sh         # a renter plays on rental mode end to end (below)
 # the shipped image only, as swiffos.raw in the given output directory
 swiff-os/image/stage.sh ~/.cache/swiff-os/output
 sudo mkosi -C swiff-os/image --output-dir ~/.cache/swiff-os/output --cache-dir ~/.cache/swiff-os/cache build
 ```
 
-Build output, caches and the VM's disk copy and logs go to `$SWIFF_OS_BUILD_DIR` (default `~/.cache/swiff-os`), outside the
+Build output, caches and the VM's disk overlay and logs go to `$SWIFF_OS_BUILD_DIR` (default `~/.cache/swiff-os`), outside the
 source tree. The build runs as root, and the root-only directories it leaves would break tools that
 walk the repository, such as `prettier --check .`. The first build downloads about 2 GB and takes
-a while; later builds reuse the caches. If `image/mkosi.key` and `image/mkosi.crt` do not exist, the test makes a
-throwaway Secure Boot key pair there. The key pair is git-ignored and for VMs only.
+a while; later builds reuse the caches. `vm/build-image.sh` builds a test profile only when its
+inputs changed (`image/`, the profile's `vm/` tree, what `stage.sh` stages, mkosi's version) and
+keeps the newest three builds of each profile in `$SWIFF_OS_BUILD_DIR/images`, keyed by those
+inputs; each run boots a copy-on-write overlay of one, so the build itself is never written. If
+`image/mkosi.key` and `image/mkosi.crt` do not exist, it copies this PC's throwaway Secure Boot key
+pair there, made once in `$SWIFF_OS_BUILD_DIR/test-key`, so that every worktree signs alike and
+reuses the same builds. The key pair is git-ignored and for VMs only.
+
+Every VM test starts QEMU through `vm/vm-run.py`. It waits until this PC's test VMs, this one
+included, hold at most `$SWIFF_VM_RAM_BUDGET` MiB (8192) and the PC has the VM's memory and 1.5 GB
+more available, and runs QEMU in a systemd user scope with its memory capped and never swapped
+(a guest the host swaps out stalls, and swapping is what freezes the PC). Its watchdog stops only
+that VM, and says why, when it outlasts its timeout, when its console stays silent too long, or
+when the PC runs out of memory (the newest VM first).
 systemd-repart makes the root's erofs in a tmpfs inside mkosi's sandbox, half the build
 machine's RAM, and needs about twice the root's size there: on a 10 GB machine such as the
 GEEKOM, a root of up to about 2.4 GB. The root is about 2.3 GB.
@@ -472,7 +485,7 @@ GEEKOM, a root of up to about 2.4 GB. The root is about 2.3 GB.
 `run-test.sh` builds the `selftest` profile. That is the shipped image plus a serial console and
 `swiff-selftest.service` (`vm/selftest/`). In the test build the session starts only after the
 self-test, so sealing stays open, as it would until a game is launched. The test then boots the
-image twelve times in QEMU, with 2 GiB of RAM and 2 vCPUs, under OVMF with Secure Boot and swtpm:
+image twelve times in QEMU, with 2 GiB of RAM and 4 vCPUs, under OVMF with Secure Boot and swtpm:
 
 1. **Boot 1.** The firmware starts in setup mode. systemd-boot enrols the test certificate as PK, KEK
    and db, and resets the VM. The signed UKI then boots with Secure Boot enforcing. The owner
@@ -577,7 +590,7 @@ checks the session's wiring, not a running game; the session test (below) plays 
 in a network namespace of its own, where the real server (with its production `tpm` attestation
 verifier) and a TURN relay (coturn) have addresses that look public to the VM (TEST-NET-2), so
 the image's firewall treats them as the internet. The VM boots under OVMF with Secure Boot and
-swtpm, 2 GiB and 2 vCPUs, and the harness reports each step PASS or FAIL. `swtpm_setup`
+swtpm, 2 GiB and 4 vCPUs, and the harness reports each step PASS or FAIL. `swtpm_setup`
 manufactures the TPM with an EK certificate from a throwaway local CA, the server's only trusted
 TPM vendor. The server's boot policy is this build, signed with a throwaway key: PCR 11 as
 systemd-measure predicts it for the built UKI, PCRs 12 and 13 empty, and the boot applications
@@ -623,7 +636,7 @@ VM's loopback carries its signaling to the test's server; the streamer's media d
 
 It needs coturn's `turnserver` (`TURNSERVER=path`), Playwright's Chromium
 (`PLAYWRIGHT_BROWSERS_PATH`), user and network namespaces (`unshare`) and a `/dev/kvm` this user
-can open; it waits while another VM runs or the PC has under 4 GB free. `--no-build` runs it on
+can open; it waits for room among this PC's test VMs (`vm/vm-run.py`). `--no-build` runs it on
 the last build. The run's serial console, server log and
 `results.json` are in `$SWIFF_OS_BUILD_DIR/session-vm`. In the last run all 43 steps passed:
 Steam's first code was on the renter's page within a second of the claim, and the PC was offered
@@ -762,7 +775,7 @@ is then `hostd/hostd.example.json`'s: `{"command": "/usr/bin/node", "args":
 encoder, a test source.
 
 **The VM test.** `vm/run-test.sh` builds a small Ubuntu 24.04 test image with mkosi
-(not Swiff OS; only what the streamer needs), boots it in QEMU/KVM with 2 GiB and 2
+(not Swiff OS; only what the streamer needs), boots it in QEMU/KVM with 2 GiB and 4
 vCPUs, and plays one renter session through it. The host runs the real server (in
 memory) and a real renter, headless Chromium on the real `/rtc` page; the VM runs the
 renter's PipeWire with a synthetic `gamescope` node and a test tone, and an agent that
@@ -777,7 +790,7 @@ socket. The run passes only when every check passes and the VM powers itself off
 within `$SWIFF_VM_TIMEOUT` seconds (default 600). In the last run all 25 checks passed:
 the streamer was registered 1.2 s after start and the renter decoded the first frame
 2.3 s after pressing Connect (x264, 720p30, no GPU). The VM runs Node.js's own Linux
-build, pinned by version and checksum and downloaded once into the build directory. It waits while another VM runs or the PC has under 4 GB free, never touches the host's
+build, pinned by version and checksum and downloaded once into the build directory. It builds the image again only when what goes into it changed (`--rebuild` builds it anyway), waits for room among this PC's test VMs (`swiff-os/vm/vm-run.py`), never touches the host's
 disks, boot entries or firmware, and needs `sudo` for mkosi (and for QEMU when this
 user cannot open `/dev/kvm`). Build output goes to `$SWIFF_STREAMER_BUILD_DIR`
 (default `~/.cache/swiff-os-streamer`); `--build-only` builds without starting a VM, and

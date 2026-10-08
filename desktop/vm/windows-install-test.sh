@@ -62,9 +62,11 @@
 # `electron` package as Windows' npm installs it): the console and its worker
 # run on Electron's own Node, as in Swiff Host, whose Node differs from a
 # console's (it took \\.\PhysicalDrive0 for a share root).
-# The VM takes 2 GiB of memory ($SWIFF_WIN_VM_MEM, in MiB) and up to ~60 GB of disk under $SWIFF_WIN_VM_DIR.
-# Set $SWIFF_VM_CGROUP to a cgroup v2 folder with memory.swap.max 0 (sudo to move QEMU in) when
-# the host swaps under the image's copy.
+# The VM takes 2 GiB of memory ($SWIFF_WIN_VM_MEM, in MiB), 2 vCPUs ($SWIFF_WIN_VM_CPUS) and up to
+# ~60 GB of disk under $SWIFF_WIN_VM_DIR. Every test starts from the prepared base through a
+# copy-on-write overlay. QEMU starts through swiff-os/vm/vm-run.py: it waits for room among this
+# PC's test VMs, and runs with its memory never swapped (a guest the host swaps out stalls until
+# its network driver gives up, as when copying gigabytes into it fills the host's page cache).
 # Nothing here touches the host's disks, boot entries or firmware variables.
 set -euo pipefail
 
@@ -126,25 +128,16 @@ opts=(-i "$key" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o L
 on_vm() { ssh "${opts[@]}" -p "$port" swiff@127.0.0.1 "$@"; }
 to_vm() { scp -q -r "${opts[@]}" -P "$port" "$@"; }
 
-# One VM at a time, and room for it.
-room() {
-	! pgrep qemu-system-x86 > /dev/null || die "another VM is running"
-	local avail
-	avail=$(free -m | awk '/^Mem:/ { print $7 }')
-	[ "$avail" -ge $((mem + 1024)) ] || die "only ${avail} MiB of memory available, $((mem + 1024)) needed"
-}
-
 # Starts the VM in the background on disk $1, firmware variables $2, TPM state $3; more QEMU arguments after.
 vm_start() { # disk vars tpm-dir [qemu args...]
 	local disk=$1 vars=$2 tpm=$3
 	shift 3
-	room
 	rm -f "$run/serial.sock" "$run/monitor.sock" "$run/tpm.sock"
 	swtpm socket --tpm2 --tpmstate dir="$tpm" --ctrl type=unixio,path="$run/tpm.sock" \
 		--log file="$run/swtpm.log" --terminate 9>&- &
 	tpm_pid=$!
 	for _ in $(seq 50); do [ -S "$run/tpm.sock" ] && break; sleep 0.1; done
-	"${qemu[@]}" -name swiff-win \
+	"$here/../../swiff-os/vm/vm-run.py" --name windows -- "${qemu[@]}" -name swiff-win \
 		-machine q35,smm=on,accel=kvm -cpu host,-svm,-vmx,hv_relaxed,hv_spinlocks=0x1fff,hv_vapic,hv_time \
 		-smp "${SWIFF_WIN_VM_CPUS:-2}" -m "$mem" \
 		-global driver=cfi.pflash01,property=secure,value=on -global ICH9-LPC.disable_s3=1 \
@@ -160,13 +153,13 @@ vm_start() { # disk vars tpm-dir [qemu args...]
 		-serial chardev:ser0 \
 		"$@" > "$run/qemu.log" 2>&1 9>&- &
 	vm_pid=$!
-	# Out of swap: copying gigabytes into the guest fills the host's page cache, and a guest
-	# whose memory the host swaps out stalls until its network driver gives up. A cgroup
-	# (v2) with memory.swap.max 0, made beforehand, keeps it in memory: $SWIFF_VM_CGROUP.
-	if [ -n "${SWIFF_VM_CGROUP:-}" ]; then
-		echo "$vm_pid" | sudo -n tee "$SWIFF_VM_CGROUP/cgroup.procs" > /dev/null || die "cannot move QEMU into $SWIFF_VM_CGROUP"
-	fi
-	for _ in $(seq 100); do [ -S "$run/monitor.sock" ] && [ -S "$run/serial.sock" ] && break; sleep 0.1; done
+	# vm-run.py may wait for room (up to $SWIFF_VM_WAIT seconds) before QEMU makes its sockets.
+	local deadline=$((SECONDS + ${SWIFF_VM_WAIT:-3600} + 120))
+	until [ -S "$run/monitor.sock" ] && [ -S "$run/serial.sock" ]; do
+		[ -d "/proc/$vm_pid" ] || die "QEMU did not start: $(cat "$run/qemu.log")"
+		[ "$SECONDS" -lt "$deadline" ] || { vm_kill; die "QEMU made no sockets in time: $(cat "$run/qemu.log")"; }
+		sleep 0.1
+	done
 	# QEMU made its sockets before it dropped root (sudo ... -runas): hand them to this user.
 	[ -O "$run/monitor.sock" ] || sudo -n chown "$(id -u):$(id -g)" "$run/monitor.sock" "$run/serial.sock" "$run/serial.log"
 	sleep 1
@@ -185,9 +178,18 @@ vm_wait_off() { # seconds
 		[ "$SECONDS" -lt "$end" ] || { screenshot "timeout-$SECONDS"; return 1; }
 		sleep 5
 	done
+	# Off, but how: vm-run.py's status (127: already collected by vm_kill).
+	local rc=0
+	wait "$vm_pid" 2> /dev/null || rc=$?
+	[ "$rc" = 0 ] || [ "$rc" = 127 ] || die "the VM stopped with vm-run.py status $rc: $(cat "$run/qemu.log")"
 }
+# Stops this test's VM only, by its vm-run.py's PID: vm-run.py stops its QEMU (SIGTERM,
+# SIGKILL 10 s later) and exits. Never by a pattern: other tests' VMs run on this PC too.
 vm_kill() {
-	sudo -n pkill -f '[q]emu-system-x86_64 .*-name swiff-win' 2> /dev/null || true
+	if [ -n "${vm_pid:-}" ]; then
+		kill "$vm_pid" 2> /dev/null || true
+		wait "$vm_pid" 2> /dev/null || true
+	fi
 	kill "${tpm_pid:-}" 2> /dev/null || true
 }
 # Waits until Windows answers on SSH, up to $1 seconds.

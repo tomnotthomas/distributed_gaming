@@ -49,11 +49,8 @@ if [ ! -w /dev/kvm ]; then
 	sudo -n true 2> /dev/null || die "needs a writable /dev/kvm, or sudo without a password for QEMU"
 	qemu=(sudo -n qemu-system-x86_64 -runas "$(id -un)")
 fi
-# One VM at a time; this one takes 512 MiB.
-# The kernel cuts process names to 15 characters: qemu-system-x86.
-! pgrep qemu-system-x86 > /dev/null || die "another VM is running"
-avail=$(free -m | awk '/^Mem:/ { print $7 }')
-[ "$avail" -ge 4096 ] || die "only ${avail} MiB of memory available, 4096 needed"
+# This VM takes 512 MiB, among this PC's other test VMs (swiff-os/vm/vm-run.py).
+qemu=("$here/../../swiff-os/vm/vm-run.py" --name mok --timeout 600 -- "${qemu[@]}")
 
 mkdir -p "$run"
 exec 9> "$run/lock"
