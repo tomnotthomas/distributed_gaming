@@ -45,6 +45,12 @@
 #                  step, with no click (relaunch.cjs). Needs the
 #                  signed image set in $SWIFF_SIGNED_SET (the one the TEST build
 #                  trusts) and Playwright from the repository's node_modules
+#              14. Back by itself after the app's own restart, without the install (no image
+#                  set, no partitions): the TEST build at Restart to confirm the key, from an
+#                  install record and the key's request queued as the app keeps it; its Restart
+#                  now; after the sign-in the app opened by itself at the blue screen's question,
+#                  its one-shot entry gone; then a restart with nothing pending opens nothing
+#                  ($SWIFF_HOST_EXE, a pack:test build; SWIFF_SCENARIOS="14" copies no image set)
 #             Windows must come back after each restart without asking for its
 #             BitLocker recovery key, with its files. The one-time key codes are
 #             chosen here and kept in shell variables, never in the logs.
@@ -382,8 +388,8 @@ test_run() {
 	to_vm "$desktop"/*.cjs "$desktop"/image-trust*.json swiff@127.0.0.1:'C:/swiff/desktop/'
 	# The machine key the provisioning hands Lanterel OS, in a file the console reads (never its command line).
 	on_vm "Set-Content -NoNewline C:\\swiff\\machine-key $(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
-	# Scenario 11 alone needs no image set.
-	[ "${SWIFF_SCENARIOS:-}" = 11 ] || to_vm_direct "$image_set" 'C:\swiff\image'
+	# Scenarios 11 and 14 need no image set.
+	[[ "${SWIFF_SCENARIOS:-}" =~ ^[[:space:]]*((11|14)[[:space:]]*)+$ ]] || to_vm_direct "$image_set" 'C:\swiff\image'
 	to_vm "$electron_dir" swiff@127.0.0.1:'C:/swiff/electron'
 	on_vm 'New-Item -ItemType Directory -Force C:\swiff\vm | Out-Null'
 	to_vm "$here/windows/disk-open-check.cjs" "$here/windows/key-state.cjs" "$here/windows/app-windows.ps1" swiff@127.0.0.1:'C:/swiff/vm/'
@@ -396,6 +402,48 @@ test_run() {
 	# (a VM restarting under it) must not end the whole run.
 	set +e
 
+	# The packaged TEST build's hands (scenarios 13 and 14): the app as the logged-on user, with
+	# Electron's remote debugging tunnelled from the VM, driven by vm/ui-drive.mjs.
+	local ui="node $here/ui-drive.mjs"
+	step() { # name detail command...: one UI step's result
+		local name=$1 detail=$2
+		shift 2
+		if "$@" > "$run/ui-$name.json" 2>&1 && grep -q '"ok":true' "$run/ui-$name.json"; then result PASS "$name" "$detail"; else
+			result FAIL "$name" "$detail: $(head -c 400 "$run/ui-$name.json")"
+		fi
+	}
+	ui_has() { # name regex: the last UI answer's text matches, in any case (the screen uppercases labels)
+		grep -Eiq "$2" "$run/ui-$1.json"
+	}
+	tunnel() {
+		[ -z "${tunnel_pid:-}" ] || kill "$tunnel_pid" 2> /dev/null || true
+		ssh "${opts[@]}" -N -L 9222:127.0.0.1:9222 -p "$port" swiff@127.0.0.1 9>&- &
+		tunnel_pid=$!
+		sleep 3
+	}
+	app() { # start the app as the logged-on user, with remote debugging, and wait for its window
+		on_vm "Get-Process | Where-Object { (\$_.Path -like '*SwiffHost*' -or \$_.Path -like '*Lanterel Host*') } | Stop-Process -Force; schtasks /create /tn swiff-app /tr 'C:\\swiff\\SwiffHost.exe --remote-debugging-port=9222' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null; schtasks /run /tn swiff-app | Out-Null" || true
+		tunnel
+		for _ in $(seq 40); do curl -fs --max-time 10 http://127.0.0.1:9222/json/version > /dev/null && break; sleep 5; done
+		sleep 10
+	}
+	# After the app's own restart: Windows opened it by itself at the sign-in (relaunch.cjs), with
+	# --after-restart and the test build's remote debugging, and used up its RunOnce entry.
+	relaunched() { # name
+		for _ in $(seq 36); do
+			on_vm "Get-CimInstance Win32_Process | Where-Object { (\$_.ExecutablePath -like '*SwiffHost*' -or \$_.ExecutablePath -like '*Lanterel Host*') -and \$_.CommandLine -notmatch '--type=' } | ForEach-Object { \$_.CommandLine }" | tr -d '\r' > "$run/relaunch-$1.txt" || true
+			grep -q -- '--after-restart' "$run/relaunch-$1.txt" && break
+			sleep 5
+		done
+		on_vm "(Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce' -ErrorAction SilentlyContinue).LanterelHost" | tr -d '\r' > "$run/relaunch-$1-runonce.txt" || true
+		expect "$1" "Windows opened the app by itself after the restart, and its RunOnce entry is used up: $(tr '\n' ';' < "$run/relaunch-$1.txt")" \
+			bash -c "grep -q -- '--after-restart' '$run/relaunch-$1.txt' && ! grep -q . '$run/relaunch-$1-runonce.txt'"
+		tunnel
+		for _ in $(seq 40); do curl -fs --max-time 10 http://127.0.0.1:9222/json/version > /dev/null && break; sleep 5; done
+	}
+	uac() { # 0: elevate without a prompt; 2: Windows' consent prompt on its secure desktop
+		on_vm "Set-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' -Name ConsentPromptBehaviorAdmin -Value $1" || true
+	}
 	if want 1; then
 		scenario "1. Secure Boot already fine: what the app reads, and its one elevation"
 		on_vm 'function swiff-check { $env:ELECTRON_RUN_AS_NODE = 1; & C:\swiff\electron\electron.exe C:\swiff\vm\disk-open-check.cjs | Write-Output }; swiff-check' | tr -d '\r' > "$run/disk-open.txt" || true
@@ -700,46 +748,6 @@ test_run() {
 			result SKIP packaged-app "needs \$SWIFF_HOST_EXE (a pack:test build) and \$SWIFF_SIGNED_SET (the set it trusts)"
 		else
 		local appdata='C:\Users\swiff\AppData\Roaming\Lanterel Host\swiff-os'
-		local ui="node $here/ui-drive.mjs"
-		step() { # name detail command...: one UI step's result
-			local name=$1 detail=$2
-			shift 2
-			if "$@" > "$run/ui-$name.json" 2>&1 && grep -q '"ok":true' "$run/ui-$name.json"; then result PASS "$name" "$detail"; else
-				result FAIL "$name" "$detail: $(head -c 400 "$run/ui-$name.json")"
-			fi
-		}
-		ui_has() { # name regex: the last UI answer's text matches, in any case (the screen uppercases labels)
-			grep -Eiq "$2" "$run/ui-$1.json"
-		}
-		tunnel() {
-			[ -z "${tunnel_pid:-}" ] || kill "$tunnel_pid" 2> /dev/null || true
-			ssh "${opts[@]}" -N -L 9222:127.0.0.1:9222 -p "$port" swiff@127.0.0.1 9>&- &
-			tunnel_pid=$!
-			sleep 3
-		}
-		app() { # start the app as the logged-on user, with remote debugging, and wait for its window
-			on_vm "Get-Process | Where-Object { (\$_.Path -like '*SwiffHost*' -or \$_.Path -like '*Lanterel Host*') } | Stop-Process -Force; schtasks /create /tn swiff-app /tr 'C:\\swiff\\SwiffHost.exe --remote-debugging-port=9222' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null; schtasks /run /tn swiff-app | Out-Null" || true
-			tunnel
-			for _ in $(seq 40); do curl -fs --max-time 10 http://127.0.0.1:9222/json/version > /dev/null && break; sleep 5; done
-			sleep 10
-		}
-		# After the app's own restart: Windows opened it by itself at the sign-in (relaunch.cjs), with
-		# --after-restart and the test build's remote debugging, and used up its RunOnce entry.
-		relaunched() { # name
-			for _ in $(seq 36); do
-				on_vm "Get-CimInstance Win32_Process | Where-Object { (\$_.ExecutablePath -like '*SwiffHost*' -or \$_.ExecutablePath -like '*Lanterel Host*') -and \$_.CommandLine -notmatch '--type=' } | ForEach-Object { \$_.CommandLine }" | tr -d '\r' > "$run/relaunch-$1.txt" || true
-				grep -q -- '--after-restart' "$run/relaunch-$1.txt" && break
-				sleep 5
-			done
-			on_vm "(Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce' -ErrorAction SilentlyContinue).LanterelHost" | tr -d '\r' > "$run/relaunch-$1-runonce.txt" || true
-			expect "$1" "Windows opened the app by itself after the restart, and its RunOnce entry is used up: $(tr '\n' ';' < "$run/relaunch-$1.txt")" \
-				bash -c "grep -q -- '--after-restart' '$run/relaunch-$1.txt' && ! grep -q . '$run/relaunch-$1-runonce.txt'"
-			tunnel
-			for _ in $(seq 40); do curl -fs --max-time 10 http://127.0.0.1:9222/json/version > /dev/null && break; sleep 5; done
-		}
-		uac() { # 0: elevate without a prompt; 2: Windows' consent prompt on its secure desktop
-			on_vm "Set-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' -Name ConsentPromptBehaviorAdmin -Value $1" || true
-		}
 		on_vm "New-Item -ItemType Directory -Force '$appdata' | Out-Null" || true
 		to_vm_direct "$SWIFF_SIGNED_SET" "$appdata" || result FAIL ui-signed-set "the signed image set did not copy into the app's data"
 		to_vm "$SWIFF_HOST_EXE" swiff@127.0.0.1:'C:/swiff/SwiffHost.exe'
@@ -837,6 +845,52 @@ test_run() {
 		read_as ui-after-remove
 		expect ui-forgotten "the install record is gone" test "$(json "$run/read-ui-after-remove.json" read '.read.facts.install')" = null
 		[ -z "${tunnel_pid:-}" ] || kill "$tunnel_pid" 2> /dev/null || true
+		fi
+	fi
+	if want 14; then
+		scenario "14. Back by itself after the app's own restart (no install)"
+		# Item 6 without the install: no image set, no partitions. Windows gets the record a finished
+		# install leaves and the key's request queued as the app keeps it (windows/seal-key.cjs, with
+		# the app's own sealing), so the TEST build stands at Restart to confirm the key. Its Restart
+		# now restarts Windows (no BootNext here, so no MokManager); after the sign-in Windows must
+		# have opened the app by itself, at the blue screen's question, its one-shot entry and note
+		# gone. Then a restart with nothing pending must open nothing and leave no entry.
+		if [ ! -s "${SWIFF_HOST_EXE:-}" ]; then result SKIP relaunch "needs \$SWIFF_HOST_EXE (a pack:test build)"; else
+		local userdata='C:\Users\swiff\AppData\Roaming\Lanterel Host'
+		local run_once='HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce'
+		vm_up
+		windows_back relaunch-windows
+		to_vm "$SWIFF_HOST_EXE" swiff@127.0.0.1:'C:/swiff/SwiffHost.exe'
+		to_vm "$here/windows/seal-key.cjs" swiff@127.0.0.1:'C:/swiff/vm/'
+		printf '{"complete":true,"mok":true}\n' > "$run/rental-install.json"
+		on_vm "New-Item -ItemType Directory -Force C:\\ProgramData\\Swiff, '$userdata' | Out-Null" || true
+		to_vm "$run/rental-install.json" swiff@127.0.0.1:'C:/ProgramData/Swiff/'
+		# The helper's Electron must have quit: it writes the seal's key to Local State on its way out.
+		on_vm "Remove-Item -Force -ErrorAction SilentlyContinue C:\\swiff\\seal.txt; schtasks /create /tn swiff-seal /tr 'C:\\swiff\\electron\\electron.exe C:\\swiff\\vm\\seal-key.cjs C:\\swiff\\desktop $userdata C:\\swiff\\seal.txt' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null; schtasks /run /tn swiff-seal | Out-Null; foreach (\$i in 1..30) { if (Test-Path C:\\swiff\\seal.txt) { break }; Start-Sleep 2 }; foreach (\$i in 1..30) { if (-not (Get-Process electron -ErrorAction SilentlyContinue)) { break }; Start-Sleep 2 }; Get-Content C:\\swiff\\seal.txt" | tr -d '\r' > "$run/relaunch-seal.txt" || true
+		expect relaunch-staged "installed, and the key's request queued as the app keeps it: $(cat "$run/relaunch-seal.txt")" grep -qx ok "$run/relaunch-seal.txt"
+		app
+		# The first read of the PC can pass the app's limit on a busy host: Check again then.
+		step relaunch-before "the app stands at the key's restart" bash -c "$ui click '^Rental mode' > /dev/null; $ui wait-h1 'restart to confirm the key|check didn.t finish' 180 > /dev/null; $ui click '^Check again' > /dev/null 2>&1; $ui wait-h1 'restart to confirm the key' 240"
+		$ui click 'Restart now' > "$run/ui-relaunch-click.json" 2>&1 || true
+		# shutdown.exe waits 5 s: the entry is there before Windows goes down.
+		on_vm "(Get-ItemProperty '$run_once' -ErrorAction SilentlyContinue).LanterelHost" | tr -d '\r' > "$run/relaunch-armed.txt" || true
+		expect relaunch-armed "Restart now left this user a one-shot entry that opens the app after the restart: $(cat "$run/relaunch-armed.txt")" \
+			grep -q -- 'SwiffHost.exe" --after-restart --remote-debugging-port=9222$' "$run/relaunch-armed.txt"
+		sleep 60
+		windows_back relaunch-windows-after
+		relaunched relaunch-reopened
+		step relaunch-next-step "the app Windows opened is straight at the blue screen's question, with no click" $ui wait-h1 'did the blue screen take your code' 300
+		on_vm "Test-Path '$userdata\\relaunch.json'" | tr -d '\r\n' > "$run/relaunch-note.txt" || true
+		expect relaunch-cleared "the app's note of the entry is gone after the restart: $(cat "$run/relaunch-note.txt")" grep -qx False "$run/relaunch-note.txt"
+		# A restart with nothing pending: Windows opens nothing, and no entry is left behind.
+		[ -z "${tunnel_pid:-}" ] || kill "$tunnel_pid" 2> /dev/null || true
+		on_vm 'Restart-Computer -Force' || true
+		sleep 60
+		windows_back relaunch-windows-plain
+		sleep 120
+		on_vm "@(Get-CimInstance Win32_Process | Where-Object { \$_.ExecutablePath -like '*SwiffHost*' -or \$_.ExecutablePath -like '*Lanterel Host*' }).Count; (Get-ItemProperty '$run_once' -ErrorAction SilentlyContinue).LanterelHost" | tr -d '\r' > "$run/relaunch-plain.txt" || true
+		expect relaunch-none "a restart with nothing pending opened no app and left no entry: $(tr '\n' ';' < "$run/relaunch-plain.txt")" \
+			test "$(cat "$run/relaunch-plain.txt")" = 0
 		fi
 	fi
 	echo
