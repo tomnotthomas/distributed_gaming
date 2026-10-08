@@ -436,6 +436,22 @@ describe("crew live sessions", () => {
     assert.deepEqual(await platform.watchCrews(sessionId), []);
   });
 
+  it("keeps the player playing when the crewmate who asked left the crew before the yes", async () => {
+    const lea = await maraCrew();
+    const { sessionId, bookingId } = await plays(MARA);
+    const path = `/api/crew-live/${sessionId}`;
+    assert.equal((await call("POST", `${path}/switch`, LEA, { gameId: 440 })).status, 201);
+    assert.equal((await call("POST", `/api/crew-members/${lea.id}/remove`, LEA)).status, 200);
+
+    const yes = await call("POST", `${path}/vote`, MARA, { yes: true });
+    assert.equal(yes.body.switch.outcome, "yes");
+    await waitFor(async () => (await call("GET", `${path}/switch`, MARA)).body.switch?.outcome === "no");
+    assert.equal((await call("GET", `${path}/switch`, MARA)).body.switch.switchAt, null);
+    assert.deepEqual(timers, []);
+    assert.equal((await call("POST", `${path}/handover`, MARA, { ask: "now" })).status, 409);
+    assert.equal((await platform.booking(bookingId, MARA))?.status, "playing");
+  });
+
   it("lets a crewmate ask to play next, the crew vote, and the PC switch once the player saved", async () => {
     const lea = await maraCrew();
     const { sessionId, bookingId } = await plays(MARA);

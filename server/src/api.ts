@@ -528,12 +528,11 @@ export function crewSwitches({
 >): Switches {
   return new Switches({
     ...opts,
-    onDecided: (vote) => {
-      if (!vote.crewId) return;
-      void platform
-        .queueFirst(vote.crewId, vote.proposerId, vote.gameId)
-        .then(() => events?.crewChanged())
-        .catch(() => {});
+    onDecided: async (vote) => {
+      if (!vote.crewId) return false;
+      const queued = await platform.queueFirst(vote.crewId, vote.proposerId, vote.gameId);
+      if (queued) events?.crewChanged();
+      return queued;
     },
     onSwitch: async (vote) => {
       await platform.endLiveSession(vote.sessionId);

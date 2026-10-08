@@ -1092,7 +1092,8 @@ who counts as yes. It is yes once more than half say yes or the player does, no 
 say no; after 60 s without that, it is no. A yes puts the one who asked first in the
 crew's line with their game and gives the player 3 minutes to save; then the server ends the
 session as the player leaving it would, and the one who asked starts their game from the
-crew page.
+crew page. When the one who asked cannot go first in the line (they left the crew while it
+was voted on), the yes turns to no and the session goes on.
 
 The player's page is the hub (`@swiff/rtc` `crewHub.ts`). It receives the PC's stream
 once, as always, and sends it on to each crewmate watching on a connection of its own:

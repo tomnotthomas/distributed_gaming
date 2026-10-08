@@ -216,6 +216,70 @@ describe("switches", () => {
     assert.equal(switched.length, 2);
   });
 
+  it("turns the yes to no, and never switches, when the one who asked cannot go first in the line", () => {
+    switches = new Switches({
+      now: () => now,
+      onDecided: () => false,
+      onSwitch: (vote) => switched.push(vote),
+      setTimer: (run, ms) => {
+        const timer = { at: now + ms, run, live: true };
+        timers.push(timer);
+        return () => {
+          timer.live = false;
+        };
+      },
+    });
+    ask();
+    const vote = switches.vote("s1", "max", true) as SwitchVote;
+    assert.equal(vote.outcome, "no");
+    assert.equal(vote.switchAt, null);
+    assert.equal(switches.handOver("s1", "max", "now"), null);
+    advance(SAVE_MS);
+    assert.deepEqual(switched, []);
+  });
+
+  it("waits for the line before switching, and never switches when going first fails later", async () => {
+    const settled = () => new Promise((done) => setImmediate(done));
+    let answer!: (ok: boolean) => void;
+    switches = new Switches({
+      now: () => now,
+      onDecided: () => new Promise<boolean>((done) => (answer = done)),
+      onSwitch: (vote) => switched.push(vote),
+      setTimer: (run, ms) => {
+        const timer = { at: now + ms, run, live: true };
+        timers.push(timer);
+        return () => {
+          timer.live = false;
+        };
+      },
+    });
+    ask();
+    switches.vote("s1", "max", true);
+    // Saved at once, while the line is not known yet: the switch waits for it.
+    assert.ok(switches.handOver("s1", "max", "now"));
+    advance(0);
+    await settled();
+    assert.deepEqual(switched, []);
+    answer(false);
+    await settled();
+    assert.deepEqual(switched, []);
+    assert.equal(switches.of("s1")?.outcome, "no");
+    advance(SAVE_MS);
+    assert.deepEqual(switched, []);
+
+    // Asked again, and this time the line takes them: the switch goes ahead once it does.
+    now += NO_SHOWN_MS;
+    ask();
+    switches.vote("s1", "max", true);
+    switches.handOver("s1", "max", "now");
+    advance(0);
+    await settled();
+    assert.deepEqual(switched, []);
+    answer(true);
+    await settled();
+    assert.equal(switched.length, 1);
+  });
+
   it("forgets a session that ended, timer and all", () => {
     ask();
     switches.vote("s1", "max", true);

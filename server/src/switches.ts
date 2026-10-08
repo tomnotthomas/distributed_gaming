@@ -11,7 +11,9 @@
 // crew's line with their game (platform.ts, queueFirst) and gives the player
 // SAVE_MS to save, which they may cut short or stretch by MORE_MS up to
 // MAX_MORE times; then the session ends (platform.ts, endLiveSession), and
-// the PC is free for the one who asked to start their game.
+// the PC is free for the one who asked to start their game. When they cannot
+// go first (they left the crew meanwhile), the yes turns to no and the
+// session goes on.
 //
 // The state lives in this process, as watches do (watch.ts), and is gone with
 // it: a vote under way when the server restarts is simply not there any more.
@@ -89,8 +91,12 @@ export type SwitchesOptions = {
   voteMs?: number;
   saveMs?: number;
   moreMs?: number;
-  /** The crew said yes: the one who asked goes first in its line. */
-  onDecided?: (vote: SwitchVote) => void;
+  /**
+   * The crew said yes: the one who asked goes first in its line. False, or a
+   * promise of false or one that rejects, when they could not: the vote turns
+   * to no, and the session goes on.
+   */
+  onDecided?: (vote: SwitchVote) => unknown;
   /**
    * The save time is up: the session ends. The vote goes once that is done;
    * when it fails (a rejected promise), it is tried again after SWITCH_RETRY_MS.
@@ -111,11 +117,13 @@ export class Switches {
   readonly #voteMs: number;
   readonly #saveMs: number;
   readonly #moreMs: number;
-  readonly #onDecided: (vote: SwitchVote) => void;
+  readonly #onDecided: (vote: SwitchVote) => unknown;
   readonly #onSwitch: (vote: SwitchVote) => unknown;
   readonly #setTimer: (run: () => void, ms: number) => () => void;
   readonly #votes = new Map<string, SwitchVote>();
   readonly #timers = new Map<string, () => void>();
+  /** Whether the one who asked went first in the line, for each vote that said yes; a promise while that is not known. */
+  readonly #queued = new WeakMap<SwitchVote, boolean | Promise<boolean>>();
 
   constructor(opts: SwitchesOptions = {}) {
     this.#now = opts.now ?? Date.now;
@@ -271,8 +279,42 @@ export class Switches {
     if (outcome === "yes") {
       vote.switchAt = now + this.#saveMs;
       this.#schedule(vote);
-      this.#onDecided(vote);
+      this.#queue(vote);
     }
+  }
+
+  /** Put the one who asked first in the line; the vote turns to no when that fails. */
+  #queue(vote: SwitchVote): void {
+    let result: unknown;
+    try {
+      result = this.#onDecided(vote);
+    } catch {
+      result = false;
+    }
+    if (!(result instanceof Promise)) {
+      this.#queued.set(vote, result !== false);
+      if (result === false) this.#refuse(vote);
+      return;
+    }
+    const queued = result.then(
+      (ok) => ok !== false,
+      () => false,
+    );
+    this.#queued.set(vote, queued);
+    void queued.then((ok) => {
+      this.#queued.set(vote, ok);
+      if (!ok) this.#refuse(vote);
+    });
+  }
+
+  /** The yes cannot be carried out: the vote says no, and the session is not ended for it. */
+  #refuse(vote: SwitchVote): void {
+    if (this.#votes.get(vote.sessionId) !== vote) return;
+    this.#timers.get(vote.sessionId)?.();
+    this.#timers.delete(vote.sessionId);
+    vote.outcome = "no";
+    vote.switchAt = null;
+    vote.decidedAt = this.#now();
   }
 
   /** Have the session end once the save time is up, or `ms` from now. */
@@ -290,6 +332,14 @@ export class Switches {
   /** End the session: its vote goes once it ended, and ending it is tried again while that fails. */
   #switch(vote: SwitchVote): void {
     const current = () => this.#votes.get(vote.sessionId) === vote;
+    const queued = this.#queued.get(vote);
+    if (queued instanceof Promise) {
+      void queued.then((ok) => {
+        if (ok && current()) this.#switch(vote);
+      });
+      return;
+    }
+    if (!queued) return;
     void new Promise((done) => done(this.#onSwitch(vote))).then(
       () => {
         if (current()) this.ended(vote.sessionId);
