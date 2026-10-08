@@ -126,13 +126,17 @@ on the disk only from the Windows run that writes it to that start: the owner's 
 exception to the review rule against secrets in plain-text files, for that window only and with
 the app's wipe. Should that start not come, the app zeroes the record itself (the worker's
 `unprovision`, only while the keep still holds a record): when the run that wrote it is
-cancelled or fails, as the uninstall's first disk step, and at the app's next start when the
-run ended before any Swiff OS boot took it in (no restart since, or shim went back to Windows
-without Swiff's boot loader). The app notes only when it wrote one (`rental-provision.json` in
-its data), so that start asks for administrator rights only then. A machine id and server the
-app's Settings do not hold, or a machine key it does not keep, stop that step, before the image
-is written. The console installer takes `--server`, `--machine-id` and the key from
-`--machine-key-file`.
+cancelled or fails, as the uninstall's first disk step, and at the app's next start when no
+Swiff OS boot took it in: always the install's (its restart goes to MokManager, then Windows;
+Go live and Start once write their own), a run that did not finish, or a finished Go live or
+Start once whose restart went to shim and back to Windows without Swiff's boot loader. A
+finished Go live or Start once with no restart since keeps its record: BootNext still starts
+Swiff OS, from the app's Restart now or Windows' own. The app notes only when it wrote one, by
+which plan and whether that run finished (`rental-provision.json` in its data), so that start
+asks for administrator rights only then; the console installer zeroes an install's record as
+the install ends. A machine id and server the app's Settings do not hold, or a machine key it
+does not keep, stop that step, before the image is written. The console installer takes
+`--server`, `--machine-id` and the key from `--machine-key-file`.
 
 **The image set** (`swiff-os/image-set.sh`, read by `desktop/image-set.cjs`) is what the
 installer writes: the build's ESP files on a FAT32 with 512-byte sectors (Windows' chkdsk

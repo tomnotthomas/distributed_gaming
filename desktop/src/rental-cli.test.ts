@@ -5,7 +5,7 @@
 // chooses the code and gives it with --code.
 
 import { describe, expect, it } from "vitest";
-import { codeOf, provisioned, provisioningOf, shown, unkeyed } from "../rental-cli.cjs";
+import { codeOf, provisioned, provisioningOf, shown, unkeyed, wipesAfter } from "../rental-cli.cjs";
 import { keyRemovalPlan, mokPlan, switchPlan } from "../rental.cjs";
 
 describe("the console installer's key code", () => {
@@ -101,5 +101,26 @@ describe("the console installer's provisioning", () => {
     const ops = unkeyed([{ op: "provision", record: provisioningOf(opts, key) }]);
     expect(JSON.stringify(ops)).not.toContain("the-machine-key");
     expect(ops).toEqual([{ op: "provision" }]);
+  });
+});
+
+describe("the console's provisioning record", () => {
+  const done = { status: "done", done: ["provision", "restart"] };
+  it("zeroes an install's record as the install ends, and keeps a finished Go live or Start once's for its restart", () => {
+    expect(wipesAfter({ kind: "install" }, done)).toBe(true);
+    expect(wipesAfter(switchPlan("once"), done)).toBe(false);
+    expect(wipesAfter(switchPlan("start"), done)).toBe(false);
+  });
+  it("zeroes the record of any run that stopped short after writing it", () => {
+    expect(
+      wipesAfter(switchPlan("start"), {
+        status: "failed",
+        done: ["provision"],
+        failed: { step: "boot-order" },
+      }),
+    ).toBe(true);
+    expect(
+      wipesAfter({ kind: "install" }, { status: "failed", done: ["check"], failed: { step: "room" } }),
+    ).toBe(false);
   });
 });

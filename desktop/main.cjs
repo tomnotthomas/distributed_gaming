@@ -30,7 +30,7 @@ const { testBuild } = require("./build-kind.cjs");
 const { MANIFEST, readImageSet, trustOf } = require("./image-set.cjs");
 const { downloadSet, sourceOf } = require("./image-download.cjs");
 const {
-  abandoned,
+  fateOf,
   leftRecord,
   machineKeyProblem,
   machineProblem,
@@ -456,12 +456,13 @@ ipcMain.handle("rental:run", async (event) => {
           // Remove Swiff OS: its key's restart, then the start that shows Windows after it.
           removalStep(removals(), plan, e.id, Date.now(), expect);
         }
-        provisionEvent(provisions(), e, Date.now());
+        provisionEvent(provisions(), plan, e, Date.now());
         tell(e);
       },
     });
     // A run that stopped short leaves no machine key on the disk; should the wipe fail, the next start tries again.
     if (record && leftRecord(outcome)) await wipeRecord(worker.apply, provisions());
+    else if (record && outcome.status === "done") provisions().finished();
     restartReady = outcome.status === "done" && plan.steps.some(restarts);
     return outcome;
   } finally {
@@ -473,13 +474,16 @@ ipcMain.handle("rental:run", async (event) => {
 /**
  * At start: a provisioning record an earlier run left on the disk, which no
  * Lanterel OS boot took in, is zeroed (one UAC prompt); one a boot took in is
- * only forgotten. With no record noted, nothing asks for administrator rights.
+ * only forgotten, and one a finished run's restart has still to take in stays
+ * (provision.cjs fateOf). With no record noted, nothing asks for administrator rights.
  */
 async function wipeLeftRecord() {
   const store = provisions();
-  const at = store.read();
-  if (at === null || rentalRun) return;
-  if (!abandoned(at, bootAt(), bootTrail())) return store.forget();
+  const note = store.read();
+  if (!note || rentalRun) return;
+  const fate = fateOf(note, bootAt(), bootTrail());
+  if (fate === "gone") return store.forget();
+  if (fate === "wait") return;
   rentalRun = {};
   let worker = null;
   try {

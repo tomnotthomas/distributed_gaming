@@ -18,7 +18,7 @@ import { fat32Volume, readRootFile } from "./test/fat32.ts";
 import { copyChecked, MANIFEST, SIGNATURE, readImageSet, trustOf } from "../image-set.cjs";
 import { channelOf, clientOf, dryRun, handshake, runPlan, startWorker } from "../rental-exec.cjs";
 import {
-  abandoned,
+  fateOf,
   leftRecord,
   provisionEvent,
   provisionRecord,
@@ -1036,30 +1036,40 @@ describe("a provisioning record left on the disk", () => {
   async function provisioned() {
     const { pc, worker, layout } = await setup();
     const store = provisionStore(path.join(dir, "app"));
+    let plan: RentalPlan | null = null;
     const onEvent = (e: { type: string; id?: string; state?: string }) =>
-      provisionEvent(store, e, Date.now());
+      provisionEvent(store, plan!, e, Date.now());
+    /** Run `next` as main does: noted as it goes, and finished when it ends up to its restart. */
+    const run = async (next: RentalPlan, apply: (op: PlanOp) => Promise<unknown>) => {
+      plan = next;
+      const outcome = await runPlan(next, {
+        apply,
+        onEvent,
+        only: next.steps.filter((s) => s.id !== "restart").map((s) => s.id),
+      });
+      if (outcome.status === "done") store.finished();
+      return outcome;
+    };
     const install = installPlan(rentalOf(pc.facts(), [{ letter: "C", games: 1 }]), {
       layout,
       code: "48217730",
     });
-    expect(await runPlan(install, { apply: skipping(worker.apply), onEvent })).toMatchObject({
-      status: "done",
-    });
+    expect(await run(install, skipping(worker.apply))).toMatchObject({ status: "done" });
     const keep = pc.gpt().entries.find((e) => e.name === "swiff-keep")!;
     const head = () => pc.disk.read(keep.first * 512, RECORD_BYTES);
     expect(head().equals(provisionRecord(MACHINE))).toBe(true);
     expect(store.read()).not.toBeNull();
-    return { pc, worker, store, onEvent, head, keep };
+    return { pc, worker, store, onEvent, run, head, keep };
   }
   const zeroed = (block: Buffer) => block.every((b) => b === 0);
 
   it("is zeroed when the run that wrote it fails, and forgotten", async () => {
-    const { worker, store, onEvent, head } = await provisioned();
+    const { worker, store, run, head } = await provisioned();
     const failing = async (op: PlanOp) => {
       if (op.op === "boot-first") throw new Error("The firmware refused BootOrder.");
       return skipping(worker.apply)(op);
     };
-    const outcome = await runPlan(switchPlan("start"), { apply: failing, onEvent });
+    const outcome = await run(switchPlan("start"), failing);
     expect(outcome).toMatchObject({ status: "failed", failed: { step: "boot-order" } });
     expect(head().equals(provisionRecord(MACHINE))).toBe(true);
     expect(leftRecord(outcome)).toBe(true);
@@ -1084,42 +1094,65 @@ describe("a provisioning record left on the disk", () => {
   });
 
   it("is zeroed by the uninstall before Lanterel OS's partitions go, and forgotten", async () => {
-    const { pc, worker, store, onEvent, head } = await provisioned();
+    const { pc, worker, store, run, head } = await provisioned();
     let atRemoval: Buffer | null = null;
-    const outcome = await runPlan(uninstallPlan(rentalOf(pc.facts())), {
-      apply: async (op) => {
-        if (op.op === "gpt-remove") atRemoval = head();
-        return worker.apply(op);
-      },
-      onEvent,
+    const outcome = await run(uninstallPlan(rentalOf(pc.facts())), async (op) => {
+      if (op.op === "gpt-remove") atRemoval = head();
+      return worker.apply(op);
     });
     expect(outcome).toMatchObject({ status: "done" });
     expect(zeroed(atRemoval!)).toBe(true);
     expect(store.read()).toBeNull();
   });
 
-  it("is zeroed at the app's next start when no Lanterel OS boot took it in, without asking otherwise", async () => {
+  const SHIM_BACK = { shim: true, loader: false, windowsAfterShim: true };
+  const LANTEREL = { shim: true, loader: true, windowsAfterShim: false };
+
+  it("is zeroed at the app's next start after the install, whatever the PC did since", async () => {
     const { worker, store, head } = await provisioned();
-    const at = store.read()!;
-    // The PC has not restarted since the run wrote it: the run ended, or the app quit, before its restart.
-    expect(abandoned(at, at - 60_000, null)).toBe(true);
-    // A restart since, into Lanterel OS: it took the record in.
-    expect(abandoned(at, at + 60_000, null)).toBe(false);
-    expect(
-      abandoned(at, at + 60_000, { at: at + 90_000, shim: true, loader: true, windowsAfterShim: false }),
-    ).toBe(false);
-    // A restart since that went to shim and back to Windows without Lanterel OS's boot loader.
-    expect(
-      abandoned(at, at + 60_000, { at: at + 90_000, shim: true, loader: false, windowsAfterShim: true }),
-    ).toBe(true);
-    // Nothing noted: nothing to wipe.
-    expect(abandoned(null, at + 60_000, null)).toBe(false);
+    const note = store.read()!;
+    expect(note).toMatchObject({ kind: "install", done: true });
+    // The install's restart goes to MokManager, then Windows: no Lanterel OS boot ever takes its record in.
+    expect(fateOf(note, note.at - 60_000, null)).toBe("wipe");
+    expect(fateOf(note, note.at + 60_000, null)).toBe("wipe");
+    expect(fateOf(note, note.at + 60_000, { at: note.at + 90_000, ...SHIM_BACK })).toBe("wipe");
     // A wipe that fails, the UAC prompt declined, keeps the note for the next start.
     expect(await wipeRecord(async () => Promise.reject(new Error("declined")), store)).toBe(false);
-    expect(store.read()).toBe(at);
+    expect(store.read()).toEqual(note);
     expect(await wipeRecord(worker.apply, store)).toBe(true);
     expect(zeroed(head())).toBe(true);
     expect(store.read()).toBeNull();
+  });
+
+  it("stays for a finished Go live or Start once until its restart, and is zeroed when that restart did not take it in", async () => {
+    const { worker, store, run, head } = await provisioned();
+    for (const kind of ["once", "start"] as const) {
+      expect(await run(switchPlan(kind), skipping(worker.apply))).toMatchObject({ status: "done" });
+      const note = store.read()!;
+      expect(note).toMatchObject({ kind, done: true });
+      expect(head().equals(provisionRecord(MACHINE))).toBe(true);
+      // The app quit before the restart: BootNext still starts Lanterel OS, which takes the record in.
+      expect(fateOf(note, note.at - 60_000, null)).toBe("wait");
+      // A restart since that started Lanterel OS: it took the record in, and the note goes.
+      expect(fateOf(note, note.at + 60_000, null)).toBe("gone");
+      expect(fateOf(note, note.at + 60_000, { at: note.at + 90_000, ...LANTEREL })).toBe("gone");
+      // A restart since that went to shim and back to Windows without Lanterel OS's boot loader.
+      expect(fateOf(note, note.at + 60_000, { at: note.at + 90_000, ...SHIM_BACK })).toBe("wipe");
+    }
+  });
+
+  it("is zeroed at the app's next start after a Go live or Start once that never finished", async () => {
+    const { worker, store, run } = await provisioned();
+    // The app quit mid-run: the note says the provision step started, never that the run finished.
+    const stopped = await run(switchPlan("start"), async (op) => {
+      if (op.op === "boot-next") throw new Error("The app quit.");
+      return skipping(worker.apply)(op);
+    });
+    expect(stopped).toMatchObject({ status: "failed" });
+    const note = store.read()!;
+    expect(note).toMatchObject({ kind: "start", done: false });
+    expect(fateOf(note, note.at - 60_000, null)).toBe("wipe");
+    expect(fateOf(note, note.at + 60_000, null)).toBe("wipe");
   });
 });
 
