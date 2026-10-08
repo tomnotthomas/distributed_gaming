@@ -19,10 +19,16 @@ export type KeyStore = {
   queued(code: string, at: number): void;
   answer(yes: boolean): void;
   forget(): void;
+  cancelled(): void;
 };
 export function keyStore(
   dir: string,
   crypt: { seal(text: string): Buffer; open(sealed: Buffer): string } | null,
   files?: typeof import("node:fs"),
 ): KeyStore;
-export function keyStep(store: KeyStore, plan: { mok?: { code: string } }, id: string, at: number): void;
+export function keyStep(
+  store: KeyStore,
+  plan: { mok?: { code: string }; steps: { id: string; ops: { op: string }[] }[] },
+  id: string,
+  at: number,
+): void;

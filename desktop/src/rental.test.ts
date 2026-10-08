@@ -952,6 +952,12 @@ describe("the uninstall", () => {
     expect(keyOf(store.read(), 1000)?.state).toBe("queued");
     keyStep(store, plan, "boot-entry", 3000);
     expect(keyOf(store.read(), 1000)).toBeNull();
+    // The owner's word on the blue screen outlives it: an uninstall that stops later keeps the key confirmed.
+    for (const yes of [true, false]) {
+      store.answer(yes);
+      keyStep(store, plan, "boot-entry", 4000);
+      expect(store.read()?.answer).toBe(yes ? "yes" : "no");
+    }
   });
 
   it("refuses a PC where nothing was installed", () => {

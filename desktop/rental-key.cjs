@@ -110,6 +110,11 @@ function keyStore(dir, crypt, files = fs) {
     answer: (yes) => write({ sealed: null, queuedAt: null, answer: yes ? "yes" : "no" }),
     /** Swiff OS is gone, or never was: nothing to remember. */
     forget: () => files.rmSync(file, { force: true }),
+    /** Shim's requests were cancelled: a request still waiting goes, the owner's word stays. */
+    cancelled: () => {
+      const saved = read();
+      if (saved && !saved.answer) files.rmSync(file, { force: true });
+    },
   };
 }
 
@@ -117,12 +122,12 @@ function keyStore(dir, crypt, files = fs) {
  * What a run's finished step `id` of `plan` tells the key's file (keyStore
  * `store`): `mok` queued a request with the plan's code, `mok-remove` took
  * Swiff's key off, so it must be confirmed again before rental mode goes live,
- * and a step that cancels shim's requests (`mok-cancel`) leaves none queued.
+ * and a step that cancels shim's requests (`mok-cancel`) leaves none queued, the owner's word kept.
  */
 function keyStep(store, plan, id, at) {
   if (id === "mok" && plan.mok) store.queued(plan.mok.code, at);
   else if (id === "mok-remove") store.answer(false);
-  else if (plan.steps.find((s) => s.id === id)?.ops.some((o) => o.op === "mok-cancel")) store.forget();
+  else if (plan.steps.find((s) => s.id === id)?.ops.some((o) => o.op === "mok-cancel")) store.cancelled();
 }
 
 module.exports = { savedOf, keyOf, canAnswer, keyStore, keyStep, bootTrail };
