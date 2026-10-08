@@ -28,6 +28,8 @@ export const MORE_MS = 120_000;
 export const MAX_MORE = 2;
 /** How long a vote that said no stays to be seen, before another may be asked. */
 export const NO_SHOWN_MS = 8_000;
+/** How soon to try again to end the session when ending it failed. */
+export const SWITCH_RETRY_MS = 5_000;
 
 export type SwitchOutcome = "open" | "yes" | "no";
 
@@ -89,8 +91,11 @@ export type SwitchesOptions = {
   moreMs?: number;
   /** The crew said yes: the one who asked goes first in its line. */
   onDecided?: (vote: SwitchVote) => void;
-  /** The save time is up: the session ends. */
-  onSwitch?: (vote: SwitchVote) => void;
+  /**
+   * The save time is up: the session ends. The vote goes once that is done;
+   * when it fails (a rejected promise), it is tried again after SWITCH_RETRY_MS.
+   */
+  onSwitch?: (vote: SwitchVote) => unknown;
   /** Timers, for tests. */
   setTimer?: (run: () => void, ms: number) => () => void;
 };
@@ -107,7 +112,7 @@ export class Switches {
   readonly #saveMs: number;
   readonly #moreMs: number;
   readonly #onDecided: (vote: SwitchVote) => void;
-  readonly #onSwitch: (vote: SwitchVote) => void;
+  readonly #onSwitch: (vote: SwitchVote) => unknown;
   readonly #setTimer: (run: () => void, ms: number) => () => void;
   readonly #votes = new Map<string, SwitchVote>();
   readonly #timers = new Map<string, () => void>();
@@ -199,7 +204,9 @@ export class Switches {
    */
   handOver(sessionId: string, playerId: string, ask: "now" | "more"): SwitchVote | null {
     const vote = this.of(sessionId);
-    if (!vote || vote.playerId !== playerId || vote.outcome !== "yes") return null;
+    if (!vote || vote.playerId !== playerId || vote.outcome !== "yes" || vote.switchAt! <= this.#now()) {
+      return null;
+    }
     if (ask === "more") {
       if (vote.more >= MAX_MORE) return null;
       vote.more += 1;
@@ -268,18 +275,28 @@ export class Switches {
     }
   }
 
-  /** Have the session end once the save time is up. */
-  #schedule(vote: SwitchVote): void {
+  /** Have the session end once the save time is up, or `ms` from now. */
+  #schedule(vote: SwitchVote, ms = Math.max(0, vote.switchAt! - this.#now())): void {
     this.#timers.get(vote.sessionId)?.();
     this.#timers.set(
       vote.sessionId,
-      this.#setTimer(
-        () => {
-          this.#timers.delete(vote.sessionId);
-          if (this.#votes.get(vote.sessionId) === vote) this.#onSwitch(vote);
-        },
-        Math.max(0, vote.switchAt! - this.#now()),
-      ),
+      this.#setTimer(() => {
+        this.#timers.delete(vote.sessionId);
+        if (this.#votes.get(vote.sessionId) === vote) this.#switch(vote);
+      }, ms),
+    );
+  }
+
+  /** End the session: its vote goes once it ended, and ending it is tried again while that fails. */
+  #switch(vote: SwitchVote): void {
+    const current = () => this.#votes.get(vote.sessionId) === vote;
+    void new Promise((done) => done(this.#onSwitch(vote))).then(
+      () => {
+        if (current()) this.ended(vote.sessionId);
+      },
+      () => {
+        if (current()) this.#schedule(vote, SWITCH_RETRY_MS);
+      },
     );
   }
 }

@@ -3,7 +3,16 @@
 
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
-import { MAX_MORE, MORE_MS, NO_SHOWN_MS, SAVE_MS, Switches, VOTE_MS, type SwitchVote } from "../switches.js";
+import {
+  MAX_MORE,
+  MORE_MS,
+  NO_SHOWN_MS,
+  SAVE_MS,
+  SWITCH_RETRY_MS,
+  Switches,
+  VOTE_MS,
+  type SwitchVote,
+} from "../switches.js";
 
 const PLAYER = { id: "max", name: "Max" };
 const KEMAL = { id: "kemal", name: "Kemal" };
@@ -11,6 +20,8 @@ const KEMAL = { id: "kemal", name: "Kemal" };
 let now: number;
 let decided: SwitchVote[];
 let switched: SwitchVote[];
+/** How many of the next session ends fail. */
+let failing: number;
 /** Timers the switches set, as [when, run]: run by `advance`. */
 let timers: { at: number; run: () => void; live: boolean }[];
 let switches: Switches;
@@ -43,11 +54,18 @@ describe("switches", () => {
     now = 1_000_000;
     decided = [];
     switched = [];
+    failing = 0;
     timers = [];
     switches = new Switches({
       now: () => now,
       onDecided: (vote) => decided.push(vote),
-      onSwitch: (vote) => switched.push(vote),
+      onSwitch: (vote) => {
+        switched.push(vote);
+        if (failing > 0) {
+          failing--;
+          return Promise.reject(new Error("the database is away"));
+        }
+      },
       setTimer: (run, ms) => {
         const timer = { at: now + ms, run, live: true };
         timers.push(timer);
@@ -174,6 +192,28 @@ describe("switches", () => {
     switches.handOver("s1", "max", "now");
     advance(0);
     assert.equal(switched.length, 1);
+  });
+
+  it("keeps the handover and tries ending the session again while that fails, then forgets it", async () => {
+    const settled = () => new Promise((done) => setImmediate(done));
+    ask();
+    switches.vote("s1", "max", true);
+    failing = 1;
+    advance(SAVE_MS);
+    await settled();
+    assert.equal(switched.length, 1);
+    assert.equal(switches.of("s1")?.outcome, "yes");
+    // Switching already: the player can no longer stretch or cut it, so it never ends twice at once.
+    assert.equal(switches.handOver("s1", "max", "more"), null);
+    assert.equal(switches.handOver("s1", "max", "now"), null);
+    advance(SWITCH_RETRY_MS - 1);
+    assert.equal(switched.length, 1);
+    advance(1);
+    await settled();
+    assert.equal(switched.length, 2);
+    assert.equal(switches.of("s1"), null);
+    advance(SWITCH_RETRY_MS);
+    assert.equal(switched.length, 2);
   });
 
   it("forgets a session that ended, timer and all", () => {

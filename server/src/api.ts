@@ -526,7 +526,7 @@ export function crewSwitches({
   SwitchesOptions,
   "onDecided" | "onSwitch"
 >): Switches {
-  const switches: Switches = new Switches({
+  return new Switches({
     ...opts,
     onDecided: (vote) => {
       if (!vote.crewId) return;
@@ -535,15 +535,11 @@ export function crewSwitches({
         .then(() => events?.crewChanged())
         .catch(() => {});
     },
-    onSwitch: (vote) => {
-      switches.ended(vote.sessionId);
-      void platform
-        .endLiveSession(vote.sessionId)
-        .then(() => events?.crewChanged())
-        .catch(() => {});
+    onSwitch: async (vote) => {
+      await platform.endLiveSession(vote.sessionId);
+      events?.crewChanged();
     },
   });
-  return switches;
 }
 
 /**
