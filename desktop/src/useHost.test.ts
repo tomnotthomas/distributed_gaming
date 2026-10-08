@@ -687,7 +687,10 @@ describe("useHost", () => {
       const bridge = fakeBridge();
       (window as { swiffHost?: HostBridge }).swiffHost = bridge;
       bridge.loadMachineKey = vi.fn(async () => machineKey);
-      bridge.readRental = vi.fn(async () => rentalOf({ ...structuredClone(FACTS), check: EK }, []));
+      bridge.readRental = vi.fn(async () => ({
+        ...rentalOf({ ...structuredClone(FACTS), check: EK }, []),
+        network: { kind: "wired" as const },
+      }));
       bridge.planRental = vi.fn(async () => ONCE);
       const hook = renderHook(() => useHost());
       await settle();

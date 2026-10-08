@@ -5,6 +5,7 @@ import { bridge } from "./bridge";
 import type { EkResult } from "./ek";
 import { IDLE_RUN, type ImageDownload, type RentalRun, type RentalSetup, type WritePass } from "./model";
 import { meter } from "./progress";
+import { agreedWifi, networkReady } from "./network";
 import { endsInRestart, fileName, firmwareChecks, pcChecks, recoveryDue, writesOf } from "./rental";
 import { loadMachineId, loadUrl, toSocketUrl } from "./settings";
 
@@ -293,11 +294,13 @@ export function useRental({
    * has this TPM's EK, which is always before anything changes what the PC starts: the app registers
    * the one the last check read, and the plan's own read stops it before BootNext when the TPM has
    * another (a new board) or none was read before. That read is recorded, so the app registers it and
-   * goes live again, once.
+   * goes live again, once. Only once the last check found a network Lanterel OS can get online over,
+   * and the Wi-Fi it showed is the one the owner's hold hands over.
    */
   const goLive = () => {
     const host = bridge();
-    if (!host || busy) return;
+    if (!host || busy || !networkReady(read?.network)) return;
+    const wifi = agreedWifi(read?.network);
     const n = nextPlan();
     /** The EK certificate a read says the TPM step last recorded, or null for none. */
     const checked = (r: RentalRead | null): EkCertificate | null =>
@@ -310,7 +313,12 @@ export function useRental({
         if (registered)
           setRun({ ...IDLE_RUN, status: "running", startedAt: Date.now(), stepStartedAt: Date.now() });
         const plan = await host
-          .planRental({ kind: "once", ...machineFor("once"), registered: registered?.certificate ?? null })
+          .planRental({
+            kind: "once",
+            ...machineFor("once"),
+            ...(wifi === null ? {} : { wifi }),
+            registered: registered?.certificate ?? null,
+          })
           .catch(() => null);
         if (n !== plans.current) return;
         if (!plan) {

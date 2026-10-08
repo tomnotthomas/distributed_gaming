@@ -68,6 +68,7 @@
       "efi.cjs",
       "measured-boot.cjs",
       "provision.cjs",
+      "network.cjs",
       "user-data.cjs",
       "dist/**"
     ],

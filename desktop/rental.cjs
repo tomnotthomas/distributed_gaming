@@ -787,8 +787,8 @@ function commandsOf(op) {
       ];
     case "provision":
       return [
-        "# Lanterel Host's provisioning record (provision.cjs): the server, this PC's machine id and its machine key, written raw at the start of Lanterel OS's keep partition, then read back",
-        "#   Lanterel OS seals it to this PC's TPM at its next start and zeroes it there; the machine key is never shown or logged",
+        "# Lanterel Host's provisioning record (provision.cjs): the server, this PC's machine id and its machine key, and without a network cable the connected Wi-Fi's name and password, written raw at the start of Lanterel OS's keep partition, then read back",
+        "#   Lanterel OS seals it to this PC's TPM at its next start and zeroes it there; the machine key and the Wi-Fi password are never shown or logged",
       ];
     case "unprovision":
       return [
@@ -814,16 +814,18 @@ const step = (id, title, ops, confirm = null) => ({
 
 /**
  * Hand Swiff OS what its agent needs to offer this PC: the server, the machine
- * id and the machine key (provision.cjs). The op names none of them: the app
- * fills them in as the step runs, from the machine key it keeps encrypted, so
- * neither the plan on screen nor a report carries the key.
+ * id and the machine key, and on a PC without a network cable the Wi-Fi it is
+ * connected to (provision.cjs). The op names none of them: the app fills them
+ * in as the step runs, from the machine key it keeps encrypted and the Wi-Fi
+ * Windows has saved (network.cjs), so neither the plan on screen nor a report
+ * carries the key or the Wi-Fi password.
  */
 const provisionStep = () =>
   step(
     "provision",
     "Give Lanterel OS this PC's machine key",
     [{ op: "provision" }],
-    "Lanterel OS gets this PC's machine id and machine key on its own partition, and at its next start seals them to this PC's TPM, so only Lanterel OS on this PC can read them.",
+    "Lanterel OS gets this PC's machine id and machine key, and the Wi-Fi's name and password on a PC without a network cable, on its own partition, and at its next start seals them to this PC's TPM, so only Lanterel OS on this PC can read them.",
   );
 
 /**

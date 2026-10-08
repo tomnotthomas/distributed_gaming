@@ -1,5 +1,6 @@
 // What this app hands Lanterel OS so its agent (swiff-hostd) can offer the PC:
-// the platform's address, the machine id and the machine key. The installer's
+// the platform's address, the machine id and the machine key, and on a PC
+// without a network cable the Wi-Fi it is connected to (network.cjs). The installer's
 // elevated worker writes it as one record, raw, at the start of Lanterel OS's
 // keep partition, each time it restarts the PC into Lanterel OS (Go live and
 // Start once, the plans' `provision` op). Lanterel OS reads it at its next start,
@@ -12,13 +13,18 @@
 //        8      4  version, 1 (big-endian)
 //       12      4  length of the payload (big-endian)
 //       16     32  SHA-256 of the payload
-//       48      …  the payload: JSON { "serverUrl", "machineId", "machineKey" }
-//                  then zeros, to 4096 bytes
+//       48      …  the payload: JSON { "serverUrl", "machineId", "machineKey" },
+//                  and "wifi": { "ssid", "security", "passphrase" } only on a
+//                  PC that goes online over Wi-Fi, then zeros, to 4096 bytes
+//
+// `security` is "open", "psk" (WPA2-Personal) or "sae" (WPA3-Personal);
+// `passphrase` is there for psk and sae only.
 //
 // The record carries data only: what Lanterel OS runs comes from its signed
-// image. The machine key is never shown in a plan, logged or kept anywhere else.
+// image. The machine key and the Wi-Fi password are never shown in a plan,
+// logged or kept anywhere else.
 //
-// Until that boot the record is the machine key in the clear on the disk: the
+// Until that boot the record is the machine key (and the Wi-Fi password) in the clear on the disk: the
 // owner's accepted exception to the review rule against writing secrets to a
 // plain-text file, for that window only and with this wipe. So it is zeroed
 // (the plans' `unprovision` op) whenever it is left behind: a run that wrote
@@ -72,17 +78,48 @@ function machineKeyProblem(machineKey) {
   return "This PC has no machine key Lanterel OS can use: pair it with your Steam account again, in the Account step.";
 }
 
+/** The Wi-Fi securities Lanterel OS joins, and whether each takes a passphrase. */
+const WIFI_SECURITY = { open: false, psk: true, sae: true };
+/** A WPA passphrase: 8 to 63 printable ASCII characters. */
+const PASSPHRASE = /^[\x20-\x7e]{8,63}$/;
+
 /**
- * The record for `provisioning` ({ serverUrl, machineId, machineKey }), as
- * Lanterel OS reads it: RECORD_BYTES bytes. Throws when a field is not one
- * Lanterel OS would take, never quoting the machine key.
+ * Why `wifi` cannot be provisioned, or null when it can: an SSID of 1 to 32
+ * bytes, a security Lanterel OS joins, and a passphrase exactly when it takes
+ * one. Never quotes the passphrase.
  */
-function provisionRecord({ serverUrl, machineId, machineKey }) {
+function wifiProblem(wifi) {
+  if (!wifi || typeof wifi !== "object") return "The Wi-Fi is not one Lanterel OS can join.";
+  const { ssid, security, passphrase } = wifi;
+  const bytes = typeof ssid === "string" ? Buffer.byteLength(ssid, "utf8") : 0;
+  if (bytes < 1 || bytes > 32) return "The Wi-Fi's name is not one Lanterel OS can join.";
+  if (!Object.hasOwn(WIFI_SECURITY, security)) return "The Wi-Fi's security is not one Lanterel OS can join.";
+  if (!WIFI_SECURITY[security]) return passphrase === undefined ? null : "An open Wi-Fi has no password.";
+  return typeof passphrase === "string" && PASSPHRASE.test(passphrase)
+    ? null
+    : "The Wi-Fi's password is not one Lanterel OS can use.";
+}
+
+/**
+ * The record for `provisioning` ({ serverUrl, machineId, machineKey, wifi? }),
+ * as Lanterel OS reads it: RECORD_BYTES bytes. Throws when a field is not one
+ * Lanterel OS would take, never quoting the machine key or the Wi-Fi password.
+ */
+function provisionRecord({ serverUrl, machineId, machineKey, wifi }) {
   const problem = machineProblem({ serverUrl, machineId });
   if (problem) throw new Error(problem);
   const keyProblem = machineKeyProblem(machineKey);
   if (keyProblem) throw new Error(keyProblem);
-  const payload = Buffer.from(JSON.stringify({ serverUrl, machineId, machineKey }), "utf8");
+  const wifiIssue = wifi === undefined ? null : wifiProblem(wifi);
+  if (wifiIssue) throw new Error(wifiIssue);
+  const fields = { serverUrl, machineId, machineKey };
+  if (wifi !== undefined)
+    fields.wifi = {
+      ssid: wifi.ssid,
+      security: wifi.security,
+      ...(wifi.passphrase === undefined ? {} : { passphrase: wifi.passphrase }),
+    };
+  const payload = Buffer.from(JSON.stringify(fields), "utf8");
   if (payload.length > RECORD_BYTES - HEADER_BYTES) throw new Error("The provisioning is too long.");
   const record = Buffer.alloc(RECORD_BYTES);
   RECORD_MAGIC.copy(record, 0);
@@ -211,6 +248,7 @@ module.exports = {
   provisionEvent,
   provisionRecord,
   provisionStore,
+  wifiProblem,
   wipeRecord,
   wipesAtStart,
 };

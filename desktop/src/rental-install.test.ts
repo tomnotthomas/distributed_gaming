@@ -1082,6 +1082,18 @@ describe("a provisioning record left on the disk", () => {
     expect(store.read()).toBeNull();
   });
 
+  it("holds a Wi-Fi PC's network in the same record, zeroed with it", async () => {
+    const { worker, store, head } = await provisioned();
+    const record = {
+      ...MACHINE,
+      wifi: { ssid: "Brammiball", security: "sae" as const, passphrase: "correct horse 15" },
+    };
+    await worker.apply({ op: "provision", record });
+    expect(head().equals(provisionRecord(record))).toBe(true);
+    expect(await wipeRecord((op) => worker.apply(op as PlanOp), store)).toBe(true);
+    expect(zeroed(head())).toBe(true);
+  });
+
   it("counts a run stopped or failed at or after its provision step, not one that ended or stopped before it", () => {
     expect(leftRecord({ status: "stopped", done: ["provision"] })).toBe(true);
     expect(leftRecord({ status: "failed", done: [], failed: { step: "provision" } })).toBe(true);

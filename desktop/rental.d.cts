@@ -1,6 +1,8 @@
 // Types for rental.cjs, so the renderer and its tests can use its results and helpers.
 
 import type { Gpt } from "./gpt.cjs";
+import type { Network } from "./network.cjs";
+import type { Provisioning } from "./provision.cjs";
 import type { Recovery } from "./recovery-key.cjs";
 import type { KeyState } from "./rental-key.cjs";
 import type { Removal } from "./rental-removal.cjs";
@@ -116,6 +118,8 @@ export type RentalRead = {
   removal?: Removal | null;
   /** Whether the BitLocker recovery key still has to be saved before a boot change (recovery-key.cjs), which main adds. */
   recovery?: Recovery;
+  /** What Lanterel OS gets online over (network.cjs), which main adds. */
+  network?: Network;
 };
 
 /** A live run in Swiff OS, summed up: when, how many sessions, how many ended early, what it earned (euros). */
@@ -154,7 +158,7 @@ export type PlanOp =
   | { op: "boot-first"; entry: "swiff" | "windows" }
   | { op: "boot-next"; entry: "swiff" }
   /** `record` is filled in by main as the step runs, never planned: it holds the machine key. */
-  | { op: "provision"; record?: { serverUrl: string; machineId: string; machineKey: string } }
+  | { op: "provision"; record?: Provisioning }
   | { op: "unprovision" }
   | { op: "installed" }
   | { op: "removal-check"; disk: number | null; ids: string[] }

@@ -16,17 +16,20 @@ const LABEL: Record<HoldPhase, [string, string]> = {
 export function Reticle({
   onFire,
   disabled,
+  off = ["Add", "details"],
   starting,
 }: {
   onFire: () => void;
-  /** Nothing to go live with: the connection details are missing. */
+  /** Nothing to go live with: the connection details are missing, or Lanterel OS would have no network. */
   disabled?: boolean;
+  /** What the dial says while disabled. */
+  off?: [string, string];
   starting?: boolean;
 }) {
   const { phase, progress, handlers } = useHold({ onFire, disabled: disabled || starting });
   const shown: HoldPhase = starting ? "done" : phase;
   const fill = starting ? 1 : progress;
-  const [line1, line2] = disabled ? ["Add", "details"] : LABEL[shown];
+  const [line1, line2] = disabled ? off : LABEL[shown];
 
   return (
     <button

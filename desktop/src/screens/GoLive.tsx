@@ -8,6 +8,7 @@ import { connectionReady, nextAt, untilChoices, untilSentence } from "../model";
 import { Notice } from "../ui/Notice";
 import { Eur, Figure, Kv, Plate, Thumbs, Zone } from "../ui/parts";
 import { WINDOWS_SHARE } from "../devShare";
+import { networkRefusal, wifiConsent } from "../network";
 import { failureOf, rentalScreen } from "../rental";
 import { Pill } from "../ui/Pill";
 import { Reticle } from "../ui/Reticle";
@@ -159,6 +160,9 @@ export function CrewPicker({
  * Go live, in rental mode: the PC restarts into Swiff OS, where players book
  * it. Holding the button is the owner's OK: the restart follows by itself.
  * Who can play is asked here, as the platform holds it for Swiff OS's offers.
+ * On a PC without a network cable, the hold also hands Lanterel OS the
+ * connected Wi-Fi, which the screen says first; a network Lanterel OS could
+ * not get online over leaves the button off, with the one thing to do.
  */
 export function GoLive(props: ScreenProps) {
   const { view, actions, go } = props;
@@ -176,18 +180,34 @@ export function GoLive(props: ScreenProps) {
           ? "Restarting into Lanterel OS."
           : null;
   const failed = s.kind === "failed" ? failureOf(setup, s) : null;
+  const network = setup.read?.network;
+  const refused = failed || status ? null : networkRefusal(network);
+  const consent = failed || status || refused ? null : wifiConsent(network);
   return (
     <main className="step">
       <section className="hz">
         <div className="cp">
           <p className="mono ctx">{view.machine}</p>
-          <h1>{failed ? failed.title : "Ready to go live"}</h1>
+          <h1>{failed?.title ?? refused?.title ?? "Ready to go live"}</h1>
           <p className="ln">
-            {failed
-              ? failed.why
-              : "Hold the button. The PC restarts into Lanterel OS, and players can book it. For now its next restart is Windows again."}
+            {failed?.why ??
+              refused?.why ??
+              "Hold the button. The PC restarts into Lanterel OS, and players can book it. For now its next restart is Windows again."}
           </p>
-          {!status && !failed && asksWhoCanPlay(view.crew) ? (
+          {consent ? (
+            <div className="ctl wifi-consent">
+              <p className="mono label">{consent.label}</p>
+              <p className="note6">{consent.text}</p>
+            </div>
+          ) : null}
+          {refused ? (
+            <div className="acts">
+              <Pill icon="refresh" onClick={actions.checkRental} disabled={setup.reading}>
+                {refused.label}
+              </Pill>
+            </div>
+          ) : null}
+          {!status && !failed && !refused && asksWhoCanPlay(view.crew) ? (
             <div className="ctl">
               <CrewPicker crew={view.crew} site={siteOf(view.connection.url)} onChange={actions.setCrews} />
               {view.crewNote ? <Notice>{view.crewNote}</Notice> : null}
@@ -225,7 +245,12 @@ export function GoLive(props: ScreenProps) {
           ) : null}
         </div>
         <Plate className="ret" caption={["Go live", busy ? "Starting" : "Hold to start"]}>
-          <Reticle onFire={actions.goLiveRental} starting={busy} />
+          <Reticle
+            onFire={actions.goLiveRental}
+            disabled={Boolean(refused)}
+            off={refused?.off}
+            starting={busy}
+          />
         </Plate>
       </section>
       {actions.seats ? (

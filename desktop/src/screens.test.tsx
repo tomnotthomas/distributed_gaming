@@ -26,6 +26,7 @@ import {
 } from "../rental.cjs";
 import FACTS from "./test/rental-facts.json";
 import type { CrewOf } from "./report";
+import type { Network } from "../network.cjs";
 
 /** Sharing this Windows desktop: off, as in every build hosts download, unless a test turns it on. */
 const share = vi.hoisted(() => ({ on: false }));
@@ -203,6 +204,7 @@ const RENTAL_READY: Partial<HostView> = {
         [],
       ),
       key: { state: "confirmed", code: null },
+      network: { kind: "wired" },
     },
     target: null,
     preview: null,
@@ -397,6 +399,7 @@ const installed = (key: RentalRead["key"]): Partial<HostView> => ({
         [],
       ),
       key,
+      network: { kind: "wired" },
     },
     target: null,
     preview: null,
@@ -832,6 +835,61 @@ describe("this PC's screens", () => {
     expect(pick("Your crew")).toHaveAttribute("aria-checked", "true");
     fireEvent.click(pick("Friday Squad"));
     expect(host.actions.setCrews).toHaveBeenLastCalledWith(["c2"]);
+  });
+
+  it("says before the hold that Go live hands Lanterel OS this PC's Wi-Fi, and nothing new on a cable", () => {
+    const on = (network: Network): Partial<HostView> => ({
+      ...ready,
+      rental: { ...ready.rental!, read: { ...ready.rental!.read!, network } },
+    });
+    renderReal("live", off, on({ kind: "wifi", ssid: "Brammiball", security: "sae" }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ready to go live");
+    expect(screen.getByText("Wi-Fi for Lanterel OS")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Lanterel OS goes online over this PC's Wi-Fi, “Brammiball”. Holding the button hands Lanterel OS the network's name and password, sealed so only Lanterel OS on this PC can read them.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hold to go live" })).toBeEnabled();
+    cleanup();
+
+    renderReal("live", off, ready);
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ready to go live");
+    expect(screen.queryByText("Wi-Fi for Lanterel OS")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Check again" })).not.toBeInTheDocument();
+  });
+
+  it("holds Go live off while Lanterel OS would have no network: one sentence, and Check again", () => {
+    const on = (network: Network): Partial<HostView> => ({
+      ...ready,
+      crew: { only: true, crews: [MIKA] },
+      rental: { ...ready.rental!, read: { ...ready.rental!.read!, network } },
+    });
+    const acts = renderReal("live", off, on({ kind: "enterprise", ssid: "eduroam" }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Lanterel OS can't use this Wi-Fi");
+    expect(
+      screen.getByText(
+        "“eduroam” signs in with a user name, like work or school Wi-Fi, which Lanterel OS can't do: connect a network cable, then check again.",
+      ),
+    ).toBeInTheDocument();
+    const dial = screen.getByRole("button", { name: "Hold to go live" });
+    expect(dial).toBeDisabled();
+    expect(dial).toHaveTextContent("Needs a");
+    expect(screen.queryByText("Wi-Fi for Lanterel OS")).not.toBeInTheDocument();
+    // The one thing to do is the cable: who plays waits until Go live can start.
+    expect(screen.queryByText("Who does your PC play for?")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    expect(acts.checkRental).toHaveBeenCalledOnce();
+    cleanup();
+
+    renderReal("live", off, on({ kind: "offline", ssid: "Hotel Gast" }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("“Hotel Gast” has no internet");
+    expect(screen.getByText(/or wants you to sign in on a web page/)).toBeInTheDocument();
+    cleanup();
+
+    renderReal("live", off, on({ kind: "none" }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Lanterel OS has no network");
+    expect(screen.getByRole("button", { name: "Hold to go live" })).toBeDisabled();
   });
 
   it("names a crew by its own name, else by whose it is", () => {
@@ -1512,6 +1570,19 @@ describe("rental mode", () => {
       screen.getByText(/Saved at 21:06 for Lanterel: the error, the step and this PC's checks\./),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Try again/ })).toBeInTheDocument();
+    cleanup();
+
+    // Main's own check of the network as the run started: the Wi-Fi is not the one the screen showed.
+    acts = renderReal("live", off, failedAt("network", "changed"));
+    expect(h1()).toHaveTextContent("The Wi-Fi changed");
+    expect(
+      screen.getByText(
+        "This PC is on another network than the one this screen showed: check again, then hold the button again.",
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Check again/ }));
+    expect(acts.checkRental).toHaveBeenCalledOnce();
+    expect(acts.retryRental).not.toHaveBeenCalled();
     cleanup();
 
     // At the TPM's EK, before anything restarts: what to do, in one sentence, and its one button.

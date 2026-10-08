@@ -174,4 +174,4 @@ function readWindowsProbe({ platform = process.platform, env = process.env, run 
   });
 }
 
-module.exports = { CODECS, PROBE_SCRIPT, encodeCommand, parseProbe, readWindowsProbe };
+module.exports = { CODECS, PROBE_SCRIPT, encodeCommand, parseProbe, powershell, readWindowsProbe };

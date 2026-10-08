@@ -36,6 +36,8 @@ export type HostBridge = {
     registered?: string | null;
     /** This PC's server and machine id, which a plan's provisioning hands Swiff OS with the machine key. */
     machine?: { serverUrl: string; machineId: string };
+    /** Go live: the Wi-Fi the owner agreed to hand Lanterel OS, by name; absent or null on a cable. */
+    wifi?: string | null;
   }): Promise<RentalPlan | null>;
   /** Run the plan main last showed; null when there is none to run. */
   runRental(): Promise<RunOutcome | null>;

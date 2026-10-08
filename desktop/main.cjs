@@ -39,6 +39,7 @@ const {
   wipeRecord,
   wipesAtStart,
 } = require("./provision.cjs");
+const { networkOf, readNetwork, wifiToHand } = require("./network.cjs");
 const { runPlan, startWorker } = require("./rental-exec.cjs");
 const { BITLOCKER_PANEL, drivesOff, recoveryOf, recoveryStore } = require("./recovery-key.cjs");
 const { bootTrail, canAnswer, keyOf, keyStep, keyStore } = require("./rental-key.cjs");
@@ -279,6 +280,8 @@ let rentalPlan = null;
 let rentalRun = null;
 /** The server and machine id the window planned with, for the plan's provisioning (provision.cjs). */
 let rentalMachine = null;
+/** The Wi-Fi the Go live screen showed the owner, by name: the one they agreed to hand Lanterel OS (network.cjs). */
+let rentalWifi = null;
 /** What a remove plan's disk part must leave (rental-removal.cjs expectOf), from the read it was planned on. */
 let rentalExpect = null;
 /** A run finished up to its restart: Restart now may restart the PC. */
@@ -298,7 +301,7 @@ function recoveryNow(read) {
 
 ipcMain.handle("rental:read", async (event) => {
   if (!fromApp(event)) return null;
-  const read = await readRental();
+  const [read, network] = await Promise.all([readRental(), readNetwork()]);
   if (!read) return null;
   lastRead = read;
   // Swiff OS gone, or never there: an old code or answer means nothing any more.
@@ -310,6 +313,7 @@ ipcMain.handle("rental:read", async (event) => {
     key: keyOf(keys().read(), bootAt(), trail),
     removal: removalOf(removals().read(), bootAt(), read.facts, trail),
     recovery: recoveryNow(read),
+    network: networkOf(network),
   };
 });
 /** The server and machine id the window asks a plan with, checked; null when they cannot be provisioned. */
@@ -340,11 +344,13 @@ function provisioning(machine) {
   if (problem) throw new Error(problem);
   return { ...machine, machineKey };
 }
+
 ipcMain.handle("rental:plan", async (event, ask) => {
   if (!fromApp(event) || !ask || typeof ask !== "object" || rentalRun) return null;
   rentalPlan = null;
   rentalExpect = null;
   rentalMachine = null;
+  rentalWifi = null;
   let plan = null;
   try {
     if (ask.kind === "start" || ask.kind === "stop" || ask.kind === "once")
@@ -381,6 +387,7 @@ ipcMain.handle("rental:plan", async (event, ask) => {
   if (plan && RUNNABLE.has(plan.kind)) {
     rentalPlan = plan;
     rentalMachine = machineOf(ask.machine);
+    rentalWifi = typeof ask.wifi === "string" ? ask.wifi : null;
   }
   return plan;
 });
@@ -411,6 +418,7 @@ ipcMain.handle("rental:run", async (event) => {
   const plan = rentalPlan;
   const expect = rentalExpect;
   const machine = rentalMachine;
+  const agreed = rentalWifi;
   // Nothing changes what the PC starts while a drive's BitLocker recovery key is not saved: read the
   // PC now, since BitLocker may have been turned on since the screen's read, and refuse when it cannot be read.
   if (BOOT_CHANGES.has(plan.kind)) {
@@ -436,6 +444,18 @@ ipcMain.handle("rental:run", async (event) => {
         results: [],
       };
     }
+    // Lanterel OS gets online over the cable, or the Wi-Fi the owner agreed to: checked before anything changes.
+    try {
+      const wifi = wifiToHand(await readNetwork({ withKey: true }), agreed);
+      if (wifi) record.wifi = wifi;
+    } catch (error) {
+      return {
+        status: "failed",
+        done: [],
+        failed: { step: "network", op: "provision", error: error.message },
+        results: [],
+      };
+    }
   }
   rentalRun = {};
   restartReady = false;
@@ -456,7 +476,7 @@ ipcMain.handle("rental:run", async (event) => {
   }
   try {
     const outcome = await runPlan(plan, {
-      // The machine key, read when the run started, goes nowhere but to the worker.
+      // The machine key and the Wi-Fi password, read when the run started, go nowhere but to the worker.
       apply: async (op, progress) => worker.apply(op.op === "provision" ? { ...op, record } : op, progress),
       // The owner agreed to every step at once, with the OK that started this run.
       confirm: async () => true,
