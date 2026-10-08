@@ -365,7 +365,7 @@ describe("what the Go live screen says", () => {
   it("asks the owner's agreement in German on a German Windows", () => {
     expect(wifiConsent(SAE, "de")).toEqual({
       label: "WLAN für Lanterel OS",
-      text: "Lanterel OS geht über das WLAN dieses PCs online, „Brammiball“. Wenn du den Knopf hältst, bekommt Lanterel OS den Namen und das Passwort dieses WLANs, so versiegelt, dass nur Lanterel OS auf diesem PC sie lesen kann.",
+      text: "Lanterel OS geht über das WLAN „Brammiball“ online. Wenn du den Knopf gedrückt hältst, bekommt Lanterel OS den Namen und das Passwort dieses WLANs. Beides wird so versiegelt, dass nur Lanterel OS auf diesem PC es lesen kann.",
     });
   });
 

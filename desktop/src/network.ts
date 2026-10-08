@@ -97,7 +97,7 @@ const COPY: Record<
         `${ssid} ist versteckt oder nutzt eine ältere Verschlüsselung, mit der sich Lanterel OS nicht verbinden kann: Steck ein Netzwerkkabel ein, dann prüf erneut.`,
       ],
       unread: () => [
-        "Netzwerk nicht geprüft",
+        "Netzwerk konnte nicht geprüft werden",
         "Lanterel konnte nicht lesen, wie dieser PC ins Internet kommt: Prüf erneut.",
       ],
       changed: () => [
@@ -112,7 +112,7 @@ const COPY: Record<
     consent: {
       label: "WLAN für Lanterel OS",
       text: (ssid) =>
-        `Lanterel OS geht über das WLAN dieses PCs online, ${ssid}. Wenn du den Knopf hältst, bekommt Lanterel OS den Namen und das Passwort dieses WLANs, so versiegelt, dass nur Lanterel OS auf diesem PC sie lesen kann.`,
+        `Lanterel OS geht über das WLAN ${ssid} online. Wenn du den Knopf gedrückt hältst, bekommt Lanterel OS den Namen und das Passwort dieses WLANs. Beides wird so versiegelt, dass nur Lanterel OS auf diesem PC es lesen kann.`,
     },
   },
 };
