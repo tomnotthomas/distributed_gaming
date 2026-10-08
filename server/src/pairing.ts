@@ -21,9 +21,10 @@
 // A paired PC is an entry in access.machines and access.owners like any from
 // MACHINE_KEYS: loaded when the server starts, added when it is paired, and
 // added again when its app asks (a server that started before another one
-// paired it). An id MACHINE_KEYS names is never taken over by a pairing.
+// paired it). An id MACHINE_KEYS names is never taken over by a pairing, and
+// a key MACHINE_KEYS has is never paired again: it answers its own id and owner.
 
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { Access } from "./access.js";
 import type { Database, Queryable } from "./db.js";
 
@@ -68,6 +69,13 @@ function know(access: Access, row: PairedRow): boolean {
   return true;
 }
 
+/** The id MACHINE_KEYS, or a pairing this server knows, has for `keyHash`; compared in constant time. */
+function knownId(access: Access, keyHash: string): string | null {
+  const wanted = Buffer.from(keyHash, "hex");
+  for (const [id, stored] of access.machines) if (timingSafeEqual(stored, wanted)) return id;
+  return null;
+}
+
 /**
  * The paired PCs, over `db`, kept in `access`: every one paired so far is
  * loaded into it before this resolves.
@@ -85,6 +93,13 @@ export async function openPairings(db: Database, access: Access): Promise<Pairin
 
   return {
     async pair(owner, keyHash) {
+      const known = knownId(access, keyHash);
+      if (known) {
+        const had = access.owners.get(known);
+        return had === undefined || had === owner
+          ? { ok: true, machineId: known, created: false }
+          : { ok: false, reason: "paired-elsewhere" };
+      }
       const paired = await db.transaction(async (tx): Promise<{ answer: Paired; row?: PairedRow }> => {
         await tx.query("SELECT pg_advisory_xact_lock($1)", [PAIRING_LOCK]);
         const had = await byHash(tx, keyHash);
@@ -111,6 +126,8 @@ export async function openPairings(db: Database, access: Access): Promise<Pairin
       return paired.answer;
     },
     async pairedWith(key) {
+      const known = knownId(access, keyHashOf(key));
+      if (known) return known;
       const row = await byHash(db, keyHashOf(key));
       return row && know(access, row) ? row.id : null;
     },

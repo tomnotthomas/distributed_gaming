@@ -400,7 +400,8 @@ pair). Pairing again reuses the key the app keeps, which the server answers with
 machine id, except "Pair again" beside a named owner on the Account step, which makes a fresh key: a new
 claim for a PC paired with the wrong account. A key can also be minted by hand, `npm run machine-key -- <machine-id>
 <owner-steam-id>` into `MACHINE_KEYS`, which records the owner the same way: either way the
-owner is never matched to their own PC. The host app keeps it
+owner is never matched to their own PC. Pairing answers a hand-made key with its own
+machine id and owner and never gives it a new id. The host app keeps it
 encrypted with Electron `safeStorage` (Windows DPAPI), and the renderer can only reach it
 through two calls in `desktop/preload.cjs`. The server stores only its hash. See "Room
 access" in [`renter.md`](renter.md). Each time the app restarts the PC into Swiff OS (Go live,

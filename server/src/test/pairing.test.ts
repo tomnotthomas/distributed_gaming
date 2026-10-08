@@ -162,8 +162,33 @@ describe("pairing", () => {
   it("answers the app with no key 401, and a key nobody added 404", async () => {
     assert.equal((await call("GET", "/api/pairings/mine")).status, 401);
     assert.equal((await mine(OTHER_KEY)).status, 404);
-    // A hand-minted key is no pairing.
-    assert.equal((await mine(HAND_KEY)).status, 404);
+  });
+
+  it("answers a hand-minted key with the machine id and owner MACHINE_KEYS has for it", async () => {
+    const asked = await mine(HAND_KEY);
+    assert.deepEqual([asked.status, asked.body], [200, { machineId: "hand-pc", owner: KAI }]);
+  });
+
+  it("never pairs a hand-minted key again: its owner gets its own id, anyone else is refused", async () => {
+    const again = await add(KAI, HAND_KEY);
+    assert.deepEqual([again.status, again.body], [200, { machineId: "hand-pc" }]);
+    const taken = await add(LENA, HAND_KEY);
+    assert.deepEqual([taken.status, taken.body.code], [409, "paired-elsewhere"]);
+    assert.equal(access.owners.get("hand-pc"), KAI);
+    const { rows } = await database.query("SELECT id FROM paired_machines");
+    assert.equal(rows.length, 0, "no pc- machine for the hand-minted key");
+  });
+
+  it("answers a hand-minted key with no owner its own id, and gives it none", async () => {
+    const unowned = `bare-pc:${keyHashOf(HAND_KEY)}`;
+    access = { secret: SECRET, machines: parseMachineKeys(unowned), owners: parseMachineOwners(unowned) };
+    pairings = await openPairings(database, access);
+    const added = await add(LENA, HAND_KEY);
+    assert.deepEqual([added.status, added.body], [200, { machineId: "bare-pc" }]);
+    assert.equal(access.owners.has("bare-pc"), false);
+    assert.deepEqual((await mine(HAND_KEY)).body, { machineId: "bare-pc", owner: null });
+    const { rows } = await database.query("SELECT id FROM paired_machines");
+    assert.equal(rows.length, 0);
   });
 
   it(`stops at ${MAX_PAIRED} PCs per account`, async () => {

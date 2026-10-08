@@ -1082,9 +1082,9 @@ export function createApi({
       if (!key) throw new HttpError(401, "bad machine key");
       const machineId = await pairings.pairedWith(key);
       if (!machineId) throw new HttpError(404, "not-paired");
-      const owner = access.owners.get(machineId)!;
-      const read = await profile(owner).catch(() => null);
-      reply(res, 200, { machineId, owner: read?.persona || owner });
+      const owner = access.owners.get(machineId);
+      const read = owner ? await profile(owner).catch(() => null) : null;
+      reply(res, 200, { machineId, owner: read?.persona || owner || null });
       return true;
     }
 
