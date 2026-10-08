@@ -4,7 +4,7 @@
 // real host PC: a Ryzen laptop with a 1 TB NVMe disk, C: and a recovery
 // partition after it.
 
-import { createHash } from "node:crypto";
+import { createHash, X509Certificate } from "node:crypto";
 import { projectOf } from "@swiff/error-tracking";
 import { describe, expect, it, vi } from "vitest";
 import { emptyGpt, withPartitions } from "../gpt.cjs";
@@ -245,6 +245,28 @@ describe("the TPM's EK certificate", () => {
       certificate: EK.eccEk,
       intermediates: [EK.intermediate],
     });
+  });
+
+  it("takes an EK certificate whose key Node cannot read only after the RSA and ECC ones", () => {
+    const publicKey = Object.getOwnPropertyDescriptor(X509Certificate.prototype, "publicKey")!.get!;
+    const unreadable = vi.spyOn(X509Certificate.prototype, "publicKey", "get").mockImplementation(function (
+      this: X509Certificate,
+    ) {
+      if (this.subject.includes("Test ECC EK")) throw new Error("unsupported key");
+      return publicKey.call(this);
+    });
+    try {
+      expect(ekOf(lines(EK.eccEk, EK.intermediate, EK.ek))).toEqual({
+        certificate: EK.ek,
+        intermediates: [EK.intermediate],
+      });
+      expect(ekOf(lines(EK.eccEk, EK.intermediate))).toEqual({
+        certificate: EK.eccEk,
+        intermediates: [EK.intermediate],
+      });
+    } finally {
+      unreadable.mockRestore();
+    }
   });
 
   it("is null when Windows read none, or only CAs", () => {

@@ -600,12 +600,23 @@ const MAX_EK_INTERMEDIATES = 8;
 
 /**
  * The EK keys swiff-attest makes, in the order it tries them (swiff-os/hostd/src/attest.ts): RSA 2048,
- * else ECC P-256. A certificate for any other key is for an EK it never uses.
+ * else ECC P-256. A certificate for any other key Node reads is for an EK it never uses; one whose key
+ * Node cannot read (null: an RSAES-OAEP key, say) comes last, as it may still be either.
  */
 const EK_KEYS = [
-  (key) => key.asymmetricKeyType === "rsa" && key.asymmetricKeyDetails?.modulusLength === 2048,
-  (key) => key.asymmetricKeyType === "ec" && key.asymmetricKeyDetails?.namedCurve === "prime256v1",
+  (key) => key?.asymmetricKeyType === "rsa" && key.asymmetricKeyDetails?.modulusLength === 2048,
+  (key) => key?.asymmetricKeyType === "ec" && key.asymmetricKeyDetails?.namedCurve === "prime256v1",
+  (key) => key === null,
 ];
+
+/** A certificate's public key, or null when Node cannot read it. */
+function keyOf(cert) {
+  try {
+    return cert.publicKey;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * The TPM's EK certificate in `out`, what EK_LINES printed: the first that is no CA's for the EK
@@ -623,7 +634,8 @@ function ekOf(out) {
       // Not a certificate: Windows keeps others beside them, which are no use here.
     }
   }
-  const leaf = EK_KEYS.map((fits) => certs.find((c) => !c.cert.ca && fits(c.cert.publicKey))).find(Boolean);
+  const leaves = certs.filter((c) => !c.cert.ca).map((c) => ({ ...c, key: keyOf(c.cert) }));
+  const leaf = EK_KEYS.map((fits) => leaves.find((c) => fits(c.key))).find(Boolean);
   if (!leaf) return null;
   return {
     certificate: leaf.b64,
