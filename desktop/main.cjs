@@ -475,9 +475,11 @@ ipcMain.handle("rental:run", async (event) => {
 /**
  * At start: a provisioning record an earlier run noted is zeroed (one UAC
  * prompt) unless a finished run's restart may still take it in (provision.cjs
- * fateOf, wipesAtStart). A started boot loader alone does not prove
- * swiff-provision took it in, and `unprovision` zeroes only a record still
- * there. With no record noted, nothing asks for administrator rights.
+ * fateOf, wipesAtStart). The boot trail is this power-on's measured-boot log:
+ * a PC that lost power after Lanterel OS's boot loader started and before
+ * swiff-provision ran gives `wait`, so the note stays for a cancel, the
+ * uninstall or the next Go live to wipe the record. With no record noted,
+ * nothing asks for administrator rights.
  */
 async function wipeLeftRecord() {
   const store = provisions();

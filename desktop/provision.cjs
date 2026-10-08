@@ -164,8 +164,14 @@ const leftRecord = (outcome) =>
  *         have started Lanterel OS's boot loader (none yet, or a trail that
  *         does not show it): the note stays, for Lanterel OS to take the
  *         record in, or a cancel, the uninstall or the next Go live to cover it
- *   gone  a restart since started Lanterel OS's boot loader, which most likely
- *         took the record in: the app wipes all the same (wipesAtStart)
+ *   gone  this power-on started Lanterel OS's boot loader and then Windows,
+ *         so Lanterel OS cannot have taken the record in: the app wipes it
+ *         (wipesAtStart)
+ *
+ * The trail is this power-on's measured-boot log only: a PC that lost power
+ * after Lanterel OS's boot loader started and before swiff-provision ran
+ * gives `wait` at the next Windows start, and the record stays until a
+ * cancel, the uninstall or the next Go live wipes it.
  */
 function fateOf(note, bootAt, trail = null) {
   if (!note.done) return "wipe";
@@ -176,11 +182,9 @@ function fateOf(note, bootAt, trail = null) {
 
 /**
  * Whether the app's start runs the elevated wipe for a note's `fate`: every
- * fate but `wait`. A boot loader that started does not prove swiff-provision
- * took the record in (the PC may have lost power before it ran), and the
- * worker's `unprovision` zeroes only a record still there: after a Swiff OS
- * boot that took it in, the wipe costs one administrator prompt and changes
- * nothing on the disk.
+ * fate but `wait`. On `gone` Windows followed Lanterel OS's boot loader in
+ * the same power-on, so swiff-provision cannot have taken the record in; the
+ * worker's `unprovision` zeroes only a record still there.
  */
 const wipesAtStart = (fate) => fate !== "wait";
 
