@@ -1351,6 +1351,11 @@ describe("when a step stops", () => {
         why: expect.stringMatching(/check the machine id and key in Settings, then go live again\.$/),
       });
       expect(said("no-machine").why).toMatch(/add them in Settings, then go live again\.$/);
+      // A missing server address is not blamed on the machine id and key.
+      expect(said("no-server")).toMatchObject({
+        title: "Add the server's address",
+        why: expect.stringMatching(/^[^.:]+: add the signaling server in Settings, then go live again\.$/),
+      });
       expect(said("unknown-machine").why).toMatch(/check it in Settings/);
       expect(said("failed").why).toMatch(/check the internet connection, then try again\.$/);
       // A local failure of the elevated read is the TPM's, not the network's; a server fault says try later.
