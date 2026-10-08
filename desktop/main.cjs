@@ -43,7 +43,13 @@ const { runPlan, startWorker } = require("./rental-exec.cjs");
 const { BITLOCKER_PANEL, drivesOff, recoveryOf, recoveryStore } = require("./recovery-key.cjs");
 const { bootTrail, canAnswer, keyOf, keyStep, keyStore } = require("./rental-key.cjs");
 const { expectOf, removalOf, removalStep, removalStore } = require("./rental-removal.cjs");
-const { AFTER_RESTART, relaunchAtStart, relaunchCommand, relaunchStore } = require("./relaunch.cjs");
+const {
+  AFTER_RESTART,
+  afterRestart,
+  relaunchAtStart,
+  relaunchCommand,
+  relaunchStore,
+} = require("./relaunch.cjs");
 const {
   BOOT_CHANGES,
   bitlockerDrives,
@@ -300,10 +306,16 @@ async function armRelaunch() {
     console.warn("[swiff] no relaunch after the restart:", cause instanceof Error ? cause.message : cause);
   }
 }
-/** At start: a relaunch whose restart is behind now is cleared; one still ahead stays. */
-async function settleRelaunch() {
-  if (process.platform !== "win32") return;
-  if (relaunchAtStart(relaunches().read(), bootAt()) === "clear") await relaunches().clear();
+/** At start: whether what an earlier start armed is still ahead of its restart (relaunchAtStart); null off Windows. */
+const relaunchNow = () =>
+  process.platform === "win32" ? relaunchAtStart(relaunches().read(), bootAt()) : null;
+/**
+ * At start, with `at` from relaunchNow: a relaunch whose restart is behind now is cleared. One still
+ * ahead stays, and when Windows ran it already (a sign-in before that restart) it is set again for it.
+ */
+async function settleRelaunch(at) {
+  if (at === "clear") await relaunches().clear();
+  else if (at === "keep" && AFTER_RESTART_START) await armRelaunch();
 }
 
 const RUNNABLE = new Set(["install", "uninstall", "mok", "unkey", "remove", "once"]);
@@ -852,10 +864,12 @@ app.whenReady().then(() => {
       { useSystemPicker: false },
     );
 
-  createWindow(AFTER_RESTART_START);
+  const relaunch = relaunchNow();
+  // Opened by Windows at a sign-in before the restart (the owner signed out and in): not after it.
+  createWindow(afterRestart(AFTER_RESTART_START, relaunch));
   void watchGames();
   void wipeLeftRecord();
-  void settleRelaunch();
+  void settleRelaunch(relaunch);
   try {
     createTray();
   } catch (cause) {

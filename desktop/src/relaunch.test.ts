@@ -6,6 +6,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   AFTER_RESTART,
+  afterRestart,
   RUN_ONCE,
   VALUE,
   relaunchAtStart,
@@ -119,6 +120,17 @@ describe("relaunching the app after its restart", () => {
     expect(relaunchAtStart({ at: 12_000 }, bootAt)).toBe("keep");
     // Armed before this start: Windows opened the app, or the owner did first.
     expect(relaunchAtStart({ at: 8_000 }, bootAt)).toBe("clear");
+  });
+
+  it("opens after the restart only once that restart is behind, not at a sign-in before it", () => {
+    // Windows ran the entry after the restart: the window opens at the step after it.
+    expect(afterRestart(true, "clear")).toBe(true);
+    // The owner signed out and in before restarting: Windows ran the entry early.
+    expect(afterRestart(true, "keep")).toBe(false);
+    // Opened with the flag but nothing noted (the note was never written): taken at its word.
+    expect(afterRestart(true, null)).toBe(true);
+    // The owner opened the app: never after a restart.
+    expect(afterRestart(false, "clear")).toBe(false);
   });
 
   it("reads only a note it could have written", () => {

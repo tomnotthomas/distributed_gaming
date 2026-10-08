@@ -9,6 +9,7 @@ export const VALUE: string;
 export function relaunchCommand(at: { exe: string; appPath?: string | null; carry?: string[] }): string;
 export function savedOf(raw: unknown): SavedRelaunch | null;
 export function relaunchAtStart(saved: SavedRelaunch | null, bootAt: number): "keep" | "clear" | null;
+export function afterRestart(flag: boolean, at: "keep" | "clear" | null): boolean;
 export function relaunchStore(
   dir: string,
   run: (file: string, args: string[]) => Promise<unknown>,
