@@ -4,6 +4,7 @@ import { DEFAULT_PREFS, demoNow, seedSpots, wallOrder } from "./derive";
 import { GAMES, MACHINES, type Game, type SeedMachine, type Spot } from "./data";
 import { applySteam, type CatalogGame, type SteamProfile } from "./steam";
 import type { Swiff } from "./useSwiff";
+import { ScreenLang } from "./screenCopy";
 import { Wall } from "./Wall";
 import { setPaidGaming } from "../test/features";
 
@@ -390,6 +391,31 @@ describe("Wall", () => {
       const tabs = [...container.querySelectorAll(".band-tab")].map((t) => t.textContent ?? "");
       expect(tabs.some((t) => t.startsWith("Back at 21:15"))).toBe(true);
       expect(tabs.some((t) => t.startsWith("Back at 23:00"))).toBe(false);
+    });
+
+    it("pairs a clock end with Free until and an open end with Free for, in either language", () => {
+      const games = applySteam(owner, []);
+      const facts = () => screen.getByTestId("hero").querySelector(".hero-kv")!;
+      const at = (until: string) => new Map([[games[0]!.id, ready({ ...rig, until })]]);
+      const clock = new Date(2026, 9, 3, 22, 0).getTime();
+      const { rerender } = render(<Wall swiff={swiffWith(games, owner, noop, true, { spots: at("23:30"), clock })} />);
+      expect(facts()).toHaveTextContent("Free until23:30");
+      rerender(<Wall swiff={swiffWith(games, owner, noop, true, { spots: at("late"), clock })} />);
+      expect(facts()).toHaveTextContent("Free for12 h+");
+      expect(facts()).not.toHaveTextContent("Free until");
+      rerender(
+        <ScreenLang.Provider value="de">
+          <Wall swiff={swiffWith(games, owner, noop, true, { spots: at("late"), clock })} />
+        </ScreenLang.Provider>,
+      );
+      expect(facts()).toHaveTextContent("Frei für12+ Std.");
+      expect(facts()).not.toHaveTextContent("Frei bis");
+      rerender(
+        <ScreenLang.Provider value="de">
+          <Wall swiff={swiffWith(games, owner, noop, true, { spots: at("23:30"), clock })} />
+        </ScreenLang.Provider>,
+      );
+      expect(facts()).toHaveTextContent("Frei bis23:30");
     });
 
     it("leaves a host whose offer has passed since it was read no time, not 12 h+", () => {

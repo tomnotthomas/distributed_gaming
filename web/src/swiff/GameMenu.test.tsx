@@ -130,6 +130,21 @@ describe("GameMenu", () => {
       expect(screen.getByRole("button", { name: "Hold to launch on Basement rig" })).toBeEnabled();
     });
 
+    it("pairs a clock end with Free until and an open end with Free for", () => {
+      const reads = (picked: Machine) => {
+        const { container, unmount } = render(
+          <GameMenu swiff={swiffWith("idle", true, { machines: hosts, picked, clock: now })} />,
+        );
+        const text = container.querySelector(".menu-reads")!.textContent;
+        unmount();
+        return text;
+      };
+      expect(reads(hosts[0]!)).toContain("Free for12 h+");
+      expect(reads(hosts[0]!)).not.toContain("Free until");
+      expect(reads(hosts[1]!)).toContain(`Free until${hosts[1]!.until}`);
+      expect(hosts[1]!.until).toMatch(/^\d\d:\d\d$/);
+    });
+
     it("leaves a host whose offer has passed since it was read no time, not 12 h+", () => {
       const swiff = swiffWith("idle", true, { machines: hosts, picked: hosts[0]!, clock: now + 95 * 60_000 });
       const { container } = render(<GameMenu swiff={swiff} />);

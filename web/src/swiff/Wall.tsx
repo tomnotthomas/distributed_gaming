@@ -394,7 +394,7 @@ function WallHero({ t, games, swiff }: { t: ScreenText; games: Game[]; swiff: Sw
                 <dd>{best.gpu}</dd>
                 <dt>{t("hero.response")}</dt>
                 <dd>{best.ping} ms</dd>
-                <dt>{t("hero.freeUntil")}</dt>
+                <dt>{best.until === "late" ? t("hero.freeFor") : t("hero.freeUntil")}</dt>
                 <dd>{best.until === "late" ? t("wall.openEnd") : best.until}</dd>
               </dl>
             ) : null}

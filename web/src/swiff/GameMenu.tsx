@@ -153,7 +153,7 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
               <dd>{picked.ping} ms</dd>
             </div>
             <div>
-              <dt>Free until</dt>
+              <dt>{picked.until === "late" ? "Free for" : "Free until"}</dt>
               <dd>{untilShort(picked)}</dd>
             </div>
             <div>
