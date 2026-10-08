@@ -698,14 +698,14 @@ test_run() {
 		}
 		tunnel() {
 			[ -z "${tunnel_pid:-}" ] || kill "$tunnel_pid" 2> /dev/null || true
-			ssh "${opts[@]}" -N -L 9222:127.0.0.1:9222 -p "$port" swiff@127.0.0.1 &
+			ssh "${opts[@]}" -N -L 9222:127.0.0.1:9222 -p "$port" swiff@127.0.0.1 9>&- &
 			tunnel_pid=$!
 			sleep 3
 		}
 		app() { # start the app as the logged-on user, with remote debugging, and wait for its window
 			on_vm "Get-Process | Where-Object { (\$_.Path -like '*SwiffHost*' -or \$_.Path -like '*Lanterel Host*') } | Stop-Process -Force; schtasks /create /tn swiff-app /tr 'C:\\swiff\\SwiffHost.exe --remote-debugging-port=9222' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null; schtasks /run /tn swiff-app | Out-Null" || true
 			tunnel
-			for _ in $(seq 40); do curl -fs http://127.0.0.1:9222/json/version > /dev/null && break; sleep 5; done
+			for _ in $(seq 40); do curl -fs --max-time 10 http://127.0.0.1:9222/json/version > /dev/null && break; sleep 5; done
 			sleep 10
 		}
 		# After the app's own restart: Windows opened it by itself at the sign-in (relaunch.cjs), with
@@ -720,7 +720,7 @@ test_run() {
 			expect "$1" "Windows opened the app by itself after the restart, and its RunOnce entry is used up: $(tr '\n' ';' < "$run/relaunch-$1.txt")" \
 				bash -c "grep -q -- '--after-restart' '$run/relaunch-$1.txt' && ! grep -q . '$run/relaunch-$1-runonce.txt'"
 			tunnel
-			for _ in $(seq 40); do curl -fs http://127.0.0.1:9222/json/version > /dev/null && break; sleep 5; done
+			for _ in $(seq 40); do curl -fs --max-time 10 http://127.0.0.1:9222/json/version > /dev/null && break; sleep 5; done
 		}
 		uac() { # 0: elevate without a prompt; 2: Windows' consent prompt on its secure desktop
 			on_vm "Set-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' -Name ConsentPromptBehaviorAdmin -Value $1" || true
