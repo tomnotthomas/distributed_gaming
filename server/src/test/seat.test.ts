@@ -148,6 +148,7 @@ describe("friend seats", () => {
 
     it("puts a seat at a PC that plays for none in its host's crew with no name of its own, never founding a second", async () => {
       const own = await platform.createCrew(LENA, "Lena");
+      now += 1000;
       const named = await platform.createCrew(LENA, "Lena", "Werkstatt");
       assert.ok(own !== "too-many" && !("taken" in own) && named !== "too-many" && !("taken" in named));
       // Both PCs are taken out of every crew of hers, and each gets a seat.

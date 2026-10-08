@@ -1543,7 +1543,9 @@ export class Platform {
    * The crew `userId` is in by the name `name` (folded, crewNameOf) already,
    * other than `except`, to refuse a crew of the same name with; null for none.
    * For no name, that is a crew with no name of its own they are the admin of:
-   * it is called after them, as a new one would be.
+   * it is called after them, as a new one would be. Of several such crews
+   * (taken over, or from before names were checked), the one they joined
+   * first, then by membership id.
    */
   async #nameTaken(
     userId: string,
@@ -2018,7 +2020,8 @@ export class Platform {
    * Keep a seat at `machineId` for the friend named `friend`, as its owner,
    * whose Steam persona is `hostName` when it could be read. The seat is in
    * the first crew the PC plays for of its owner's; when it plays for none, in
-   * their crew with no name of its own, founded for them when they have none
+   * their crew with no name of its own (the oldest by founding, then id, when
+   * they took over another), founded for them when they have none
    * (never a second one called after them), which the PC plays for from then
    * on, left open to anyone when it was.
    * "unknown-machine" for a PC never heard from, "no-owner" for one with no

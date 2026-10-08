@@ -544,7 +544,10 @@ Crew names are unique per person: nobody founds or renames a crew to the name of
 they are in already, founded or joined, in any case ("Zocker" and "ZOCKER" are one name).
 A crew with no name of its own is called after its admin, so each person is the admin of
 one such crew at most. Joining someone else's crew of the same name is never refused, and
-crews of the same name a person had before this rule are kept as they are. Founding is
+crews of the same name a person had before this rule are kept as they are. Taking a crew
+over when its admin leaves, or another crew's admin renaming it, is never refused either,
+like joining, since that person did not pick the name; where a person ends up with two of
+one name, the clash names their oldest and a seat goes into their oldest. Founding is
 idempotent: the page sends a key with each founding, and the same key again is the crew it
 founded rather than a second one.
 

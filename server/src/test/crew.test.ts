@@ -249,6 +249,31 @@ describe("crews", () => {
       assert.equal((await found(ALEX, "Alex")).crewName, null);
     });
 
+    it("lets a member take over a crew with no name while admin of one, and keeps to their oldest", async () => {
+      const own = await found(HOST, "Sam");
+      now += 1000;
+      const jos = await found(JO, "Jo");
+      now += 1000;
+      assert.ok((await platform.joinCrew(jos.inviteId!, HOST, "Sam")).ok);
+      now += 1000;
+      // Jo leaves: the host takes Jo's crew over, a second one called after them.
+      assert.equal(await platform.leaveCrew(jos.memberId, JO), true);
+      assert.deepEqual(
+        (await platform.crews(HOST)).map((c) => [c.id, c.crewName, c.own]),
+        [
+          [own.id, null, true],
+          [jos.id, null, true],
+        ],
+      );
+      assert.deepEqual(await platform.createCrew(HOST, "Sam"), {
+        taken: { id: own.id, name: "Sam", crewName: null, own: true },
+      });
+      await offer("pc-1", { crews: [] });
+      const seat = await platform.createSeat("pc-1", "Mia", "Sam");
+      assert.ok(seat.ok);
+      assert.equal(seat.seat.crewId, own.id);
+    });
+
     it("founds once for a founding sent again with the same key, and anew for another key", async () => {
       const crew = await found(ALEX, "Alex", "Freitagsrunde", "key-1");
       now += 1000;
