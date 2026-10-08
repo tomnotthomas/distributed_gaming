@@ -318,9 +318,12 @@ export function useRental({
         if (outcome.failed?.step !== "ek" || again) return;
         // The TPM step stopped before any boot change: its read is recorded. A certificate other than
         // the one registered is this TPM's, to register before going live again; none, or the same one,
-        // leaves the run's own failure on screen.
+        // puts the run's own failure back on screen.
+        const { error } = outcome.failed;
+        setRun((r) => ({ ...r, status: "running", failed: null, endedAt: null, stepStartedAt: Date.now() }));
         const now = checked(await host.readRental().catch(() => null));
-        if (n !== plans.current || !now || now.certificate === registered?.certificate) return;
+        if (n !== plans.current) return;
+        if (!now || now.certificate === registered?.certificate) return ekFailed(error);
         registered = now;
       }
     })();

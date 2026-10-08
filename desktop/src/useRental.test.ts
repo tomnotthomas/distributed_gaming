@@ -247,25 +247,27 @@ describe("useRental", () => {
      * Go live on a PC whose last check read `checked`, where each of the plan's own reads finds the
      * next of `reads` (the last one again after that). Like the worker, the read records what it found
      * and stops the run before BootNext when that is none or not the certificate the plan was asked with.
+     * Reads of the PC after a run wait on `held`.
      */
     async function goLive(
       checked: typeof A | null,
       reads: typeof A | null | (typeof A | null)[],
       registerEk: (ek: typeof A) => Promise<EkResult> = async () => ({ ok: true, registered: "now" }),
+      held: Promise<void> = Promise.resolve(),
     ) {
       const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
       const order: string[] = [];
       const tpm = Array.isArray(reads) ? [...reads] : [reads];
       let record = checked;
       let asked: string | null | undefined;
-      host.readRental = vi.fn(
-        async () =>
-          ({
-            facts: {
-              checked: record ? { ek: true, ...record } : { ek: false, certificate: null, intermediates: [] },
-            },
-          }) as unknown as RentalRead,
-      );
+      host.readRental = vi.fn(async () => {
+        if (order.includes("run")) await held;
+        return {
+          facts: {
+            checked: record ? { ek: true, ...record } : { ek: false, certificate: null, intermediates: [] },
+          },
+        } as unknown as RentalRead;
+      });
       host.planRental = vi.fn(async (ask) => ((asked = ask.registered), ONCE));
       host.runRental = vi.fn(async (): Promise<RunOutcome> => {
         order.push("run");
@@ -332,6 +334,22 @@ describe("useRental", () => {
         status: "failed",
         failed: { step: "ek", error: "unavailable" },
       });
+    });
+
+    it("keeps Go live running, with no failure shown, while it reads what the plan's read recorded", async () => {
+      let release: () => void = () => {};
+      const held = new Promise<void>((resolve) => (release = resolve));
+      const { result, order } = await goLive(null, null, undefined, held);
+      expect(order).toEqual(["run"]);
+      expect(result.current.run).toMatchObject({ status: "running", failed: null, endedAt: null });
+      await act(async () => release());
+      // None read: the run's own failure is back, with its guidance.
+      expect(order).toEqual(["run"]);
+      expect(result.current.run).toMatchObject({
+        status: "failed",
+        failed: { step: "ek", error: expect.stringMatching(/no endorsement key certificate/) },
+      });
+      expect(result.current.run.endedAt).not.toBeNull();
     });
 
     it("goes again only once: a TPM that reads another certificate again stops there", async () => {
