@@ -803,7 +803,7 @@ describe("useSwiff", () => {
       streams();
       const result = await openLive();
       act(() => result.current.launch());
-      expect(result.current.ignitionSteps[result.current.ignitionIndex]).toBe("Reserving a machine");
+      expect(result.current.ignitionSteps[result.current.ignitionIndex]).toBe("Reserving a PC");
 
       await waitFor(() => expect(result.current.claim).toEqual(TICKET));
       // Kept as the booking being played, for the later resume step.
@@ -1147,7 +1147,7 @@ describe("useSwiff", () => {
         await waitFor(() => expect(calls.map((c) => c.call)).toContain("POST /api/bookings/b-1/end"));
         render(createElement(GameMenu, { swiff: result.current }));
         expect(screen.getByRole("alert").textContent).toBe("That didn't go through. Try again.");
-        expect(screen.queryByText(/A machine is free for you/)).toBeNull();
+        expect(screen.queryByText(/A PC is free for you/)).toBeNull();
 
         // Nothing launches by itself afterwards.
         const claims = calls.filter((c) => c.call === "POST /api/bookings/b-1/claim").length;
@@ -1253,7 +1253,7 @@ describe("useSwiff", () => {
       await waitFor(() => expect(result.current.bookingFailed).toBe(true));
       render(createElement(GameMenu, { swiff: result.current }));
       expect(screen.getByRole("alert").textContent).toBe("That didn't go through. Try again.");
-      expect(screen.queryByText(/A machine is free for you/)).toBeNull();
+      expect(screen.queryByText(/A PC is free for you/)).toBeNull();
     });
 
     it("says in plain words when the server refuses a game the renter does not own", async () => {

@@ -48,12 +48,25 @@ function pageWords(): string {
   return [document.body.textContent ?? "", ...attrs].join("\n");
 }
 
-/** The page speaks `lang` only: no piece of the other language's copy, and no time of day (tonight, Abend). */
+/**
+ * The page speaks `lang` only: no piece of the other language's copy, no time
+ * of day (tonight, Abend; night and Nacht too, except on share, whose estimate
+ * counts the hours a PC is away each night), and in German none of the
+ * loanwords the glossary drops.
+ */
 function expectOnly(lang: Lang) {
   const text = pageWords();
   const foreign = onlyIn(lang === "de" ? "en" : "de").filter((piece) => text.includes(piece));
   expect(foreign).toEqual([]);
   expect(text).not.toMatch(/tonight|abend/i);
+  if (document.querySelector(".sw")?.getAttribute("data-screen") !== "share") {
+    expect(text).not.toMatch(/\b(?:night|nacht)\b/i);
+  }
+  if (lang === "de") {
+    expect(text).not.toMatch(
+      /\b(?:Sitzung|Session|Rig|Founding Host|live gehen|Einladungslink|Sprachchat)\b/,
+    );
+  }
 }
 
 function browserIn(lang: Lang) {

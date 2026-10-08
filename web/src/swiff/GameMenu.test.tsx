@@ -74,7 +74,7 @@ describe("GameMenu", () => {
   it("counts the players behind the listed machines, not the busy one left out", () => {
     render(<GameMenu swiff={swiffWith("idle")} />);
 
-    expect(screen.getByText(/1 machine from 1 player/)).toBeInTheDocument();
+    expect(screen.getByText(/1 PC from 1 player/)).toBeInTheDocument();
     expect(screen.getByText(/\+1 back at 21:30/)).toBeInTheDocument();
   });
 
@@ -105,8 +105,8 @@ describe("GameMenu", () => {
         />,
       );
       expect(container.querySelectorAll(".ledger-row")).toHaveLength(0);
-      expect(screen.getByText(/Sign in to see which machines can play it/)).toBeInTheDocument();
-      expect(screen.queryAllByText(/back at|free until|machines? from/)).toHaveLength(0);
+      expect(screen.getByText(/Sign in to see which PCs can play it/)).toBeInTheDocument();
+      expect(screen.queryAllByText(/back at|free until|PCs? from/)).toHaveLength(0);
       expect(screen.getByRole("link", { name: "Sign in with Steam" })).toBeInTheDocument();
     });
 
@@ -118,37 +118,37 @@ describe("GameMenu", () => {
         clock: now,
       });
       const { container } = render(<GameMenu swiff={swiff} />);
-      expect(screen.getByText("2 machines")).toBeInTheDocument();
+      expect(screen.getByText("2 PCs")).toBeInTheDocument();
       const rows = [...container.querySelectorAll(".ledger-row")];
       expect(rows.map((r) => r.querySelector("b")!.textContent)).toEqual(["Basement rig", "A shared PC"]);
       expect(rows[0]).toHaveTextContent("Free all session");
       expect(rows[0]).toHaveTextContent("Ryzen 7 7700, NVIDIA GeForce RTX 4070");
-      expect(rows[0]).toHaveTextContent("all night left");
+      expect(rows[0]).toHaveTextContent("no end time");
       expect(rows[1]).toHaveTextContent("1080p 60");
       expect(rows[1]).toHaveTextContent("1 h 30 left");
       expect(screen.getByText("+1 back at 23:10")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Hold to launch on Basement rig" })).toBeEnabled();
     });
 
-    it("leaves a host whose offer has passed since it was read no time, not all night", () => {
+    it("leaves a host whose offer has passed since it was read no time, not an open end", () => {
       const swiff = swiffWith("idle", true, { machines: hosts, picked: hosts[0]!, clock: now + 95 * 60_000 });
       const { container } = render(<GameMenu swiff={swiff} />);
       const rows = [...container.querySelectorAll(".ledger-row")];
       expect(rows[1]).toHaveTextContent("0 min left");
-      expect(rows[1]).not.toHaveTextContent("all night");
+      expect(rows[1]).not.toHaveTextContent("no end time");
     });
 
     it("says machines are being found until the server answers", () => {
       render(
         <GameMenu swiff={swiffWith("idle", true, { machines: [], picked: null, machinesLoading: true })} />,
       );
-      expect(screen.getByText("Finding machines…")).toBeInTheDocument();
-      expect(screen.queryByText(/No machine can play it/)).toBeNull();
+      expect(screen.getByText("Finding PCs…")).toBeInTheDocument();
+      expect(screen.queryByText(/No PC can play it/)).toBeNull();
     });
 
     it("says so when no host can play it", () => {
       render(<GameMenu swiff={swiffWith("idle", true, { machines: [], picked: null })} />);
-      expect(screen.getByText("No machine can play it right now.")).toBeInTheDocument();
+      expect(screen.getByText("No PC can play it right now.")).toBeInTheDocument();
     });
 
     it("says which launcher the game asks the renter to sign in to, and nothing when it asks for none", () => {

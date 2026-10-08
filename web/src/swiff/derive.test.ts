@@ -44,8 +44,8 @@ describe("minsLeft", () => {
 
 describe("fmtLeft", () => {
   it("names the long case instead of counting it", () => {
-    expect(fmtLeft(12 * 60)).toBe("all night");
-    expect(fmtLeft(11 * 60)).toBe("all night");
+    expect(fmtLeft(12 * 60)).toBe("no end time");
+    expect(fmtLeft(11 * 60)).toBe("no end time");
   });
 
   it("drops the minutes when there are none, and pads when there are", () => {
@@ -70,7 +70,7 @@ describe("lasts", () => {
     expect(lasts({ ...at("21:15"), rentalMode: true }, "quick")).toBe(true);
   });
 
-  it("asks all night for six hours, since there is no end time to compare", () => {
+  it("asks no end time for six hours, since there is no end time to compare", () => {
     expect(lasts(at("02:00"), "night")).toBe(true);
     expect(lasts(at("00:30"), "night")).toBe(false);
   });
