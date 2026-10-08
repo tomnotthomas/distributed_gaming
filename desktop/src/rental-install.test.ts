@@ -5,12 +5,12 @@
 // uninstall on a stand-in for Windows: a disk in memory, firmware variables
 // in a map, and PowerShell answering the few things it is asked.
 
-import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto";
+import { createHash, generateKeyPairSync, randomBytes, sign, X509Certificate } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as efi from "../efi.cjs";
 import { emptyGpt, gptWrites, readGpt, withPartitions, withResized, type Gpt } from "../gpt.cjs";
 import { testBuild } from "../build-kind.cjs";
@@ -19,6 +19,7 @@ import { copyChecked, MANIFEST, SIGNATURE, readImageSet, trustOf } from "../imag
 import { channelOf, clientOf, dryRun, handshake, runPlan, startWorker } from "../rental-exec.cjs";
 import { checkOp, createWorker, diskPath, serve, type Windows } from "../rental-worker.cjs";
 import {
+  EK_UNREGISTERED,
   installOf,
   installPlan,
   keyRemovalPlan,
@@ -33,6 +34,7 @@ import {
   type PlanOp,
   type RentalPlan,
 } from "../rental.cjs";
+import ekChain from "./test/ek-chain.json";
 
 const MiB = 1024 * 1024;
 const GiB = 1024 * MiB;
@@ -43,6 +45,7 @@ const RECOVERY = "de94bba4-06d1-4d40-a16a-bfd50179d6ac";
 const CERT = Buffer.from("3082010a0282010100c0ffee", "hex");
 const ID = (i: number) => `00000000-0000-4000-8000-00000000000${i}`;
 const NAMES = ["esp", "swiffos_0.1.0", "swiffos_0.1.0", "_empty", "_empty", "swiff-scratch"];
+const EK = ekChain;
 const sha256 = (data: Buffer) => createHash("sha256").update(data).digest("hex");
 
 /** Swiff's signing key, for the tests, and what the app trusts of it. */
@@ -148,6 +151,8 @@ function fakeWindows(stateDir: string) {
   vars.set(key(efi.GLOBAL, "BootCurrent"), efi.orderBytes([0]));
   let label = "Windows";
   let hiberboot = "1";
+  /** The TPM: ready, with its EK certificate in it and Windows' download of its maker's intermediate. */
+  const tpm = { ready: true, certificates: [EK.ek, EK.intermediate] };
   const shell: string[] = [];
   const win: Windows = {
     stateDir,
@@ -177,6 +182,10 @@ function fakeWindows(stateDir: string) {
         resize(Number(m[1]));
       if ((m = /-Size \(\[Math\]::Min\(\$max, (\d+)\)\)/.exec(text))) resize(Number(m[1]));
       if (/FileSystemLabel$/m.test(text)) return `${label}\r\n`;
+      if (/\(Get-Tpm -ErrorAction Stop\)|\$tpm = Get-Tpm/.test(text) && !tpm.ready)
+        throw new Error("The TPM is not ready.");
+      if (/Get-TpmEndorsementKeyInfo/.test(text))
+        return tpm.certificates.map((c) => `ek-cert: ${c}\r\n`).join("");
       if ((m = /Set-Volume -DriveLetter C -NewFileSystemLabel '(.*)'/.exec(text))) label = m[1]!;
       return "";
     },
@@ -211,7 +220,19 @@ function fakeWindows(stateDir: string) {
       }
     })(),
   });
-  return { win, disk, gpt, vars, key, shell, facts, cSize, label: () => label, hiberboot: () => hiberboot };
+  return {
+    win,
+    disk,
+    gpt,
+    vars,
+    key,
+    shell,
+    facts,
+    tpm,
+    cSize,
+    label: () => label,
+    hiberboot: () => hiberboot,
+  };
 }
 
 let dir: string;
@@ -369,6 +390,85 @@ describe("running a plan", () => {
 });
 
 describe("the elevated worker", () => {
+  it("reads the TPM's EK certificate as Go live's first step, and stops before BootNext when the TPM is off", async () => {
+    const { pc, worker } = await setup();
+    const checked = () => JSON.parse(fs.readFileSync(path.join(dir, "state", "rental-check.json"), "utf8"));
+    // A new TPM (another board): the certificate it has now, kept for the app's next read.
+    pc.tpm.certificates = [EK.root, EK.intermediate, EK.ek];
+    expect(await worker.apply({ op: "ek" })).toEqual({
+      ek: { certificate: EK.ek, intermediates: [EK.intermediate] },
+    });
+    expect(checked()).toMatchObject({ ek: true, certificate: EK.ek, intermediates: [EK.intermediate] });
+    expect(rentalOf({ ...pc.facts(), check: checked() }).facts.checked).toEqual({
+      ek: true,
+      certificate: EK.ek,
+      intermediates: [EK.intermediate],
+    });
+    // None Windows can read: nothing to register, and the record says so.
+    pc.tpm.certificates = [];
+    await expect(worker.apply({ op: "ek" })).rejects.toThrow(/no endorsement key certificate/);
+    expect(checked()).toMatchObject({ ek: false, certificate: null, intermediates: [] });
+    // Off in the BIOS: the plan stops at its first step, the boot order untouched.
+    pc.tpm.ready = false;
+    const outcome = await runPlan(switchPlan("once"), { apply: worker.apply });
+    expect(outcome).toMatchObject({
+      status: "failed",
+      failed: { step: "ek", error: expect.stringMatching(/TPM is not ready/) },
+    });
+    expect(pc.vars.get(pc.key(efi.GLOBAL, "BootNext"))).toBeUndefined();
+  });
+
+  it("records an EK certificate whose key Node cannot read at the install's check, without a warning", async () => {
+    const { pc, worker } = await setup();
+    pc.tpm.certificates = [EK.root, EK.intermediate, EK.ek];
+    const unreadable = vi.spyOn(X509Certificate.prototype, "publicKey", "get").mockImplementation(() => {
+      throw new Error("unsupported key");
+    });
+    try {
+      expect(await worker.apply({ op: "check" })).toEqual({ warnings: [] });
+    } finally {
+      unreadable.mockRestore();
+    }
+    expect(JSON.parse(fs.readFileSync(path.join(dir, "state", "rental-check.json"), "utf8"))).toMatchObject({
+      ek: true,
+      certificate: EK.ek,
+      intermediates: [EK.intermediate],
+    });
+  });
+
+  it("lets Go live on when Windows lists the registered TPM's certificates in another order", async () => {
+    const { pc, worker } = await setup();
+    for (const certificates of [
+      [EK.root, EK.intermediate, EK.ek, EK.eccEk],
+      [EK.eccEk, EK.intermediate, EK.ek, EK.root],
+      [EK.eccEk, EK.root, EK.intermediate, EK.ek],
+    ]) {
+      pc.tpm.certificates = certificates;
+      expect(await worker.apply({ op: "ek", registered: EK.ek })).toEqual({
+        ek: { certificate: EK.ek, intermediates: [EK.intermediate] },
+      });
+    }
+  });
+
+  it("stops Go live before BootNext when the TPM's certificate is not the one the app registered", async () => {
+    const { pc, worker } = await setup();
+    const bootNext = () => pc.vars.get(pc.key(efi.GLOBAL, "BootNext"));
+    pc.tpm.certificates = [EK.root, EK.intermediate, EK.ek];
+    // None registered yet, or another TPM's: the read is recorded for the app, and nothing else runs.
+    for (const registered of [null, "QkJC"]) {
+      const outcome = await runPlan(switchPlan("once", { registered }), { apply: skipping(worker.apply) });
+      expect(outcome).toMatchObject({ status: "failed", failed: { step: "ek", error: EK_UNREGISTERED } });
+      expect(bootNext()).toBeUndefined();
+      expect(JSON.parse(fs.readFileSync(path.join(dir, "state", "rental-check.json"), "utf8"))).toMatchObject(
+        { certificate: EK.ek },
+      );
+    }
+    // Not a certificate the app could have sent: refused before the TPM is read.
+    await expect(worker.apply({ op: "ek", registered: 7 } as unknown as PlanOp)).rejects.toThrow(
+      /bad TPM step/,
+    );
+  });
+
   it("installs Lanterel OS next to Windows, then takes it all off again", async () => {
     const { pc, worker, layout } = await setup();
     const before = pc.cSize();
@@ -414,14 +514,22 @@ describe("the elevated worker", () => {
     // The check's findings sit beside the record, not in it: a check alone is no install begun.
     expect(JSON.parse(fs.readFileSync(path.join(dir, "state", "rental-check.json"), "utf8"))).toMatchObject({
       ek: true,
+      certificate: EK.ek,
+      intermediates: [EK.intermediate],
     });
     expect(worker.state()).not.toHaveProperty("checked");
     expect(JSON.stringify(worker.state())).not.toMatch(/"bootEntry":\d/);
     expect(rentalOf(pc.facts()).installed).toBe(true);
 
-    // Once: BootNext alone.
+    // Once: the TPM's EK certificate read again, the one the app registered, then BootNext alone.
     pc.vars.delete(pc.key(efi.GLOBAL, "BootNext"));
-    expect(await runPlan(switchPlan("once"), { apply: worker.apply })).toMatchObject({ status: "done" });
+    expect(await runPlan(switchPlan("once", { registered: EK.ek }), { apply: worker.apply })).toMatchObject({
+      status: "done",
+      results: [
+        { step: "ek", op: "ek", ek: { certificate: EK.ek, intermediates: [EK.intermediate] } },
+        { step: "once" },
+      ],
+    });
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootNext")))).toEqual([1]);
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootOrder")))).toEqual([0, 1]);
     // Sharing: Lanterel OS first; stopping: Windows first.

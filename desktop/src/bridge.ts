@@ -32,6 +32,8 @@ export type HostBridge = {
     target?: string | null;
     /** Remove Swiff OS: start with Swiff's key (true), or without it (false); main decides when absent. */
     key?: boolean;
+    /** Go live: the EK certificate the app registered (null for none), which the TPM's must be. */
+    registered?: string | null;
   }): Promise<RentalPlan | null>;
   /** Run the plan main last showed; null when there is none to run. */
   runRental(): Promise<RunOutcome | null>;

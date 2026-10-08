@@ -3,11 +3,20 @@ import { httpOrigin } from "@swiff/rtc";
 import type { PcRead } from "../pc.cjs";
 import { bridge } from "./bridge";
 import { demandRows, useDemand } from "./demand";
+import { registerEk } from "./ek";
 import { WINDOWS_SHARE } from "./devShare";
 import { syncErrorProject } from "./errorProject";
 import { clock } from "./format";
 import { connectionReady, untilChoices, type Connection, type Host, type HostView, type Live } from "./model";
-import { createHostReporter, hostReport, offOffer, playingFor, type Crew, type HostReporter } from "./report";
+import {
+  createHostReporter,
+  hostReport,
+  offOffer,
+  playingFor,
+  type Crew,
+  type HostReporter,
+  type Machine,
+} from "./report";
 import { rentalReady } from "./rental";
 import { seatClient } from "./seats";
 import {
@@ -102,7 +111,12 @@ export function useHost(): Host {
     onChanged: () => setReads((n) => n + 1),
   });
   const demand = useDemand({ url, machineId, machineKey });
-  const rental = useRental();
+  // Go live registers this PC's TPM with the server (ek.ts), with the connection as it is then.
+  const ekMachine = useRef<Machine | null>(null);
+  const rental = useRental({
+    registerEk: async (ek) =>
+      ekMachine.current ? registerEk(ekMachine.current, ek) : { ok: false, error: "no-machine" },
+  });
 
   // --- the games offered: every installed game the owner has not turned off
   const [notOffered, setNotOffered] = useState(loadNotOffered);
@@ -341,6 +355,10 @@ export function useHost(): Host {
       : null;
   // Seats for friends: read and kept on the platform with the machine key, whatever the PC is doing.
   const seatMachine = connectionReady(settings) && !refusedAddress(socket) ? socket : null;
+  ekMachine.current =
+    seatMachine === null
+      ? null
+      : { url: seatMachine, machineId: machineId.trim(), machineKey: machineKey.trim() };
   const seats = useMemo(() => {
     if (seatMachine === null) return null;
     let site: string | null = null;

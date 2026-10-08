@@ -4,7 +4,7 @@
 // real host PC: a Ryzen laptop with a 1 TB NVMe disk, C: and a recovery
 // partition after it.
 
-import { createHash } from "node:crypto";
+import { createHash, X509Certificate } from "node:crypto";
 import { projectOf } from "@swiff/error-tracking";
 import { describe, expect, it, vi } from "vitest";
 import { emptyGpt, withPartitions } from "../gpt.cjs";
@@ -15,6 +15,7 @@ import {
   bitlockerDrives,
   bitlockerState,
   BOOT_CHANGES,
+  ekOf,
   errorReportsFile,
   factsOf,
   freeSpans,
@@ -35,6 +36,7 @@ import {
   rentalOf,
   SWIFF_OS,
   SWIFF_OS_BYTES,
+  shellOf,
   switchPlan,
   tpmMaker,
   uninstallPlan,
@@ -66,6 +68,7 @@ import {
   windowsTodos,
 } from "./rental";
 import PROJECT_CASES from "../../packages/error-tracking/src/project-cases.json";
+import EK from "./test/ek-chain.json";
 import FACTS from "./test/rental-facts.json";
 
 const MiB = 1024 * 1024;
@@ -208,6 +211,99 @@ describe("reading the PC", () => {
       files,
     });
     expect(read?.games).toMatchObject({ letter: "D", games: 1 });
+  });
+});
+
+describe("the TPM's EK certificate", () => {
+  const lines = (...certs: string[]) => certs.map((c) => `ek-cert: ${c}`).join("\r\n");
+
+  it("takes the one that is no CA's, with the intermediates Windows has beside it, never the root", () => {
+    expect(ekOf(lines(EK.root, EK.intermediate, EK.ek))).toEqual({
+      certificate: EK.ek,
+      intermediates: [EK.intermediate],
+    });
+  });
+
+  it("takes each certificate once, and skips lines that are not one", () => {
+    const broken = EK.ek.slice(0, 200);
+    expect(
+      ekOf(
+        `${lines(EK.ek, EK.intermediate, EK.intermediate)}\r\nek-cert: not-base64!\r\nwarning: x\r\n${lines(broken)}`,
+      ),
+    ).toEqual({
+      certificate: EK.ek,
+      intermediates: [EK.intermediate],
+    });
+  });
+
+  it("takes the RSA 2048 EK's over an ECC P-256 EK's listed first, as swiff-attest uses that EK", () => {
+    expect(ekOf(lines(EK.eccEk, EK.intermediate, EK.ek))).toEqual({
+      certificate: EK.ek,
+      intermediates: [EK.intermediate],
+    });
+    expect(ekOf(lines(EK.eccEk, EK.intermediate))).toEqual({
+      certificate: EK.eccEk,
+      intermediates: [EK.intermediate],
+    });
+  });
+
+  it("takes an EK certificate whose key Node cannot read only after the RSA and ECC ones", () => {
+    const publicKey = Object.getOwnPropertyDescriptor(X509Certificate.prototype, "publicKey")!.get!;
+    const unreadable = vi.spyOn(X509Certificate.prototype, "publicKey", "get").mockImplementation(function (
+      this: X509Certificate,
+    ) {
+      if (this.subject.includes("Test ECC EK")) throw new Error("unsupported key");
+      return publicKey.call(this);
+    });
+    try {
+      expect(ekOf(lines(EK.eccEk, EK.intermediate, EK.ek))).toEqual({
+        certificate: EK.ek,
+        intermediates: [EK.intermediate],
+      });
+      expect(ekOf(lines(EK.eccEk, EK.intermediate))).toEqual({
+        certificate: EK.eccEk,
+        intermediates: [EK.intermediate],
+      });
+    } finally {
+      unreadable.mockRestore();
+    }
+  });
+
+  it("takes the same EK whatever order Windows lists the certificates in, so the next Go live registers nothing", () => {
+    const certs = [EK.eccEk, EK.ek, EK.intermediate, EK.root];
+    const orders = (list: string[]): string[][] =>
+      list.length <= 1
+        ? [list]
+        : list.flatMap((c, i) =>
+            orders([...list.slice(0, i), ...list.slice(i + 1)]).map((rest) => [c, ...rest]),
+          );
+    for (const order of orders(certs))
+      expect(ekOf(lines(...order)), order.join(",")).toEqual({
+        certificate: EK.ek,
+        intermediates: [EK.intermediate],
+      });
+    // Intel PTT: the TPM's own ECC EK first, the RSA one only among Windows' downloads after it.
+    expect(ekOf(lines(EK.eccEk, EK.root, EK.intermediate, EK.ek))).toEqual({
+      certificate: EK.ek,
+      intermediates: [EK.intermediate],
+    });
+  });
+
+  it("is null when Windows read none, or only CAs", () => {
+    expect(ekOf("")).toBeNull();
+    expect(ekOf(lines(EK.root, EK.intermediate))).toBeNull();
+  });
+
+  it("is read as administrator, first in Go live and among the install's checks", () => {
+    const [ek] = switchPlan("once").steps;
+    expect(ek).toMatchObject({ id: "ek", ops: [{ op: "ek" }] });
+    expect(ek!.commands.join("\n")).toMatch(/TpmReady\) \{ throw 'The TPM is not ready\.' \}/);
+    expect(ek!.commands.join("\n")).toMatch(
+      /ManufacturerCertificates\) \+ @\(\$info\.AdditionalCertificates\)/,
+    );
+    expect(switchPlan("start").steps[0]).toMatchObject({ id: "ek" });
+    expect(switchPlan("stop").steps.some((s) => s.id === "ek")).toBe(false);
+    expect(shellOf({ op: "check" })!.join("\n")).toMatch(/Get-TpmEndorsementKeyInfo/);
   });
 });
 
@@ -704,6 +800,7 @@ describe("the switch", () => {
   it("starts sharing with Lanterel OS first in the boot order and BootNext, then restarts", () => {
     const plan = switchPlan("start");
     expect(plan.steps.flatMap((s) => s.ops)).toEqual([
+      { op: "ek" },
       { op: "boot-first", entry: "swiff" },
       { op: "boot-next", entry: "swiff" },
       { op: "restart" },
@@ -714,11 +811,12 @@ describe("the switch", () => {
   it("starts Lanterel OS once with BootNext alone, so the next restart is Windows again", () => {
     const plan = switchPlan("once");
     expect(plan.steps.map((s) => s.ops)).toEqual([
+      [{ op: "ek" }],
       [{ op: "boot-next", entry: "swiff" }],
       [{ op: "restart" }],
     ]);
-    expect(plan.steps[0]!.confirm).toBeNull();
-    expect(plan.steps[1]!.confirm).toMatch(/next restart after that starts Windows/);
+    expect(plan.steps[1]!.confirm).toBeNull();
+    expect(plan.steps[2]!.confirm).toMatch(/next restart after that starts Windows/);
   });
 
   it("stops sharing by putting Windows first again", () => {
@@ -925,7 +1023,7 @@ describe("what the screen says", () => {
       firmwareChecks(pc((raw) => ({ ...raw, check: checked }))).find((c) => c.id === "ek");
     expect(ek(null)).toMatchObject({ value: "Read when you install", state: "unread" });
     expect(ek({ ek: true })).toMatchObject({ value: "Present", state: "ok" });
-    expect(ek({ ek: false })).toMatchObject({ value: "None: lower tier", state: "ok" });
+    expect(ek({ ek: false })).toMatchObject({ value: "None yet: needed to go live", state: "ok" });
     expect(firmwareChecks(pc()).some((c) => !isReady(c.state) && c.state !== "bios")).toBe(false);
     // A check alone leaves no install record: the screen does not say an install stopped.
     expect(rentalStage(setupOf(pc((raw) => ({ ...raw, check: { ek: true } })))).kind).toBe("ready");
@@ -1187,6 +1285,63 @@ describe("when a step stops", () => {
     return { setup, f: failureOf(setup, s) };
   };
   const done = (ids: string[]) => Object.fromEntries(ids.map((id) => [id, "done" as const]));
+
+  describe("at Go live's TPM certificate", () => {
+    const once = switchPlan("once");
+    const geekom = pc((raw) => ({
+      ...raw,
+      bios: "American Megatrends International, LLC.",
+      maker: "GEEKOM",
+    }));
+
+    it("names the BIOS menu that turns the TPM back on, when Windows can't reach it", () => {
+      const { f } = failed("ek", "The TPM is not ready.", {}, once, geekom);
+      expect(f).toMatchObject({
+        kind: "bios",
+        bios: "tpm",
+        title: "Turn on the TPM",
+        why: "Windows can't reach the TPM, so it's off: in the BIOS (Del or F2 as it starts), turn it on under Advanced → Trusted Computing → Security Device Support: Enable, then go live again.",
+        changed: "Nothing on this PC has changed.",
+        action: "check",
+      });
+      // A board the table does not know: the general names.
+      expect(failed("ek", "The TPM is not ready.", {}, once).f.why).toBe(
+        "Windows can't reach the TPM, so it's off: in the BIOS, turn it on under Security or Advanced, called AMD fTPM or Intel PTT, then go live again.",
+      );
+    });
+
+    it("says what to do in one sentence for a TPM without a certificate, and for each refusal", () => {
+      const said = (error: string, change: Partial<RentalRun> = {}) => failed("ek", error, change, once).f;
+      expect(said("The TPM has no endorsement key certificate Windows can read.")).toMatchObject({
+        kind: "ek",
+        title: "This PC's TPM has no certificate",
+        why: expect.stringMatching(/^[^.]+: leave the PC online for a few minutes, .+, then try again\.$/),
+        changed: "Nothing on this PC has changed.",
+        action: "again",
+      });
+      expect(said("bad-key")).toMatchObject({
+        title: "The server didn't accept the machine key",
+        why: expect.stringMatching(/check the machine id and key in Settings, then go live again\.$/),
+      });
+      expect(said("no-machine").why).toMatch(/add them in Settings, then go live again\.$/);
+      expect(said("unknown-machine").why).toMatch(/check it in Settings/);
+      expect(said("failed").why).toMatch(/check the internet connection, then try again\.$/);
+      // A local failure of the elevated read is the TPM's, not the network's; a server fault says try later.
+      expect(said("something new")).toMatchObject({
+        title: "Couldn't read the TPM",
+        why: "Reading this PC's TPM failed: try Go live again, or restart the PC if it fails again.",
+      });
+      expect(said("unavailable")).toMatchObject({
+        title: "The server couldn't check the TPM",
+        why: "The Lanterel server couldn't check this PC's TPM right now: try again later.",
+      });
+      // The server doesn't know the TPM's maker: the details go to Lanterel first, then Try again.
+      expect(said("untrusted")).toMatchObject({ action: "send", label: "Send details to Lanterel" });
+      expect(said("untrusted", { reportedAt: 1 })).toMatchObject({ action: "again" });
+      // The EK is registered before anything changes what the PC starts: a stop here changed nothing.
+      expect(said("failed", { steps: { ek: "done" } }).changed).toBe("Nothing on this PC has changed.");
+    });
+  });
 
   it("asks Windows again when its prompt was declined, with nothing changed", () => {
     const { setup, f } = failed("elevate", "Windows did not give Lanterel Host administrator rights.");

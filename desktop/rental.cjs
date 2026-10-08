@@ -357,8 +357,18 @@ function factsOf(raw) {
       })),
     install: installOf(r.install),
     // What the install's first step last read as administrator (rental-check.json).
-    checked:
-      r.check && typeof r.check === "object" && typeof r.check.ek === "boolean" ? { ek: r.check.ek } : null,
+    checked: checkedOf(r.check),
+  };
+}
+
+/** What the administrator side last read of the TPM (rental-check.json), or null; a record from before has no certificate. */
+function checkedOf(check) {
+  if (!check || typeof check !== "object" || typeof check.ek !== "boolean") return null;
+  const certificate = typeof check.certificate === "string" && check.certificate ? check.certificate : null;
+  return {
+    ek: check.ek,
+    certificate,
+    intermediates: certificate ? list(check.intermediates).filter((c) => typeof c === "string" && c) : [],
   };
 }
 
@@ -575,6 +585,67 @@ function placed(layout, start) {
 
 const FAST_STARTUP_KEY = String.raw`HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Power`;
 
+/**
+ * The TPM's endorsement key certificates, one `ek-cert:` line each (base64 DER): the ones in the
+ * TPM, then the ones Windows fetched from its maker (Intel PTT keeps its certificate online). Reading
+ * them needs administrator rights; ekOf picks the EK's own and the intermediates beside it.
+ */
+const EK_LINES = [
+  "try { $info = Get-TpmEndorsementKeyInfo -ErrorAction Stop } catch { $info = $null }",
+  "foreach ($c in @($info.ManufacturerCertificates) + @($info.AdditionalCertificates)) { if ($c) { 'ek-cert: ' + [Convert]::ToBase64String($c.RawData) } }",
+];
+
+/** The most intermediates the server takes beside an EK certificate (server/src/tpm-verifier.ts). */
+const MAX_EK_INTERMEDIATES = 8;
+
+/**
+ * The EK keys swiff-attest makes, in the order it tries them (swiff-os/hostd/src/attest.ts): RSA 2048,
+ * else ECC P-256. A certificate for any other key Node reads is for an EK it never uses; one whose key
+ * Node cannot read (null: an RSAES-OAEP key, say) comes last, as it may still be either.
+ */
+const EK_KEYS = [
+  (key) => key?.asymmetricKeyType === "rsa" && key.asymmetricKeyDetails?.modulusLength === 2048,
+  (key) => key?.asymmetricKeyType === "ec" && key.asymmetricKeyDetails?.namedCurve === "prime256v1",
+  (key) => key === null,
+];
+
+/** A certificate's public key, or null when Node cannot read it. */
+function keyOf(cert) {
+  try {
+    return cert.publicKey;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The TPM's EK certificate in `out`, what EK_LINES printed: the first that is no CA's for the EK
+ * swiff-attest uses (EK_KEYS), the TPM's own before Windows' downloads, with the intermediate CAs
+ * beside it (never a self-signed root, which the server must already have). Null when there is none.
+ */
+function ekOf(out) {
+  const certs = [];
+  for (const line of String(out).split(/\r?\n/)) {
+    const b64 = line.startsWith("ek-cert: ") ? line.slice(9).trim() : "";
+    if (!b64 || certs.some((c) => c.b64 === b64)) continue;
+    try {
+      certs.push({ b64, cert: new crypto.X509Certificate(Buffer.from(b64, "base64")) });
+    } catch {
+      // Not a certificate: Windows keeps others beside them, which are no use here.
+    }
+  }
+  const leaves = certs.filter((c) => !c.cert.ca).map((c) => ({ ...c, key: keyOf(c.cert) }));
+  const leaf = EK_KEYS.map((fits) => leaves.find((c) => fits(c.key))).find(Boolean);
+  if (!leaf) return null;
+  return {
+    certificate: leaf.b64,
+    intermediates: certs
+      .filter((c) => c.cert.ca && !c.cert.checkIssued(c.cert))
+      .slice(0, MAX_EK_INTERMEDIATES)
+      .map((c) => c.b64),
+  };
+}
+
 /** Runs a console tool and fails on its exit code, which PowerShell would ignore. */
 const tool = (line) =>
   `${line}; if ($LASTEXITCODE) { throw '${line.split(" ")[0]} failed: exit code ' + $LASTEXITCODE }`;
@@ -597,9 +668,14 @@ function shellOf(op) {
               `if ((Get-PartitionSupportedSize -DiskNumber ${op.shrink.disk} -PartitionNumber ${op.shrink.partition}).SizeMin -gt ${op.shrink.size}) { throw '${op.shrink.letter}: cannot shrink by ${gb(SWIFF_OS_BYTES)}.' }`,
             ]
           : []),
-        // Attestation rates a TPM without one lower (D3); the install does not need it.
-        "try { $ek = (Get-TpmEndorsementKeyInfo).ManufacturerCertificates } catch { $ek = $null }",
-        "if (-not $ek) { 'warning: The TPM has no endorsement key certificate Windows can read.' }",
+        // The EK certificate, for the app to register at Go live; the install itself does not need it.
+        ...EK_LINES,
+      ];
+    case "ek":
+      return [
+        "try { $tpm = Get-Tpm -ErrorAction Stop } catch { $tpm = $null }",
+        "if (-not $tpm.TpmReady) { throw 'The TPM is not ready.' }",
+        ...EK_LINES,
       ];
     case "bitlocker-suspend":
       return [tool(`manage-bde -protectors -disable ${op.letter}: -RebootCount ${op.restarts}`)];
@@ -1066,17 +1142,32 @@ function removePlan(rental, { key = false, code = mokCode() } = {}) {
   return { kind: "remove", phase: "disk", steps };
 }
 
+/** Why going live stopped at its TPM step: the TPM's certificate is not the one the app registered. */
+const EK_UNREGISTERED = "This PC's TPM certificate isn't registered with Lanterel yet.";
+
+/**
+ * Going live reads the TPM's EK certificate first, as administrator. With `registered` (the
+ * certificate the app registered with the server, or null for none), the step stops the plan when
+ * the TPM has another one (a new board, a new TPM), before anything changes what the PC starts: the
+ * app registers the one it read, then goes live again. Without it (the console installer), it reads.
+ */
+const EK_STEP = (registered) =>
+  step("ek", "Read this PC's TPM certificate", [
+    { op: "ek", ...(registered === undefined ? {} : { registered }) },
+  ]);
+
 /**
  * Start Swiff OS once: BootNext, then restart; whatever happens there, the
  * next start is Windows again. Start sharing: Swiff OS first in the boot
  * order, so a power cut or a crash comes back to it, and BootNext for this
- * restart. Stop: Windows first again.
+ * restart. Stop: Windows first again. `registered`: the EK the app registered, for EK_STEP.
  */
-function switchPlan(kind) {
+function switchPlan(kind, { registered } = {}) {
   if (kind === "once") {
     return {
       kind,
       steps: [
+        EK_STEP(registered),
         step("once", "Start Lanterel OS on the next restart only", [{ op: "boot-next", entry: "swiff" }]),
         step(
           "restart",
@@ -1091,6 +1182,7 @@ function switchPlan(kind) {
     return {
       kind,
       steps: [
+        EK_STEP(registered),
         step("boot-order", "Put Lanterel OS first in the boot order", [{ op: "boot-first", entry: "swiff" }]),
         step("boot-next", "Start Lanterel OS on this restart", [{ op: "boot-next", entry: "swiff" }]),
         step(
@@ -1150,8 +1242,10 @@ module.exports = {
   bitlockerDrives,
   shellOf,
   commandsOf,
+  ekOf,
   errorReportsFile,
   installPlan,
   uninstallPlan,
   switchPlan,
+  EK_UNREGISTERED,
 };

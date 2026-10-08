@@ -166,6 +166,8 @@ export type AttestationVerifier = {
   verify(input: { room: string; nonce: string; evidence: unknown; now?: number }): Promise<Verdict>;
   /** Register the machine's EK certificate, when the verifier works from one (tpm-verifier.ts). */
   enroll?: Enroll;
+  /** SHA-256 (hex) of machine `room`'s registered EK certificate, or null when none is; beside `enroll`. */
+  registeredEk?: (room: string) => Promise<string | null>;
   /** Make the AK activation credential for a challenge, when the verifier activates AKs. */
   activate?: Activate;
   /**
@@ -385,6 +387,13 @@ export type Attestation = {
     now?: number,
   ): Promise<{ ok: true } | Refusal>;
   /**
+   * Which EK machine `room` has registered: SHA-256 (hex) of its certificate's
+   * DER, or null for none. The owner's Windows registers only an EK the server
+   * does not have, as registering the same one again holds the machine for the
+   * firmware cooldown. 404 and 503 as for `enroll`.
+   */
+  registeredEk(room: string): Promise<{ ok: true; fingerprint: string | null } | Refusal>;
+  /**
    * Judge `evidence` quoted over `nonce` by machine `room`, and mint a host
    * certificate when it passes and the machine meets the hardware floor. The
    * challenge is held while its attempt is judged and spent only when it earns
@@ -492,6 +501,17 @@ export function createAttestation({
         return enrolled.reason === "malformed-evidence"
           ? refuse(400, { error: "bad-request" })
           : rejected(enrolled.reason);
+      } catch (error) {
+        return failed(error);
+      }
+    },
+
+    /** Which EK machine `room` registered, through the verifier: 503 without one that keeps EKs, 404 for no such machine. */
+    async registeredEk(room) {
+      if (!verifier?.registeredEk) return refuse(503, { error: "not-configured" });
+      if (!access.machines.has(room)) return refuse(404, { error: "not-found" });
+      try {
+        return { ok: true, fingerprint: await verifier.registeredEk(room) };
       } catch (error) {
         return failed(error);
       }

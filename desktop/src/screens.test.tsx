@@ -1350,6 +1350,52 @@ describe("rental mode", () => {
       screen.getByText(/Saved at 21:06 for Lanterel: the error, the step and this PC's checks\./),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Try again/ })).toBeInTheDocument();
+    cleanup();
+
+    // At the TPM's EK, before anything restarts: what to do, in one sentence, and its one button.
+    acts = renderReal("live", off, failedAt("ek", "bad-key"));
+    expect(h1()).toHaveTextContent("The server didn't accept the machine key");
+    expect(
+      screen.getByText(
+        "The server refused this PC's machine key: check the machine id and key in Settings, then go live again.",
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Try again/ }));
+    expect(acts.retryRental).toHaveBeenCalledOnce();
+    cleanup();
+
+    // Only a server that didn't answer asks after the internet connection.
+    renderReal("live", off, failedAt("ek", "failed"));
+    expect(h1()).toHaveTextContent("Couldn't reach the server");
+    expect(screen.getByText(/check the internet connection, then try again\./)).toBeInTheDocument();
+    cleanup();
+
+    renderReal("live", off, failedAt("ek", "unavailable"));
+    expect(h1()).toHaveTextContent("The server couldn't check the TPM");
+    expect(
+      screen.getByText("The Lanterel server couldn't check this PC's TPM right now: try again later."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/internet connection/)).not.toBeInTheDocument();
+    cleanup();
+
+    // The administrator side's own read of the EK failed.
+    acts = renderReal("live", off, failedAt("ek", "Get-TpmEndorsementKeyInfo failed: exit code 1"));
+    expect(h1()).toHaveTextContent("Couldn't read the TPM");
+    expect(
+      screen.getByText(
+        "Reading this PC's TPM failed: try Go live again, or restart the PC if it fails again.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/internet connection/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Try again/ }));
+    expect(acts.retryRental).toHaveBeenCalledOnce();
+    cleanup();
+
+    acts = renderReal("live", off, failedAt("ek", "The TPM is not ready."));
+    expect(h1()).toHaveTextContent("Turn on the TPM");
+    expect(screen.getByText(/Windows can't reach the TPM, so it's off: in the BIOS/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Check again/ }));
+    expect(acts.checkRental).toHaveBeenCalledOnce();
   });
 
   it("offers to continue an install that stopped part way, and to undo it", () => {

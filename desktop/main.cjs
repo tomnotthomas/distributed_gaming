@@ -294,7 +294,12 @@ ipcMain.handle("rental:plan", async (event, ask) => {
   rentalExpect = null;
   let plan = null;
   try {
-    if (ask.kind === "start" || ask.kind === "stop" || ask.kind === "once") plan = switchPlan(ask.kind);
+    if (ask.kind === "start" || ask.kind === "stop" || ask.kind === "once")
+      plan = switchPlan(ask.kind, {
+        // The EK the app registered: the TPM step stops before any boot change when the TPM has another.
+        registered:
+          ask.registered === null || typeof ask.registered === "string" ? ask.registered : undefined,
+      });
     else if (ask.kind === "remove") {
       const rental = await readRental();
       if (!rental) return null;

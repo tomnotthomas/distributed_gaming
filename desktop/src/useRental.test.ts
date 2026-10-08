@@ -5,8 +5,9 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RunEvent, RunOutcome } from "../rental-exec.cjs";
-import type { RentalPlan } from "../rental.cjs";
+import type { RentalPlan, RentalRead } from "../rental.cjs";
 import type { HostBridge } from "./bridge";
+import type { EkResult } from "./ek";
 import { stepBytes, useRental } from "./useRental";
 
 const plan = (kind: RentalPlan["kind"], title: string): RentalPlan =>
@@ -224,6 +225,162 @@ describe("useRental", () => {
     expect(result.current.run.status).toBe("restarting");
   });
 
+  describe("Go live and the TPM's EK", () => {
+    const A = { certificate: "QUFB", intermediates: ["SU5U"] };
+    const B = { certificate: "QkJC", intermediates: [] };
+    const ONCE = {
+      kind: "once",
+      steps: [
+        { id: "ek", title: "Read", confirm: null, commands: [], ops: [{ op: "ek" }] },
+        {
+          id: "once",
+          title: "BootNext",
+          confirm: null,
+          commands: [],
+          ops: [{ op: "boot-next", entry: "swiff" }],
+        },
+        { id: "restart", title: "Restart", confirm: "Restarts.", commands: [], ops: [{ op: "restart" }] },
+      ],
+    } as unknown as RentalPlan;
+
+    /**
+     * Go live on a PC whose last check read `checked`, where each of the plan's own reads finds the
+     * next of `reads` (the last one again after that). Like the worker, the read records what it found
+     * and stops the run before BootNext when that is none or not the certificate the plan was asked with.
+     * Reads of the PC after a run wait on `held`.
+     */
+    async function goLive(
+      checked: typeof A | null,
+      reads: typeof A | null | (typeof A | null)[],
+      registerEk: (ek: typeof A) => Promise<EkResult> = async () => ({ ok: true, registered: "now" }),
+      held: Promise<void> = Promise.resolve(),
+    ) {
+      const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
+      const order: string[] = [];
+      const tpm = Array.isArray(reads) ? [...reads] : [reads];
+      let record = checked;
+      let asked: string | null | undefined;
+      host.readRental = vi.fn(async () => {
+        if (order.includes("run")) await held;
+        return {
+          facts: {
+            checked: record ? { ek: true, ...record } : { ek: false, certificate: null, intermediates: [] },
+          },
+        } as unknown as RentalRead;
+      });
+      host.planRental = vi.fn(async (ask) => ((asked = ask.registered), ONCE));
+      host.runRental = vi.fn(async (): Promise<RunOutcome> => {
+        order.push("run");
+        const now = tpm.length > 1 ? tpm.shift()! : tpm[0]!;
+        record = now;
+        const stop = (error: string): RunOutcome => ({
+          status: "failed",
+          done: [],
+          failed: { step: "ek", op: "ek", error },
+          results: [],
+        });
+        if (!now) return stop("The TPM has no endorsement key certificate Windows can read.");
+        if (now.certificate !== asked)
+          return stop("This PC's TPM certificate isn't registered with Lanterel yet.");
+        return {
+          status: "done",
+          done: ["ek", "once"],
+          results: [
+            { step: "ek", op: "ek", ek: now },
+            { step: "once", op: "boot-next", entry: 1 },
+          ],
+        };
+      });
+      host.restartRental = vi.fn(async () => (order.push("restart"), true));
+      const register = vi.fn(
+        async (ek: typeof A) => (order.push(`register ${ek.certificate}`), registerEk(ek)),
+      );
+      const { result } = renderHook(() => useRental({ registerEk: register }));
+      await act(async () => {});
+      await act(async () => result.current.goLive());
+      await act(async () => {});
+      return { result, order, register, host };
+    }
+
+    it("registers the EK the check read before anything is set to start Lanterel OS, and only once", async () => {
+      const { order, register, host } = await goLive(A, A);
+      expect(order).toEqual(["register QUFB", "run", "restart"]);
+      expect(register).toHaveBeenCalledWith(A);
+      // The plan's read holds the run to the EK registered.
+      expect(host.planRental).toHaveBeenCalledWith({ kind: "once", registered: "QUFB" });
+    });
+
+    it("registers a new TPM's EK before BootNext: the plan's read stops, then Go live goes again", async () => {
+      const changed = await goLive(A, B);
+      expect(changed.order).toEqual(["register QUFB", "run", "register QkJC", "run", "restart"]);
+      expect(changed.register).toHaveBeenLastCalledWith(B);
+      expect(changed.host.planRental).toHaveBeenLastCalledWith({ kind: "once", registered: "QkJC" });
+      // A record from before the certificate was kept: the plan's read is the one registered.
+      const unknown = await goLive(null, A);
+      expect(unknown.order).toEqual(["run", "register QUFB", "run", "restart"]);
+      expect(unknown.host.planRental).toHaveBeenNthCalledWith(1, { kind: "once", registered: null });
+    });
+
+    it("keeps Go live running, with no restart offered, while the plan's read registers", async () => {
+      let answer: (r: EkResult) => void = () => {};
+      const pending = goLive(null, A, () => new Promise<EkResult>((resolve) => (answer = resolve)));
+      const { result, order } = await pending;
+      expect(order).toEqual(["run", "register QUFB"]);
+      expect(result.current.run.status).toBe("running");
+      await act(async () => answer({ ok: false, error: "unavailable" }));
+      // Refused: nothing ran past the read, so the PC still starts Windows.
+      expect(order).toEqual(["run", "register QUFB"]);
+      expect(result.current.run).toMatchObject({
+        status: "failed",
+        failed: { step: "ek", error: "unavailable" },
+      });
+    });
+
+    it("keeps Go live running, with no failure shown, while it reads what the plan's read recorded", async () => {
+      let release: () => void = () => {};
+      const held = new Promise<void>((resolve) => (release = resolve));
+      const { result, order } = await goLive(null, null, undefined, held);
+      expect(order).toEqual(["run"]);
+      expect(result.current.run).toMatchObject({ status: "running", failed: null, endedAt: null });
+      await act(async () => release());
+      // None read: the run's own failure is back, with its guidance.
+      expect(order).toEqual(["run"]);
+      expect(result.current.run).toMatchObject({
+        status: "failed",
+        failed: { step: "ek", error: expect.stringMatching(/no endorsement key certificate/) },
+      });
+      expect(result.current.run.endedAt).not.toBeNull();
+    });
+
+    it("goes again only once: a TPM that reads another certificate again stops there", async () => {
+      const { order, result } = await goLive(A, [B, A]);
+      expect(order).toEqual(["register QUFB", "run", "register QkJC", "run"]);
+      expect(result.current.run).toMatchObject({ status: "failed", failed: { step: "ek" } });
+    });
+
+    it("stops before the restart, saying why, when there is no certificate or the server refused it", async () => {
+      const none = await goLive(null, null);
+      expect(none.order).toEqual(["run"]);
+      expect(none.result.current.run).toMatchObject({
+        status: "failed",
+        failed: { step: "ek", error: expect.stringMatching(/no endorsement key certificate/) },
+      });
+
+      const refused = await goLive(A, A, async () => ({ ok: false, error: "bad-key" }));
+      // Nothing ran: BootNext is not set for a PC the server would not let host.
+      expect(refused.order).toEqual(["register QUFB"]);
+      expect(refused.result.current.run).toMatchObject({
+        status: "failed",
+        failed: { step: "ek", error: "bad-key" },
+      });
+      expect(refused.result.current.preview).toBe(ONCE);
+      // Try again goes through the EK again, not straight to the plan.
+      await act(async () => refused.result.current.retry());
+      await act(async () => {});
+      expect(refused.order).toEqual(["register QUFB", "register QUFB"]);
+    });
+  });
+
   it("says so when Windows did not restart", async () => {
     const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
     host.restartRental = vi.fn(async () => false);
@@ -437,15 +594,25 @@ describe("useRental", () => {
     const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
     host.runRental = vi.fn(async (): Promise<RunOutcome> => ({
       status: "done",
-      done: ["once"],
-      results: [],
+      done: ["ek", "once"],
+      results: [{ step: "ek", op: "ek", ek: { certificate: "QUFB", intermediates: [] } }],
     }));
     host.restartRental = vi.fn(async () => true);
-    const { result } = renderHook(() => useRental());
+    const { result } = renderHook(() =>
+      useRental({ registerEk: async () => ({ ok: true, registered: "already" }) }),
+    );
     await act(async () => {});
     act(() => result.current.goLive());
     expect(pending[0]!.ask.kind).toBe("once");
-    await answer(0, plan("once", "once"));
+    const once = plan("once", "once");
+    once.steps.push({
+      id: "restart",
+      title: "Restart",
+      confirm: "Restarts.",
+      commands: [],
+      ops: [{ op: "restart" }],
+    });
+    await answer(0, once);
     await act(async () => {});
     expect(host.runRental).toHaveBeenCalledOnce();
     expect(host.restartRental).toHaveBeenCalledOnce();

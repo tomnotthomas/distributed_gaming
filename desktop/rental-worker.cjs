@@ -52,10 +52,12 @@ const { writeRootFile } = require("./esp-file.cjs");
 const {
   BOOT_PATH,
   BOOT_TITLE,
+  EK_UNREGISTERED,
   ERROR_REPORTS_FILE,
   GAMES_LABEL,
   MOK_CERT,
   TYPE,
+  ekOf,
   errorReportsFile,
   shellOf,
 } = require("./rental.cjs");
@@ -352,6 +354,13 @@ function checkOp(op) {
           "A bad check.",
         );
       return;
+    case "ek":
+      return must(
+        op.registered === undefined ||
+          op.registered === null ||
+          (typeof op.registered === "string" && op.registered.length < 64 * 1024),
+        "A bad TPM step.",
+      );
     case "bitlocker-suspend":
       return must(
         isLetter(op.letter) && Number.isInteger(op.restarts) && op.restarts >= 1 && op.restarts <= 15,
@@ -599,6 +608,20 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
     });
   }
 
+  /**
+   * The TPM's EK certificate in what the administrator read printed (ekOf), kept for the app, which
+   * reads it without administrator rights, beside the install's record but not in it: a check changes
+   * nothing on the PC, so it must not read as an install begun.
+   */
+  function recordEk(out) {
+    const ek = ekOf(out);
+    files.writeFileSync(
+      path.join(win.stateDir, "rental-check.json"),
+      `${JSON.stringify({ at: Date.now(), ek: Boolean(ek), certificate: ek?.certificate ?? null, intermediates: ek?.intermediates ?? [] })}\n`,
+    );
+    return ek;
+  }
+
   /** Checks `op` against what this worker allows, then carries it out, reporting progress for long writes. */
   async function apply(op, progress = () => {}) {
     checkOp(op);
@@ -606,17 +629,22 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
     switch (op.op) {
       case "check": {
         const out = await run(op);
+        const ek = recordEk(out);
         const warnings = out
           .split(/\r?\n/)
           .filter((l) => l.startsWith("warning: "))
           .map((l) => l.slice(9));
-        // Kept for the app, which reads it without administrator rights, beside the install's record but
-        // not in it: a check changes nothing on the PC, so it must not read as an install begun.
-        files.writeFileSync(
-          path.join(win.stateDir, "rental-check.json"),
-          `${JSON.stringify({ at: Date.now(), ek: !warnings.some((w) => /endorsement key/i.test(w)) })}\n`,
-        );
+        if (!ek) warnings.push("The TPM has no endorsement key certificate Windows can read.");
         return { warnings };
+      }
+      case "ek": {
+        // Going live: the certificate the TPM has now, for the app to register before Swiff OS attests,
+        // which it cannot without one: the plan stops here, before BootNext. So it does when the TPM's
+        // is not the one the app registered: the app registers this one first (it is recorded above).
+        const ek = recordEk(await run(op));
+        must(ek, "The TPM has no endorsement key certificate Windows can read.");
+        if (op.registered !== undefined) must(ek.certificate === op.registered, EK_UNREGISTERED);
+        return { ek };
       }
       case "image-check": {
         // Signed, its certificate Swiff's, and each image the one listed, checked where it is before

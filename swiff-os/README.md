@@ -94,9 +94,12 @@ loader (this start's measured-boot log), the partitions are gone, the drive has 
 BitLocker is on again where it was, and the install record is gone. The screen shows each,
 marked where one is not as it was. Should the owner miss the blue screen, the removal goes
 on without the key (shim, the only thing that would trust it, is gone with the partitions), or
-they ask for the key's removal again. Once installed, going live sets only BootNext
-for now, so the next restart is Windows again; Swiff OS first in BootOrder waits until Swiff
-OS can hand the PC back. Without `MokTimeout`, MokManager waits only 10 seconds, then drops
+they ask for the key's removal again. Once installed, going live reads the TPM's EK
+certificate as administrator and sets only BootNext for now, both only once the server has that EK
+registered: the read stops before BootNext when the TPM has another than the one registered, and
+the app registers it and goes live again, stopping without one (see Attestation in
+`docs/system-design/session-keys.md`); the restart after that is Windows again, and Swiff OS first in
+BootOrder waits until Swiff OS can hand the PC back. Without `MokTimeout`, MokManager waits only 10 seconds, then drops
 the request; shim then fails to verify the next stage and falls through into Windows in the
 same power-on, which changes PCR 7 (Windows Hello then asks for a new PIN, and BitLocker for its
 recovery key), as Continue boot does at MokManager's menu. So every request and every Swiff OS

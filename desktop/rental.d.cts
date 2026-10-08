@@ -41,8 +41,12 @@ export type RentalFacts = {
     bitlocker: "on" | "off" | null;
   }[];
   install: InstallRecord | null;
-  /** What the install's first step last read as administrator: whether the TPM has an endorsement key certificate. */
-  checked: { ek: boolean } | null;
+  /**
+   * What the administrator side last read of the TPM (the install's first step, Go live's): whether it
+   * has an endorsement key certificate, and that certificate with its intermediates (base64 DER) for
+   * the server. A record from before keeps no certificate.
+   */
+  checked: { ek: boolean; certificate: string | null; intermediates: string[] } | null;
 };
 
 /** What an install recorded so far (rental-install.json): what it changed, for the uninstall to put back. */
@@ -129,6 +133,7 @@ type GptAddPartition = {
 
 export type PlanOp =
   | { op: "check"; shrink?: { disk: number; partition: number | null; size: number; letter: string } }
+  | { op: "ek"; registered?: string | null }
   | { op: "image-check" }
   | { op: "bitlocker-suspend"; letter: string; restarts: number }
   | { op: "bitlocker-resume"; letter: string }
@@ -281,8 +286,21 @@ export function uninstallPlan(rental: RentalRead): RentalPlan;
 export function keyRemovalPlan(code?: string, rental?: RentalRead | null): RentalPlan;
 /** Remove Swiff OS, in two parts (`phase`): Swiff's key off through MokManager first when `key`, then the disk. */
 export function removePlan(rental: RentalRead, options?: { key?: boolean; code?: string }): RentalPlan;
-/** Start Swiff OS once, start sharing (Swiff OS first in the boot order), or stop (Windows first again). */
-export function switchPlan(kind: "once" | "start" | "stop"): RentalPlan;
+/**
+ * Start Swiff OS once, start sharing (Swiff OS first in the boot order), or stop (Windows first again).
+ * With `registered` (the EK certificate the app registered, or null), the TPM step stops the plan
+ * before any boot change when the TPM has another, with EK_UNREGISTERED.
+ */
+export function switchPlan(
+  kind: "once" | "start" | "stop",
+  options?: { registered?: string | null },
+): RentalPlan;
+/** The TPM step's error when the TPM's EK certificate is not the one the app registered. */
+export const EK_UNREGISTERED: string;
+/** A TPM's endorsement key certificate and the intermediate CAs beside it, base64 DER, as the server takes them. */
+export type EkCertificate = { certificate: string; intermediates: string[] };
+/** The TPM's EK certificate among the `ek-cert:` lines its read printed; null when it has none. */
+export function ekOf(out: string): EkCertificate | null;
 /** The PowerShell lines an operation is; null for the operations the worker does itself, in bytes. */
 export function shellOf(op: PlanOp): string[] | null;
 /** What an operation does, as the commands it is or, for the worker's own byte-level ones, in words. */
