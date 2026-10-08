@@ -64,6 +64,10 @@ describe("the console installer's provisioning", () => {
       },
     };
     expect(() => provisioned(opts, steps, missing)).toThrow(/ENOENT/);
+    // A key Lanterel OS would refuse at the provision step, after the steps before it changed the disk.
+    const short = { readFileSync: () => "too-short\n" };
+    expect(() => provisioned(opts, steps, short)).toThrow("key holds no machine key Lanterel OS can use.");
+    expect(() => provisioned(opts, steps, short)).not.toThrow(/too-short/);
     const without = steps.filter((s) => s.id !== "provision");
     expect(() => provisioned({}, without, key)).not.toThrow();
     expect(() => provisioned({ "dry-run": true }, steps, key)).not.toThrow();

@@ -29,7 +29,7 @@ const { readPc, readSteamArt, steamPathOnce, steamRootOnce, watchSteamGames } = 
 const { testBuild } = require("./build-kind.cjs");
 const { MANIFEST, readImageSet, trustOf } = require("./image-set.cjs");
 const { downloadSet, sourceOf } = require("./image-download.cjs");
-const { machineProblem } = require("./provision.cjs");
+const { machineKeyProblem, machineProblem } = require("./provision.cjs");
 const { runPlan, startWorker } = require("./rental-exec.cjs");
 const { BITLOCKER_PANEL, drivesOff, recoveryOf, recoveryStore } = require("./recovery-key.cjs");
 const { bootTrail, canAnswer, keyOf, keyStep, keyStore } = require("./rental-key.cjs");
@@ -311,8 +311,12 @@ function provisioning(machine) {
   } catch {
     machineKey = "";
   }
-  if (!machineKey.trim()) throw new Error("Lanterel needs this PC's machine key: paste it in Settings.");
-  return { ...machine, machineKey: machineKey.trim() };
+  machineKey = machineKey.trim();
+  if (!machineKey) throw new Error("Lanterel needs this PC's machine key: paste it in Settings.");
+  // Checked before the run, not at its provision step: the steps before that one change the disk.
+  const problem = machineKeyProblem(machineKey);
+  if (problem) throw new Error(problem);
+  return { ...machine, machineKey };
 }
 ipcMain.handle("rental:plan", async (event, ask) => {
   if (!fromApp(event) || !ask || typeof ask !== "object" || rentalRun) return null;

@@ -6,4 +6,5 @@ export const RECORD_BYTES: number;
 export const RECORD_MAGIC: Buffer;
 export const RECORD_VERSION: number;
 export function machineProblem(machine: { serverUrl: string; machineId: string }): string | null;
+export function machineKeyProblem(machineKey: unknown): string | null;
 export function provisionRecord(provisioning: Provisioning): Buffer;

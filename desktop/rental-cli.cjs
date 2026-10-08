@@ -41,7 +41,7 @@ const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
 const readline = require("node:readline");
-const { machineProblem } = require("./provision.cjs");
+const { machineKeyProblem, machineProblem } = require("./provision.cjs");
 const { dryRun, runPlan, startWorker } = require("./rental-exec.cjs");
 const { readImageSet, trustOf } = require("./image-set.cjs");
 const { bootTrail } = require("./rental-key.cjs");
@@ -151,7 +151,10 @@ function provisioningOf(opts, files = fs) {
   const machine = { serverUrl: server, machineId };
   const problem = machineProblem(machine);
   if (problem) throw new Error(problem);
-  return { ...machine, machineKey: files.readFileSync(keyFile, "utf8").trim() };
+  const machineKey = files.readFileSync(keyFile, "utf8").trim();
+  // Checked here, before any step runs, not at the provision step: the steps before it change the disk.
+  if (machineKeyProblem(machineKey)) throw new Error(`${keyFile} holds no machine key Lanterel OS can use.`);
+  return { ...machine, machineKey };
 }
 
 /**

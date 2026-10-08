@@ -54,6 +54,15 @@ function machineProblem({ serverUrl, machineId }) {
 }
 
 /**
+ * Why `machineKey` cannot be provisioned, or null when it can: printable
+ * ASCII without spaces, 16 to 512 characters. Never quotes the key.
+ */
+function machineKeyProblem(machineKey) {
+  if (typeof machineKey === "string" && MACHINE_KEY.test(machineKey)) return null;
+  return "This PC has no machine key Lanterel OS can use: paste it in Settings again.";
+}
+
+/**
  * The record for `provisioning` ({ serverUrl, machineId, machineKey }), as
  * Lanterel OS reads it: RECORD_BYTES bytes. Throws when a field is not one
  * Lanterel OS would take, never quoting the machine key.
@@ -61,8 +70,8 @@ function machineProblem({ serverUrl, machineId }) {
 function provisionRecord({ serverUrl, machineId, machineKey }) {
   const problem = machineProblem({ serverUrl, machineId });
   if (problem) throw new Error(problem);
-  if (typeof machineKey !== "string" || !MACHINE_KEY.test(machineKey))
-    throw new Error("This PC has no machine key Lanterel OS can use: paste it in Settings again.");
+  const keyProblem = machineKeyProblem(machineKey);
+  if (keyProblem) throw new Error(keyProblem);
   const payload = Buffer.from(JSON.stringify({ serverUrl, machineId, machineKey }), "utf8");
   if (payload.length > RECORD_BYTES - HEADER_BYTES) throw new Error("The provisioning is too long.");
   const record = Buffer.alloc(RECORD_BYTES);
@@ -75,4 +84,11 @@ function provisionRecord({ serverUrl, machineId, machineKey }) {
   return record;
 }
 
-module.exports = { RECORD_BYTES, RECORD_MAGIC, RECORD_VERSION, machineProblem, provisionRecord };
+module.exports = {
+  RECORD_BYTES,
+  RECORD_MAGIC,
+  RECORD_VERSION,
+  machineKeyProblem,
+  machineProblem,
+  provisionRecord,
+};

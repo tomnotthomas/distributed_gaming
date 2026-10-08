@@ -21,7 +21,8 @@
 //                    record; format the keep as ext4 and keep the sealed payload
 //                    there (provision.cred). The keep held the old U share,
 //                    which goes with it: the state is renewed, as it is anyway
-//                    after Windows ran.
+//                    after Windows ran. Should the keep not take it, the
+//                    record goes back for the next boot to take in again.
 //   none             mount the keep.
 //
 // then unseal provision.cred and write this boot's swiff-hostd config (the
@@ -118,6 +119,8 @@ export type Keep = {
   format(): Promise<void>;
   /** Mount it; false when it holds no filesystem (never provisioned, or a record that was damaged). */
   mount(): Promise<boolean>;
+  /** Write `record` back at the start, the keep unmounted first, on the disk before it resolves. */
+  restore(record: Buffer): Promise<void>;
 };
 
 export type ProvisionDeps = {
@@ -166,10 +169,13 @@ export async function provision({
   paths,
   log = () => {},
 }: ProvisionDeps): Promise<boolean> {
+  // A copy: put back should the keep not take the sealed provisioning.
+  const block = Buffer.from(await keep.head(RECORD_BYTES));
   let fresh: Provisioning | null;
   try {
-    fresh = parseRecord(await keep.head(RECORD_BYTES));
+    fresh = parseRecord(block);
   } catch (cause) {
+    block.fill(0);
     if (!(cause instanceof ProvisionError)) throw cause;
     // Its write overwrote the keep's filesystem: nothing on it can be used either.
     log(`${cause.message}: restart into Lanterel OS from the Lanterel app again`);
@@ -184,9 +190,22 @@ export async function provision({
     } finally {
       payload.fill(0);
     }
-    await keep.wipe(WIPE_BYTES);
-    await keep.format();
-    await writeDurably(paths.credential, sealed);
+    try {
+      await keep.wipe(WIPE_BYTES);
+      await keep.format();
+      await writeDurably(paths.credential, sealed);
+    } catch (cause) {
+      // Nothing kept yet: the record goes back, so the next boot takes it in
+      // again rather than finding this PC unprovisioned.
+      await keep.restore(block).catch(() => {
+        log(
+          "could not put the provisioning record back: restart into Lanterel OS from the Lanterel app again",
+        );
+      });
+      throw cause;
+    } finally {
+      block.fill(0);
+    }
     log(`provisioned by the owner's app for machine ${fresh.machineId}`);
   } else if (!(await keep.mount())) {
     log("not provisioned: the owner's app has not restarted this PC into Lanterel OS yet");
@@ -324,5 +343,20 @@ export function linuxKeep(
         () => true,
         () => false,
       ),
+    restore: async (record) => {
+      // Not under a mounted filesystem: it would write its superblock over the record.
+      const mounted = await exec("mountpoint", ["-q", mountpoint]).then(
+        () => true,
+        () => false,
+      );
+      if (mounted) await exec("umount", [mountpoint]);
+      const disk = await files.open(device, "r+");
+      try {
+        await disk.write(record, 0, record.length, 0);
+        await disk.sync();
+      } finally {
+        await disk.close();
+      }
+    },
   };
 }

@@ -343,7 +343,9 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   names a program, a device or a user comes from the image, so a record (which the owner's
   Windows can write) cannot make the agent run anything. A keep with neither a record nor a
   sealed provisioning, or one that no longer unseals (the TPM was cleared), starts no agent,
-  and the owner's next Go live provisions it again. Nothing logs the record or the key.
+  and the owner's next Go live provisions it again. Nothing logs the record or the key. A keep
+  that cannot be formatted or take `provision.cred` gets the record written back (unmounted
+  first), for the next boot to take in again.
 - **The Steam client is kept across reboots, never a renter's.** Ubuntu's Steam launcher
   installs the client into the renter's home, which every reboot wipes, and first asks
   whether to install it, a question nobody is at the PC to answer; the session answers it

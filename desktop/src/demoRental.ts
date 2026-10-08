@@ -345,7 +345,7 @@ function startOf(c: RentalCase): Start {
         read: ready,
         preview: INSTALL,
         run: {
-          ...writing(runAt(INSTALL, 4, "failed", 131), 0.42, 131),
+          ...writing(runAt(INSTALL, stepAt("write"), "failed", 131), 0.42, 131),
           failed: {
             step: "write",
             error:
