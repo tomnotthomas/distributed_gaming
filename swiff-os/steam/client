@@ -1,0 +1,153 @@
+#!/bin/bash
+# The renter's Steam client, kept on the persistent state from one boot to the
+# next, so a restart between renters does not download Steam again. The
+# renter's home stays wiped with every reboot: only what Steam itself wrote
+# before anyone was served is ever kept.
+#
+#   steam-client prepare   (swiff-steam-client.service, before the session)
+#   steam-client save      (swiff-steam-client-save.service)
+#
+# prepare: once swiff-hostd has opened the state, mount it here too (the
+# agent's own mount is its sandbox's alone), and lay the kept client under the
+# renter's Steam folder as an overlay: the kept client below, read-only, the
+# renter's writes above it on the per-boot scratch. Ubuntu's launcher
+# (/usr/games/steam) then finds the client in place and neither asks to install
+# it nor downloads it; Steam updates itself above the kept copy when Valve has
+# a newer one.
+#
+# save: once Steam waits at its sign-in window, before the PC is offered,
+# copy the client as Steam left it (the kept one with Steam's own updates
+# above it) into a new generation of the cache, sharing every unchanged file
+# with the one below, and make it the one the next boot lays out. swiff-hostd
+# waits for it (`done`) before it offers the PC, then closes it (`closed`,
+# under `lock`), so from the first renter on nothing is kept: whatever a renter
+# runs can change their own session's client, never the next renter's. What
+# is per-user or per-session (logs, config, userdata, caches, games, Steam's
+# machine auth files) is never kept.
+#
+# On a machine not provisioned, or whose state does not open, Steam runs in
+# the wiped home alone, as without a cache.
+set -euo pipefail
+
+state=/var/lib/swiff/state
+cache=$state/steam
+run=/run/swiff/steam-client
+home=/home/renter
+# Where Ubuntu's launcher installs Steam on an empty home: ~/.steam/steam and
+# ~/.steam/root point to it.
+steamdir=$home/.steam/debian-installation
+# The overlay's upper and work directories, on the per-boot scratch: root's.
+layers=/home/.swiff/steam
+
+# What is never kept: per-user and per-session data, games, and Steam's machine auth files.
+excluded=(
+	/logs/ /config/ /userdata/ /steamapps/ /appcache/ /depotcache/ /dumps/ /htmlcache/
+	'/ssfn*' /error.log /steam.pid /.crash /.steam_exit
+)
+
+say() { echo "[steam-client] $*"; }
+
+prepare() {
+	install -d -m 0755 "$run"
+	if [ ! -e /var/lib/swiff/hostd.json ]; then
+		say "not provisioned: Steam runs without a kept client"
+		return 0
+	fi
+	# The state opens once swiff-hostd's attestation lets it; until it does, the PC is not offered either.
+	local waited=0
+	until [ -e /run/swiff/state-open ]; do
+		if [ "$waited" -ge 900 ]; then
+			say "the persistent state did not open in 15 minutes: Steam runs without a kept client"
+			return 0
+		fi
+		sleep 1
+		waited=$((waited + 1))
+	done
+	mountpoint -q "$state" || mount -o nosuid,nodev /dev/mapper/swiff-state "$state"
+	install -d -m 0700 "$cache"
+	local current
+	current=$(readlink "$cache/current" 2> /dev/null || true)
+	# Any other generation is an earlier one, or a save cut short: no overlay shows it now.
+	local gen
+	for gen in "$cache"/gen-*; do
+		[ -e "$gen" ] || continue
+		[ "$(basename "$gen")" = "$current" ] || rm -rf "$gen"
+	done
+	if [ -z "$current" ] || [ ! -d "$cache/$current" ]; then
+		current=gen-0
+		install -d -o renter -g renter -m 0755 "$cache/$current"
+		ln -sfn "$current" "$cache/current"
+	fi
+	install -d -m 0700 "$layers" "$layers/work"
+	install -d -o renter -g renter -m 0755 "$layers/upper"
+	install -d -o renter -g renter -m 0700 "$home/.steam"
+	install -d -o renter -g renter -m 0755 "$steamdir"
+	# Redirects, the index and metacopy are off: the overlay follows nothing written into its layers.
+	mount -t overlay swiff-steam -o "lowerdir=$cache/$current,upperdir=$layers/upper,workdir=$layers/work,redirect_dir=off,index=off,metacopy=off,nosuid,nodev" "$steamdir"
+	local link
+	for link in steam root; do
+		ln -sfn "$steamdir" "$home/.steam/$link"
+		chown -h renter:renter "$home/.steam/$link"
+	done
+	echo "$current" > "$run/layout"
+	if [ -n "$(ls -A "$cache/$current")" ]; then
+		say "the Steam client kept in $current"
+	else
+		say "no Steam client kept yet: Steam installs it in this boot"
+	fi
+}
+
+# Says how keeping went (`done`, which swiff-hostd waits for) and stops.
+finish() {
+	echo "$1" > "$run/done.tmp"
+	mv -f "$run/done.tmp" "$run/done"
+	say "$2"
+	exit 0
+}
+
+save() {
+	install -d -m 0755 "$run"
+	[ -e "$run/layout" ] || finish skipped "no kept client in this boot: nothing to keep"
+	local current
+	current=$(cat "$run/layout")
+	# Steam waits for credentials at its sign-in window once it has installed and updated itself.
+	until grep -qs 'SetLoginState: WaitingForCredentials' "$steamdir/logs/steamui_login.txt"; do
+		[ -e "$run/closed" ] && finish closed "the PC was offered before Steam was ready: nothing kept"
+		sleep 2
+	done
+	exec 9> "$run/lock"
+	flock 9
+	[ -e "$run/closed" ] && finish closed "the PC was offered before Steam was ready: nothing kept"
+	# What Steam wrote above the kept client, leaving out what is never kept.
+	local prune=() path
+	for path in "${excluded[@]}"; do
+		path=${path%/}
+		prune+=(-path ".$path" -o)
+	done
+	if [ -z "$(cd "$layers/upper" && find . -mindepth 1 \( "${prune[@]}" -false \) -prune -o -print -quit)" ]; then
+		finish unchanged "the kept Steam client is the one Steam runs"
+	fi
+	local next filters=()
+	next=gen-$(date +%s%N)
+	# Never the generation the overlay shows, whatever the clock says.
+	[ "$next" != "$current" ] || next=$next-1
+	for path in "${excluded[@]}"; do filters+=("--exclude=$path"); done
+	if ! rsync -aH --numeric-ids "${filters[@]}" --link-dest="$cache/$current" "$steamdir/" "$cache/$next/"; then
+		rm -rf "${cache:?}/$next"
+		finish failed "could not keep the Steam client; the one kept before stays"
+	fi
+	sync -f "$cache"
+	ln -sfn "$next" "$cache/current.new"
+	mv -Tf "$cache/current.new" "$cache/current"
+	sync -f "$cache"
+	finish saved "kept the Steam client as $next for the next boot"
+}
+
+case ${1:-} in
+prepare) prepare ;;
+save) save ;;
+*)
+	echo "usage: $0 prepare|save" >&2
+	exit 2
+	;;
+esac

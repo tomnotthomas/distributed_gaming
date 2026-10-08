@@ -611,6 +611,7 @@ export const RUNNING_TITLE: Record<string, string> = {
   labels: "Giving your drives their names back",
   forget: "Finishing up",
   once: "Pointing the next start at Lanterel OS",
+  unprovision: "Erasing this PC's machine key from Lanterel OS",
 };
 
 /** What a removal's running step is called, where its id is shared with the install's. */

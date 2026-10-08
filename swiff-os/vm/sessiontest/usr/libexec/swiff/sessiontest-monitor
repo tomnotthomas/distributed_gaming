@@ -99,6 +99,28 @@ state=$(nsenter -t "$pid" -m findmnt -no SOURCE,FSTYPE /var/lib/swiff/state 2>&1
 check state-open "$state" grep -q '^/dev/mapper/swiff-state ext4$' <<< "$state"
 say INFO state-kept "$(ls /var/lib/swiff/keep | paste -sd' ' -)"
 
+# --- What the owner's app provisioned, sealed on the keep -------------------------------
+say INFO provision "$(journalctl -b -o cat -u swiff-provision.service | grep -F '[swiff-provision]' | paste -sd'|' -)"
+modes=$(stat -c '%n %U %a' /var/lib/swiff/hostd.json /var/lib/swiff/machine-key /var/lib/swiff/keep/provision.cred 2>&1 | paste -sd' ' -)
+check provisioned "$modes; keep $(findmnt -no FSTYPE /var/lib/swiff/keep)" bash -c '
+	[ "$(stat -c "%U %a" /var/lib/swiff/hostd.json /var/lib/swiff/machine-key /var/lib/swiff/keep/provision.cred | sort -u)" = "root 600" ] &&
+	[ "$(findmnt -no FSTYPE /var/lib/swiff/keep)" = ext4 ] &&
+	! head -c 8 /dev/disk/by-partlabel/swiff-keep | grep -aq SWIFFPRV'
+check renter-cannot-read-provisioning "the renter reads neither the machine key, the config nor the keep" \
+	bash -c '! setpriv --reuid=renter --regid=renter --init-groups cat /var/lib/swiff/machine-key &&
+		! setpriv --reuid=renter --regid=renter --init-groups cat /var/lib/swiff/hostd.json &&
+		! setpriv --reuid=renter --regid=renter --init-groups head -c1 /dev/disk/by-partlabel/swiff-keep'
+
+# --- The Steam client: kept from the boot before, or kept for the next ----------------
+# swiff-hostd offers the PC only once keeping it is done; the stand-in Steam says whether it installed it.
+say INFO steam-client "$(cat /run/user/1000/swiff-standin/client 2> /dev/null) kept=$(cat /run/swiff/steam-client/done 2> /dev/null)"
+say INFO steam-client-log "$(journalctl -b -o cat -u swiff-steam-client.service -u swiff-steam-client-save.service | grep -F '[steam-client]' | paste -sd'|' -)"
+check steam-client-overlay "$(findmnt -no FSTYPE,OPTIONS /home/renter/.steam/debian-installation | cut -c1-60)" \
+	test "$(findmnt -no FSTYPE /home/renter/.steam/debian-installation)" = overlay
+check renter-cannot-reach-kept-client "the kept client is root's, behind the state's 0700 directories" \
+	bash -c '! setpriv --reuid=renter --regid=renter --init-groups ls /var/lib/swiff/state/steam'
+say INFO hostd-boot "$(journalctl -b -o cat -u swiff-hostd.service | grep -E 'offering the PC again|Steam client|owner is not sharing' | paste -sd'|' -)"
+
 # --- The renter session: what the streamer's user can capture -----------------------------
 # The renter's PipeWire nodes, as the renter sees them.
 nodes() {

@@ -20,7 +20,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RTCPeerConnection, RtpHeader, RtpPacket, useH264, useOPUS, type RTCDataChannel } from "werift";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { encodeInput, type InputSink, type SignalMessage } from "@swiff/rtc";
+import { createIceInbox, encodeInput, type InputSink, type SignalMessage } from "@swiff/rtc";
 import { mintRenterSession } from "../../../server/src/access";
 import { SESSION_COOKIE } from "../../../server/src/signin";
 import { REPORT } from "../../../server/src/test/report";
@@ -118,6 +118,7 @@ function renterPeer(ticket: string) {
   const pc = new RTCPeerConnection({ iceServers: [], codecs: { video: [useH264()], audio: [useOPUS()] } });
   const channels = new Map<string, RTCDataChannel>();
   const payloads: Buffer[] = [];
+  const offers: number[] = [];
   let videoSsrc: number | undefined;
   const ws = new WebSocket(SERVER_URL);
   const send = (m: SignalMessage) => ws.send(JSON.stringify(m));
@@ -134,15 +135,18 @@ function renterPeer(ticket: string) {
     });
   });
   ws.addEventListener("open", () => send({ type: "join", ticket }));
+  // The streamer's candidates trickle after its offer: held until the offer is applied, as the page holds them.
+  const inbox = createIceInbox(pc as unknown as globalThis.RTCPeerConnection);
   ws.addEventListener("message", async (event) => {
     const msg = JSON.parse(String(event.data)) as SignalMessage;
     if (msg.type === "offer") {
-      await pc.setRemoteDescription(msg.sdp as { type: "offer"; sdp: string });
+      offers.push(Date.now());
+      await inbox.setRemote(msg.sdp as { type: "offer"; sdp: string });
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       send({ type: "answer", sdp: { type: "answer", sdp: pc.localDescription!.sdp } });
-    } else if (msg.type === "ice") {
-      await pc.addIceCandidate(msg.candidate as { candidate: string; sdpMid?: string });
+    } else if (msg.type === "ice" && msg.candidate) {
+      inbox.add(msg.candidate);
     }
   });
 
@@ -150,6 +154,8 @@ function renterPeer(ticket: string) {
     pc,
     channels,
     payloads,
+    /** When each offer arrived. */
+    offers,
     /** A PLI for the video, as a decoder that lost a frame sends one. */
     pictureLost: () => {
       const receiver = pc.getTransceivers().find((t) => t.kind === "video")!.receiver;
@@ -291,6 +297,151 @@ describe("swiff-streamer against the server", () => {
         expect(await streamer.ended).toBe("session-ended");
         // Letting go of the held controller on the way out failed too, and was logged, not thrown.
         expect(logs.some((l) => l.includes("input release failed: controller sink failed"))).toBe(true);
+      } finally {
+        clearInterval(feed);
+        streamer.stop();
+        await renter.close();
+      }
+    },
+  );
+
+  it(
+    "offers at once however long werift takes to gather, and applies the renter's answer only once it has",
+    { timeout: 60_000 },
+    async () => {
+      const offered = await call("PUT", `/api/machines/${MACHINE}/availability`, HOST, {
+        available: true,
+        ...REPORT,
+      });
+      expect(offered.status).toBe(200);
+      const booking = await call("POST", "/api/bookings", RENTER, { gameId: 730, minutes: 30 });
+      const claim = await call("POST", `/api/bookings/${booking.body!.bookingId}/claim`, RENTER);
+      expect(claim.status).toBe(200);
+      const sessionId = claim.body!.sessionId as string;
+      const grant = await call("POST", `/api/machines/${MACHINE}/session`, HOST, { sessionId });
+      expect(grant.status).toBe(201);
+
+      // A STUN server that never answers (TEST-NET-1): werift holds its gathering for it, up
+      // to 5 s, longer than a reconnecting renter waits for an offer before it joins again (4 s).
+      const GATHER_MS = 5_000;
+      let gathered = 0;
+      let answered = 0;
+      const streamer = startStreamer({
+        config: { serverUrl: SERVER_URL, hostId: MACHINE, audio: "off" },
+        grant: { sessionKey: grant.body!.sessionKey as string, expiresAt: grant.body!.expiresAt as number },
+        input: recordingSink().sink,
+        onKeyframeNeeded: () => {},
+        makePeer: (options) => {
+          const peer = createPeer({ ...options, iceServers: [{ urls: "stun:192.0.2.1:3478" }] });
+          // werift's own (private) gathering, which its setLocalDescription waits for.
+          const pc = peer.pc as unknown as { gatherCandidates(): Promise<void> };
+          const gather = pc.gatherCandidates.bind(pc);
+          pc.gatherCandidates = async () => {
+            await gather();
+            gathered = Date.now();
+          };
+          // The renter's answer, which starts werift's checks.
+          const setRemote = peer.pc.setRemoteDescription.bind(peer.pc);
+          peer.pc.setRemoteDescription = (sdp) => {
+            answered ||= Date.now();
+            return setRemote(sdp);
+          };
+          return peer;
+        },
+        log: () => {},
+      });
+      const renter = renterPeer(claim.body!.ticket as string);
+      const joined = Date.now();
+      let seq = 0;
+      const feed = setInterval(() => streamer.send("video", videoPacket(++seq)), 20);
+      try {
+        await until(() => renter.offers.length > 0, "the offer");
+        expect(renter.offers[0]! - joined).toBeLessThan(2_000);
+        await until(() => renter.payloads.length > 0, "video at the renter", 30_000);
+        // werift waited on the STUN server, and only then took the renter's answer:
+        // it pairs a relay candidate only with remote candidates that come after it.
+        expect(gathered).toBeGreaterThan(0);
+        expect(gathered - renter.offers[0]!).toBeGreaterThanOrEqual(GATHER_MS - 1_000);
+        expect(answered).toBeGreaterThanOrEqual(gathered);
+        const left = await call("POST", `/api/sessions/${sessionId}/leave`, {
+          authorization: `Bearer ${claim.body!.ticket as string}`,
+        });
+        expect(left.status).toBe(200);
+        expect(await streamer.ended).toBe("session-ended");
+      } finally {
+        clearInterval(feed);
+        streamer.stop();
+        await renter.close();
+      }
+    },
+  );
+
+  it(
+    "tears a peer whose offer failed down, never applies the renter's answer to it, and offers afresh on the next join",
+    { timeout: 60_000 },
+    async () => {
+      const offered = await call("PUT", `/api/machines/${MACHINE}/availability`, HOST, {
+        available: true,
+        ...REPORT,
+      });
+      expect(offered.status).toBe(200);
+      const booking = await call("POST", "/api/bookings", RENTER, { gameId: 730, minutes: 30 });
+      const claim = await call("POST", `/api/bookings/${booking.body!.bookingId}/claim`, RENTER);
+      expect(claim.status).toBe(200);
+      const sessionId = claim.body!.sessionId as string;
+      const grant = await call("POST", `/api/machines/${MACHINE}/session`, HOST, { sessionId });
+      expect(grant.status).toBe(201);
+
+      const logs: string[] = [];
+      const peers: { pc: RTCPeerConnection; answered: boolean }[] = [];
+      const streamer = startStreamer({
+        config: { serverUrl: SERVER_URL, hostId: MACHINE, audio: "off" },
+        grant: { sessionKey: grant.body!.sessionKey as string, expiresAt: grant.body!.expiresAt as number },
+        input: recordingSink().sink,
+        onKeyframeNeeded: () => {},
+        makePeer: (options) => {
+          const peer = createPeer({ ...options, iceServers: [] });
+          const seen = { pc: peer.pc, answered: false };
+          peers.push(seen);
+          const setRemote = peer.pc.setRemoteDescription.bind(peer.pc);
+          peer.pc.setRemoteDescription = (sdp) => {
+            seen.answered = true;
+            return setRemote(sdp);
+          };
+          if (peers.length === 1) {
+            // The first gathering fails once the renter's answer is in and waiting for it.
+            peer.pc.setLocalDescription = async () => {
+              await new Promise((r) => setTimeout(r, 1_500));
+              throw new Error("werift could not gather");
+            };
+          }
+          return peer;
+        },
+        log: (line) => logs.push(line),
+      });
+      const first = renterPeer(claim.body!.ticket as string);
+      let renter = first;
+      let seq = 0;
+      const feed = setInterval(() => streamer.send("video", videoPacket(++seq)), 20);
+      try {
+        await until(() => logs.some((l) => l.includes("could not make the offer")), "the failed offer");
+        expect(logs).toContain("[swiff-streamer] could not make the offer: werift could not gather");
+        expect(first.offers).toHaveLength(1);
+        expect(peers[0]!.answered).toBe(false);
+        expect(peers[0]!.pc.connectionState).toBe("closed");
+
+        // The renter's page joins again: a fresh peer, and the stream flows.
+        await first.close();
+        renter = renterPeer(claim.body!.ticket as string);
+        await until(() => renter.payloads.length > 0, "video at the renter after joining again", 30_000);
+        expect(peers).toHaveLength(2);
+        expect(peers[1]!.answered).toBe(true);
+
+        const left = await call("POST", `/api/sessions/${sessionId}/leave`, {
+          authorization: `Bearer ${claim.body!.ticket as string}`,
+        });
+        expect(left.status).toBe(200);
+        expect(await streamer.ended).toBe("session-ended");
       } finally {
         clearInterval(feed);
         streamer.stop();

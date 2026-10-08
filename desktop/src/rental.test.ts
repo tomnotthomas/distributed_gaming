@@ -317,6 +317,8 @@ describe("where Lanterel OS goes", () => {
       "root-b",
       "verity-b",
       "scratch",
+      "keep",
+      "state",
     ]);
   });
 
@@ -467,7 +469,7 @@ describe("the install plan", () => {
       "Check the Secure Boot keys and the TPM (asks for administrator)",
       "Turn off Fast Startup so Lanterel OS can read your drives",
       "Shrink C: by 24 GB",
-      "Create 6 partitions for Lanterel OS on disk 0",
+      "Create 8 partitions for Lanterel OS on disk 0",
       "Copy Lanterel OS onto them",
       "Add Lanterel OS to the boot menu, after Windows",
       "Label C: SWIFFGAMES so Lanterel OS finds your games",
@@ -569,7 +571,7 @@ describe("the install plan", () => {
     expect(installPlan(pc()).steps.map((s) => s.id)).not.toContain("bitlocker");
   });
 
-  it("shrinks C: and lays Lanterel OS's six partitions end to end in the room it made", () => {
+  it("shrinks C: and lays Lanterel OS's eight partitions end to end in the room it made", () => {
     const rental = pc();
     const target = rental.targets[0]!;
     const plan = installPlan(rental);
@@ -696,7 +698,16 @@ describe("the install plan", () => {
         const add = {
           type: p.type,
           id: `00000000-0000-4000-8000-00000000000${i}`,
-          name: ["esp", "swiffos_0.1.0", "swiffos_0.1.0", "_empty", "_empty", "swiff-scratch"][i]!,
+          name: [
+            "esp",
+            "swiffos_0.1.0",
+            "swiffos_0.1.0",
+            "_empty",
+            "_empty",
+            "swiff-scratch",
+            "swiff-keep",
+            "swiff-state",
+          ][i]!,
           first,
           last: first + p.bytes / 512 - 1,
         };
@@ -712,6 +723,8 @@ describe("the install plan", () => {
       ["root-b", "_empty"],
       ["verity-b", "_empty"],
       ["scratch", "swiff-scratch"],
+      ["keep", "swiff-keep"],
+      ["state", "swiff-state"],
     ]);
     const add = installPlan(pc(), { layout }).steps.find((s) => s.id === "partitions")!.ops[0]!;
     expect(add.op === "gpt-add" && add.partitions[1]!.id).toBe("00000000-0000-4000-8000-000000000001");
@@ -801,22 +814,34 @@ describe("the switch", () => {
     const plan = switchPlan("start");
     expect(plan.steps.flatMap((s) => s.ops)).toEqual([
       { op: "ek" },
+      { op: "provision" },
       { op: "boot-first", entry: "swiff" },
       { op: "boot-next", entry: "swiff" },
       { op: "restart" },
     ]);
-    expect(plan.steps.filter((s) => s.confirm).map((s) => s.id)).toEqual(["restart"]);
+    expect(plan.steps.filter((s) => s.confirm).map((s) => s.id)).toEqual(["provision", "restart"]);
   });
 
   it("starts Lanterel OS once with BootNext alone, so the next restart is Windows again", () => {
     const plan = switchPlan("once");
     expect(plan.steps.map((s) => s.ops)).toEqual([
       [{ op: "ek" }],
+      [{ op: "provision" }],
       [{ op: "boot-next", entry: "swiff" }],
       [{ op: "restart" }],
     ]);
-    expect(plan.steps[1]!.confirm).toBeNull();
-    expect(plan.steps[2]!.confirm).toMatch(/next restart after that starts Windows/);
+    expect(plan.steps[2]!.confirm).toBeNull();
+    expect(plan.steps[3]!.confirm).toMatch(/next restart after that starts Windows/);
+  });
+
+  it("hands Lanterel OS this PC's machine key before each restart into it, never naming the key in the plan", () => {
+    for (const kind of ["once", "start"] as const) {
+      const provision = switchPlan(kind).steps.find((s) => s.id === "provision");
+      expect(provision).toMatchObject({ id: "provision", ops: [{ op: "provision" }] });
+      expect(provision!.confirm).toMatch(/seals them to this PC's TPM/);
+      expect(provision!.commands.join("\n")).toMatch(/keep partition/);
+    }
+    expect(switchPlan("stop").steps.map((s) => s.id)).not.toContain("provision");
   });
 
   it("stops sharing by putting Windows first again", () => {
@@ -846,6 +871,7 @@ describe("the uninstall", () => {
     const plan = uninstallPlan(installed());
     expect(plan.steps.map((s) => s.id)).toEqual([
       "boot-entry",
+      "unprovision",
       "partitions",
       "room",
       "labels",
@@ -856,6 +882,7 @@ describe("the uninstall", () => {
     expect(plan.steps.flatMap((s) => s.ops)).toEqual([
       { op: "boot-entry-remove" },
       { op: "mok-cancel" },
+      { op: "unprovision" },
       { op: "gpt-remove", disk: 0, partitions: record.partitions },
       { op: "grow", disk: 0, partition: 3, letter: "C", size: 1000 * GiB },
       { op: "label", letter: "C", label: "Windows" },
@@ -1440,7 +1467,7 @@ describe("when a step stops", () => {
     const { setup, f } = failed(
       "room",
       "Resize-Partition: Size Not Supported.",
-      { steps: { ...done(["boot-entry", "partitions"]), room: "failed" } },
+      { steps: { ...done(["boot-entry", "unprovision", "partitions"]), room: "failed" } },
       uninstallPlan(installed),
       installed,
     );
@@ -1452,7 +1479,7 @@ describe("when a step stops", () => {
         "Windows starts as normal. Lanterel OS is off the boot menu. Lanterel OS is off the disk. The 24 GB stays unused until this finishes.",
       label: "Try again",
       rail: "Removal stopped",
-      far: "at step 3 of 4",
+      far: "at step 4 of 5",
     });
     expect(rentalLine(setup)).toBe("Removal stopped");
   });
@@ -1569,6 +1596,7 @@ describe("Remove Lanterel OS", () => {
     expect(plan.mok).toBeUndefined();
     expect(plan.steps.map((s) => s.id)).toEqual([
       "boot-entry",
+      "unprovision",
       "partitions",
       "room",
       "fast-startup",
@@ -1584,6 +1612,7 @@ describe("Remove Lanterel OS", () => {
     expect(plan.steps[0]!.commands.join("\n")).toMatch(/MokDel/);
     // Only the last step restarts, and only on the owner's word.
     expect(plan.steps.map((s) => s.ops.some((o) => o.op === "restart"))).toEqual([
+      false,
       false,
       false,
       false,

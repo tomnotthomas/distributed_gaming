@@ -4,12 +4,13 @@
 # installs it (image/stage.sh) as one bundled file for Ubuntu's Node.
 #
 # It is offered only once the firewall is up and the games library is checked,
-# and it runs only on a machine given its config (machine id, key file,
-# server, streamer).
+# and it runs only on a machine the owner's app provisioned: swiff-provision
+# writes its config for this boot (machine id, key file, server) from the
+# image's own settings (/usr/lib/swiff/hostd.json).
 [Unit]
 Description=Lanterel rental-mode agent
 Wants=network-online.target swiff-esp.service
-After=network-online.target nftables.service swiff-hwcheck.service swiff-games.service swiff-esp.service
+After=network-online.target nftables.service swiff-hwcheck.service swiff-games.service swiff-esp.service swiff-provision.service
 Requires=nftables.service swiff-games.service
 ConditionPathExists=/var/lib/swiff/hostd.json
 

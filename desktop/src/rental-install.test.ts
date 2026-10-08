@@ -17,6 +17,17 @@ import { testBuild } from "../build-kind.cjs";
 import { fat32Volume, readRootFile } from "./test/fat32.ts";
 import { copyChecked, MANIFEST, SIGNATURE, readImageSet, trustOf } from "../image-set.cjs";
 import { channelOf, clientOf, dryRun, handshake, runPlan, startWorker } from "../rental-exec.cjs";
+import {
+  fateOf,
+  holdsRecord,
+  leftRecord,
+  provisionEvent,
+  provisionRecord,
+  provisionStore,
+  RECORD_BYTES,
+  wipeRecord,
+  wipesAtStart,
+} from "../provision.cjs";
 import { checkOp, createWorker, diskPath, serve, type Windows } from "../rental-worker.cjs";
 import {
   EK_UNREGISTERED,
@@ -44,7 +55,22 @@ const MSR = "e3c9e316-0b5c-4db8-817d-f92df00215ae";
 const RECOVERY = "de94bba4-06d1-4d40-a16a-bfd50179d6ac";
 const CERT = Buffer.from("3082010a0282010100c0ffee", "hex");
 const ID = (i: number) => `00000000-0000-4000-8000-00000000000${i}`;
-const NAMES = ["esp", "swiffos_0.1.0", "swiffos_0.1.0", "_empty", "_empty", "swiff-scratch"];
+const NAMES = [
+  "esp",
+  "swiffos_0.1.0",
+  "swiffos_0.1.0",
+  "_empty",
+  "_empty",
+  "swiff-scratch",
+  "swiff-keep",
+  "swiff-state",
+];
+/** What main hands a plan's provision op as it runs: the server, the machine id and the machine key. */
+const MACHINE = {
+  serverUrl: "wss://lanterel.example",
+  machineId: "gaming-pc-1",
+  machineKey: "the-machine-key-of-gaming-pc-1",
+};
 const EK = ekChain;
 const sha256 = (data: Buffer) => createHash("sha256").update(data).digest("hex");
 
@@ -254,7 +280,9 @@ async function setup() {
 const skipping =
   (apply: (op: PlanOp) => Promise<unknown>) =>
   async (op: PlanOp): Promise<Record<string, unknown>> =>
-    op.op === "write" || op.op === "image-check" ? {} : ((await apply(op)) as Record<string, unknown>);
+    op.op === "write" || op.op === "image-check"
+      ? {}
+      : ((await apply(op.op === "provision" ? { ...op, record: MACHINE } : op)) as Record<string, unknown>);
 
 describe("firmware variables", () => {
   it("writes a boot entry byte for byte as efibootmgr and virt-firmware do", () => {
@@ -480,10 +508,18 @@ describe("the elevated worker", () => {
     expect(pc.shell.join("\n")).toMatch(/manage-bde -protectors -disable C: -RebootCount 3/);
     expect(pc.hiberboot()).toBe("0");
     expect(pc.label()).toBe("SWIFFGAMES");
-    // C: gave Lanterel OS its room, and the image's six partitions are in it, with its ids and names.
+    // C: gave Lanterel OS its room, and the image's eight partitions are in it, with its ids and names.
     expect(pc.cSize()).toBeLessThan(before);
     const added = pc.gpt().entries.filter((e) => e.index > 3);
     expect(added.map((e) => [e.id, e.name])).toEqual(layout.map((p) => [p.id, p.name]));
+    // No provisioning on the keep: the install's restart goes to MokManager, never Lanterel OS;
+    // the machine key nowhere in what the install recorded.
+    const keep = added.find((e) => e.name === "swiff-keep")!;
+    const provisioned = () => pc.disk.read(keep.first * 512, RECORD_BYTES);
+    expect(holdsRecord(provisioned())).toBe(false);
+    expect(fs.readFileSync(path.join(dir, "state", "rental-install.json"), "utf8")).not.toContain(
+      MACHINE.machineKey,
+    );
     // The boot entry starts the shim on Lanterel OS's ESP, last in the order; BootNext for the restart.
     const option = efi.parseLoadOption(pc.vars.get(pc.key(efi.GLOBAL, "Boot0001"))!);
     expect(option).toMatchObject({
@@ -521,19 +557,25 @@ describe("the elevated worker", () => {
     expect(JSON.stringify(worker.state())).not.toMatch(/"bootEntry":\d/);
     expect(rentalOf(pc.facts()).installed).toBe(true);
 
-    // Once: the TPM's EK certificate read again, the one the app registered, then BootNext alone.
+    // Once: the TPM's EK certificate read again, the one the app registered, then this PC's provisioning
+    // at the start of the keep, for Lanterel OS to seal at its start, then BootNext alone.
     pc.vars.delete(pc.key(efi.GLOBAL, "BootNext"));
-    expect(await runPlan(switchPlan("once", { registered: EK.ek }), { apply: worker.apply })).toMatchObject({
-      status: "done",
-      results: [
-        { step: "ek", op: "ek", ek: { certificate: EK.ek, intermediates: [EK.intermediate] } },
-        { step: "once" },
-      ],
-    });
+    const once = await runPlan(switchPlan("once", { registered: EK.ek }), { apply: skipping(worker.apply) });
+    expect(once).toMatchObject({ status: "done", done: ["ek", "provision", "once", "restart"] });
+    expect(once.results.filter((r) => r.step !== "provision")).toMatchObject([
+      { step: "ek", op: "ek", ek: { certificate: EK.ek, intermediates: [EK.intermediate] } },
+      { step: "once" },
+    ]);
+    expect(provisioned().equals(provisionRecord(MACHINE))).toBe(true);
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootNext")))).toEqual([1]);
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootOrder")))).toEqual([0, 1]);
+    // Without the machine's provisioning, nothing is written.
+    expect(await runPlan(switchPlan("once"), { apply: worker.apply })).toMatchObject({
+      status: "failed",
+      failed: { step: "provision", error: "A bad provisioning." },
+    });
     // Sharing: Lanterel OS first; stopping: Windows first.
-    await runPlan(switchPlan("start"), { apply: worker.apply });
+    await runPlan(switchPlan("start"), { apply: skipping(worker.apply) });
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootOrder")))).toEqual([1, 0]);
     await runPlan(switchPlan("stop"), { apply: worker.apply });
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootOrder")))).toEqual([0, 1]);
@@ -988,6 +1030,141 @@ describe("the elevated worker", () => {
     ).toThrow();
     expect(() => checkOp({ op: "mok-import", cert: "other.cer", code: "12345678" })).toThrow();
     expect(() => checkOp({ op: "restart" })).not.toThrow();
+  });
+});
+
+describe("a provisioning record left on the disk", () => {
+  /** Lanterel OS installed and started once, its keep holding this PC's record, and the app's note of when it wrote it. */
+  async function provisioned() {
+    const { pc, worker, layout } = await setup();
+    const store = provisionStore(path.join(dir, "app"));
+    const onEvent = (e: { type: string; id?: string; state?: string }) =>
+      provisionEvent(store, e, Date.now());
+    /** Run `next` as main does: noted as it goes, and finished when it ends up to its restart. */
+    const run = async (next: RentalPlan, apply: (op: PlanOp) => Promise<Record<string, unknown>>) => {
+      const outcome = await runPlan(next, {
+        apply,
+        onEvent,
+        only: next.steps.filter((s) => s.id !== "restart").map((s) => s.id),
+      });
+      if (outcome.status === "done") store.finished();
+      return outcome;
+    };
+    const install = installPlan(rentalOf(pc.facts(), [{ letter: "C", games: 1 }]), {
+      layout,
+      code: "48217730",
+    });
+    expect(await run(install, skipping(worker.apply))).toMatchObject({ status: "done" });
+    const keep = pc.gpt().entries.find((e) => e.name === "swiff-keep")!;
+    const head = () => pc.disk.read(keep.first * 512, RECORD_BYTES);
+    // The install writes none: its restart goes to MokManager, never Lanterel OS.
+    expect(holdsRecord(head())).toBe(false);
+    expect(store.read()).toBeNull();
+    expect(await run(switchPlan("once"), skipping(worker.apply))).toMatchObject({ status: "done" });
+    expect(head().equals(provisionRecord(MACHINE))).toBe(true);
+    expect(store.read()).not.toBeNull();
+    return { pc, worker, store, onEvent, run, head, keep };
+  }
+  const zeroed = (block: Buffer) => block.every((b) => b === 0);
+
+  it("is zeroed when the run that wrote it fails, and forgotten", async () => {
+    const { worker, store, run, head } = await provisioned();
+    const failing = async (op: PlanOp) => {
+      if (op.op === "boot-first") throw new Error("The firmware refused BootOrder.");
+      return skipping(worker.apply)(op);
+    };
+    const outcome = await run(switchPlan("start"), failing);
+    expect(outcome).toMatchObject({ status: "failed", failed: { step: "boot-order" } });
+    expect(head().equals(provisionRecord(MACHINE))).toBe(true);
+    expect(leftRecord(outcome)).toBe(true);
+    expect(await wipeRecord((op) => worker.apply(op as PlanOp), store)).toBe(true);
+    expect(zeroed(head())).toBe(true);
+    expect(store.read()).toBeNull();
+  });
+
+  it("counts a run stopped or failed at or after its provision step, not one that ended or stopped before it", () => {
+    expect(leftRecord({ status: "stopped", done: ["provision"] })).toBe(true);
+    expect(leftRecord({ status: "failed", done: [], failed: { step: "provision" } })).toBe(true);
+    expect(leftRecord({ status: "failed", done: ["bitlocker"], failed: { step: "check" } })).toBe(false);
+    expect(leftRecord({ status: "done", done: ["provision", "restart"] })).toBe(false);
+  });
+
+  it("is never zeroed once Lanterel OS took it in and formatted its keep", async () => {
+    const { pc, worker, keep, head } = await provisioned();
+    const formatted = Buffer.alloc(RECORD_BYTES, 0xab);
+    pc.disk.write([{ offset: keep.first * 512, bytes: formatted }]);
+    await worker.apply({ op: "unprovision" });
+    expect(head().equals(formatted)).toBe(true);
+  });
+
+  it("is zeroed when its magic alone is damaged", async () => {
+    const { pc, worker, keep, head } = await provisioned();
+    const damaged = provisionRecord(MACHINE);
+    damaged.fill(0, 0, 8);
+    pc.disk.write([{ offset: keep.first * 512, bytes: damaged }]);
+    await worker.apply({ op: "unprovision" });
+    expect(zeroed(head())).toBe(true);
+  });
+
+  it("is zeroed by the uninstall before Lanterel OS's partitions go, and forgotten", async () => {
+    const { pc, worker, store, run, head } = await provisioned();
+    let atRemoval: Buffer | null = null;
+    const outcome = await run(uninstallPlan(rentalOf(pc.facts())), async (op) => {
+      if (op.op === "gpt-remove") atRemoval = head();
+      return worker.apply(op);
+    });
+    expect(outcome).toMatchObject({ status: "done" });
+    expect(zeroed(atRemoval!)).toBe(true);
+    expect(store.read()).toBeNull();
+  });
+
+  const SHIM_BACK = { shim: true, loader: false, windowsAfterShim: true };
+  const LANTEREL = { shim: true, loader: true, windowsAfterShim: false };
+  const WINDOWS = { shim: false, loader: false, windowsAfterShim: false };
+
+  it("stays for a finished Go live or Start once until its restart, and is zeroed when that restart did not take it in", async () => {
+    const { worker, store, run, head } = await provisioned();
+    for (const kind of ["once", "start"] as const) {
+      expect(await run(switchPlan(kind), skipping(worker.apply))).toMatchObject({ status: "done" });
+      const note = store.read()!;
+      expect(note).toMatchObject({ done: true });
+      expect(head().equals(provisionRecord(MACHINE))).toBe(true);
+      // The app quit before the restart: BootNext still starts Lanterel OS, which takes the record in.
+      expect(fateOf(note, note.at - 60_000, null)).toBe("wait");
+      // A restart since with no trail, one older than the note, or none through shim (BootNext
+      // ignored, or Windows picked from the firmware's menu): nothing shows Lanterel OS took it in.
+      expect(fateOf(note, note.at + 60_000, null)).toBe("wait");
+      expect(fateOf(note, note.at + 60_000, { at: note.at - 90_000, ...LANTEREL })).toBe("wait");
+      expect(fateOf(note, note.at + 60_000, { at: note.at + 90_000, ...WINDOWS })).toBe("wait");
+      // A restart since that started Lanterel OS's boot loader: most likely taken in, but a loader
+      // that started does not prove swiff-provision ran, so the app's start wipes all the same.
+      expect(fateOf(note, note.at + 60_000, { at: note.at + 90_000, ...LANTEREL })).toBe("gone");
+      expect(wipesAtStart(fateOf(note, note.at + 60_000, { at: note.at + 90_000, ...LANTEREL }))).toBe(true);
+      // Only a finished run whose restart may still take the record in keeps its note without a prompt.
+      expect(wipesAtStart(fateOf(note, note.at - 60_000, null))).toBe(false);
+      // A restart since that went to shim and back to Windows without Lanterel OS's boot loader.
+      expect(fateOf(note, note.at + 60_000, { at: note.at + 90_000, ...SHIM_BACK })).toBe("wipe");
+    }
+  });
+
+  it("is zeroed at the app's next start after a Go live or Start once that never finished", async () => {
+    const { worker, store, run, head } = await provisioned();
+    // The app quit mid-run: the note says the provision step started, never that the run finished.
+    const stopped = await run(switchPlan("start"), async (op) => {
+      if (op.op === "boot-next") throw new Error("The app quit.");
+      return skipping(worker.apply)(op);
+    });
+    expect(stopped).toMatchObject({ status: "failed" });
+    const note = store.read()!;
+    expect(note).toMatchObject({ done: false });
+    expect(fateOf(note, note.at - 60_000, null)).toBe("wipe");
+    expect(fateOf(note, note.at + 60_000, null)).toBe("wipe");
+    // A wipe that fails, the UAC prompt declined, keeps the note for the next start.
+    expect(await wipeRecord(async () => Promise.reject(new Error("declined")), store)).toBe(false);
+    expect(store.read()).toEqual(note);
+    expect(await wipeRecord((op) => worker.apply(op as PlanOp), store)).toBe(true);
+    expect(zeroed(head())).toBe(true);
+    expect(store.read()).toBeNull();
   });
 });
 

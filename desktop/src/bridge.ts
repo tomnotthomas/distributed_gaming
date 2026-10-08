@@ -34,6 +34,8 @@ export type HostBridge = {
     key?: boolean;
     /** Go live: the EK certificate the app registered (null for none), which the TPM's must be. */
     registered?: string | null;
+    /** This PC's server and machine id, which a plan's provisioning hands Swiff OS with the machine key. */
+    machine?: { serverUrl: string; machineId: string };
   }): Promise<RentalPlan | null>;
   /** Run the plan main last showed; null when there is none to run. */
   runRental(): Promise<RunOutcome | null>;

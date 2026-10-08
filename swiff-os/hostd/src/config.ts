@@ -72,7 +72,7 @@ export async function loadConfig(path: string): Promise<Config> {
 /** Check a parsed config. Throws ConfigError naming the first bad field. */
 export function parseConfig(raw: unknown): Config {
   const c = record(raw, "config");
-  const serverUrl = serverOrigin(text(c.serverUrl, "serverUrl"));
+  const serverUrl = checkServerUrl(text(c.serverUrl, "serverUrl"));
   const s = record(c.streamer, "streamer");
   const args = s.args ?? [];
   if (!Array.isArray(args) || !args.every((a) => typeof a === "string")) {
@@ -123,7 +123,7 @@ export async function readMachineKey(path: string, uid = process.getuid?.()): Pr
  * The server's ws:// or wss:// URL. The machine key rides on it, so plain ws://
  * is only for a server on this machine (tests, local development).
  */
-function serverOrigin(value: string): string {
+export function checkServerUrl(value: string): string {
   let url: URL;
   try {
     url = new URL(value);

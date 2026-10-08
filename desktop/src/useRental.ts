@@ -6,6 +6,17 @@ import type { EkResult } from "./ek";
 import { IDLE_RUN, type ImageDownload, type RentalRun, type RentalSetup, type WritePass } from "./model";
 import { meter } from "./progress";
 import { endsInRestart, fileName, firmwareChecks, pcChecks, recoveryDue, writesOf } from "./rental";
+import { loadMachineId, loadUrl, toSocketUrl } from "./settings";
+
+/**
+ * This PC's server and machine id as Settings keeps them, for the plans that
+ * hand Swiff OS this PC's machine key (their provision step): each start of
+ * Swiff OS.
+ */
+const machineFor = (kind: RentalPlan["kind"]) =>
+  kind === "once" || kind === "start"
+    ? { machine: { serverUrl: toSocketUrl(loadUrl()), machineId: loadMachineId().trim() } }
+    : {};
 
 const LIVE_SEEN = "swiff.rental.liveSeen";
 
@@ -256,7 +267,7 @@ export function useRental({
     const n = nextPlan();
     setPlanning(true);
     void host
-      .planRental({ kind, target, ...(key === undefined ? {} : { key }) })
+      .planRental({ kind, target, ...machineFor(kind), ...(key === undefined ? {} : { key }) })
       .catch(() => null)
       .then((plan) => {
         if (n !== plans.current) return;
@@ -299,7 +310,7 @@ export function useRental({
         if (registered)
           setRun({ ...IDLE_RUN, status: "running", startedAt: Date.now(), stepStartedAt: Date.now() });
         const plan = await host
-          .planRental({ kind: "once", registered: registered?.certificate ?? null })
+          .planRental({ kind: "once", ...machineFor("once"), registered: registered?.certificate ?? null })
           .catch(() => null);
         if (n !== plans.current) return;
         if (!plan) {
@@ -377,6 +388,7 @@ export function useRental({
       const asked = bridge()?.planRental({
         kind,
         target,
+        ...machineFor(kind),
         ...(typeof options?.key === "boolean" ? { key: options.key } : {}),
       });
       if (!asked) return;

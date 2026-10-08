@@ -242,6 +242,8 @@ describe("useRental", () => {
         { id: "restart", title: "Restart", confirm: "Restarts.", commands: [], ops: [{ op: "restart" }] },
       ],
     } as unknown as RentalPlan;
+    /** The machine Settings keeps, which Go live's plan provisions Lanterel OS with. */
+    const machine = expect.objectContaining({ machineId: "gaming-pc-1" });
 
     /**
      * Go live on a PC whose last check read `checked`, where each of the plan's own reads finds the
@@ -307,18 +309,18 @@ describe("useRental", () => {
       expect(order).toEqual(["register QUFB", "run", "restart"]);
       expect(register).toHaveBeenCalledWith(A);
       // The plan's read holds the run to the EK registered.
-      expect(host.planRental).toHaveBeenCalledWith({ kind: "once", registered: "QUFB" });
+      expect(host.planRental).toHaveBeenCalledWith({ kind: "once", machine, registered: "QUFB" });
     });
 
     it("registers a new TPM's EK before BootNext: the plan's read stops, then Go live goes again", async () => {
       const changed = await goLive(A, B);
       expect(changed.order).toEqual(["register QUFB", "run", "register QkJC", "run", "restart"]);
       expect(changed.register).toHaveBeenLastCalledWith(B);
-      expect(changed.host.planRental).toHaveBeenLastCalledWith({ kind: "once", registered: "QkJC" });
+      expect(changed.host.planRental).toHaveBeenLastCalledWith({ kind: "once", machine, registered: "QkJC" });
       // A record from before the certificate was kept: the plan's read is the one registered.
       const unknown = await goLive(null, A);
       expect(unknown.order).toEqual(["run", "register QUFB", "run", "restart"]);
-      expect(unknown.host.planRental).toHaveBeenNthCalledWith(1, { kind: "once", registered: null });
+      expect(unknown.host.planRental).toHaveBeenNthCalledWith(1, { kind: "once", machine, registered: null });
     });
 
     it("keeps Go live running, with no restart offered, while the plan's read registers", async () => {

@@ -1,7 +1,4 @@
 {
-  "serverUrl": "wss://swiff.example",
-  "machineId": "gaming-pc-1",
-  "machineKeyFile": "/var/lib/swiff/machine-key",
   "stateDir": "/var/lib/swiff/state/hostd",
   "controlSocket": "/run/swiff-hostd/control.sock",
   "streamer": {
@@ -11,7 +8,13 @@
       "--pipewire-remote",
       "/run/user/1000/pipewire-0",
       "--steam-socket",
-      "/run/swiff/steam/login.sock"
+      "/run/swiff/steam/login.sock",
+      "--size",
+      "1280x720",
+      "--fps",
+      "30",
+      "--bitrate",
+      "3000000"
     ],
     "uid": 961,
     "gid": 961
@@ -20,6 +23,6 @@
     "device": "/dev/disk/by-partlabel/swiff-state",
     "mountpoint": "/var/lib/swiff/state",
     "localShare": "/var/lib/swiff/keep/state-u.cred",
-    "attestCommand": "/usr/libexec/swiff/swiff-attest"
+    "attestCommand": "/usr/libexec/swiff/sessiontest-attest"
   }
 }

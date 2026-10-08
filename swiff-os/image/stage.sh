@@ -4,8 +4,9 @@
 # mkosi.images/system/mkosi.conf): swiff-hostd and its attestation client
 # (swiff-attest), swiff-streamer and the Steam sign-in agent, each bundled into
 # one file for the image's Node (Ubuntu's, built without TypeScript type
-# stripping), the streamer's helpers and system
-# files, and the renter session. Run it before every build of the image, with
+# stripping), swiff-hostd's own settings and the provisioning that completes
+# them, the streamer's helpers and system files, the renter session, and the
+# Steam client kept across reboots. Run it before every build of the image, with
 # the same output directory mkosi gets; the build fails without it.
 #
 #   swiff-os/image/stage.sh <output-dir>
@@ -29,6 +30,8 @@ put 0644 "$os/hostd/dist/swiff-hostd.mjs" usr/lib/swiff/hostd/swiff-hostd.mjs
 put 0644 "$os/hostd/swiff-hostd.service" usr/lib/systemd/system/swiff-hostd.service
 put 0644 "$os/hostd/dist/swiff-attest.mjs" usr/lib/swiff/hostd/swiff-attest.mjs
 put 0755 "$os/hostd/system/swiff-attest" usr/libexec/swiff/swiff-attest
+put 0644 "$os/hostd/swiff-provision.service" usr/lib/systemd/system/swiff-provision.service
+put 0644 "$os/hostd/hostd.image.json" usr/lib/swiff/hostd.json
 
 put 0644 "$os/streamer/dist/swiff-streamer.mjs" usr/lib/swiff/streamer/dist/swiff-streamer.mjs
 put 0644 "$os/streamer/helpers/swiff-gst.py" usr/lib/swiff/streamer/helpers/swiff-gst.py
@@ -41,5 +44,9 @@ put 0644 "$os/streamer/system/swiff-pipewire-grant.service" usr/lib/systemd/user
 
 put 0644 "$os/steam/dist/swiff-steam-login.mjs" usr/lib/swiff/steam/swiff-steam-login.mjs
 put 0755 "$os/steam/session" usr/libexec/swiff/session
+put 0755 "$os/steam/bin/zenity" usr/lib/swiff/steam/bin/zenity
+put 0755 "$os/steam/client" usr/libexec/swiff/steam-client
+put 0644 "$os/steam/swiff-steam-client.service" usr/lib/systemd/system/swiff-steam-client.service
+put 0644 "$os/steam/swiff-steam-client-save.service" usr/lib/systemd/system/swiff-steam-client-save.service
 
 echo "staged the image's agent, streamer and session in $stage"

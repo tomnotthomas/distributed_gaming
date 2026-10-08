@@ -29,6 +29,16 @@ const { readPc, readSteamArt, steamPathOnce, steamRootOnce, watchSteamGames } = 
 const { testBuild } = require("./build-kind.cjs");
 const { MANIFEST, readImageSet, trustOf } = require("./image-set.cjs");
 const { downloadSet, sourceOf } = require("./image-download.cjs");
+const {
+  fateOf,
+  leftRecord,
+  machineKeyProblem,
+  machineProblem,
+  provisionEvent,
+  provisionStore,
+  wipeRecord,
+  wipesAtStart,
+} = require("./provision.cjs");
 const { runPlan, startWorker } = require("./rental-exec.cjs");
 const { BITLOCKER_PANEL, drivesOff, recoveryOf, recoveryStore } = require("./recovery-key.cjs");
 const { bootTrail, canAnswer, keyOf, keyStep, keyStore } = require("./rental-key.cjs");
@@ -244,6 +254,8 @@ const crypt = () =>
 const keys = () => keyStore(app.getPath("userData"), crypt());
 /** Remove Swiff OS across its restarts (rental-removal.cjs): its key's code sealed the same way. */
 const removals = () => removalStore(app.getPath("userData"), crypt());
+/** When this app last wrote a provisioning record that may still be on the disk (provision.cjs). */
+const provisions = () => provisionStore(app.getPath("userData"));
 /** That the owner saved their BitLocker recovery key, and for which drives: never the key (recovery-key.cjs). */
 const recoveries = () => recoveryStore(app.getPath("userData"));
 /** When this PC last started: a key request queued before it has met its blue screen. */
@@ -255,6 +267,8 @@ const restarts = (step) => step.ops.some((o) => o.op === "restart");
 /** The plan on the window's screen, which `rental:run` runs; whether a run is under way. */
 let rentalPlan = null;
 let rentalRun = null;
+/** The server and machine id the window planned with, for the plan's provisioning (provision.cjs). */
+let rentalMachine = null;
 /** What a remove plan's disk part must leave (rental-removal.cjs expectOf), from the read it was planned on. */
 let rentalExpect = null;
 /** A run finished up to its restart: Restart now may restart the PC. */
@@ -288,10 +302,38 @@ ipcMain.handle("rental:read", async (event) => {
     recovery: recoveryNow(read),
   };
 });
+/** The server and machine id the window asks a plan with, checked; null when they cannot be provisioned. */
+function machineOf(machine) {
+  if (!machine || typeof machine !== "object") return null;
+  const asked = { serverUrl: String(machine.serverUrl ?? ""), machineId: String(machine.machineId ?? "") };
+  return machineProblem(asked) ? null : asked;
+}
+/**
+ * What a plan's provision op hands Swiff OS: the planned server and machine id,
+ * and the machine key from its encrypted file, read when the run starts and
+ * sent nowhere but to the elevated worker.
+ */
+function provisioning(machine) {
+  if (!machine) throw new Error("Set this PC's server address and machine id in Settings first.");
+  let machineKey = "";
+  try {
+    if (safeStorage.isEncryptionAvailable())
+      machineKey = safeStorage.decryptString(fs.readFileSync(keyFile()));
+  } catch {
+    machineKey = "";
+  }
+  machineKey = machineKey.trim();
+  if (!machineKey) throw new Error("Lanterel needs this PC's machine key: paste it in Settings.");
+  // Checked before the run, not at its provision step: the steps before that one change the disk.
+  const problem = machineKeyProblem(machineKey);
+  if (problem) throw new Error(problem);
+  return { ...machine, machineKey };
+}
 ipcMain.handle("rental:plan", async (event, ask) => {
   if (!fromApp(event) || !ask || typeof ask !== "object" || rentalRun) return null;
   rentalPlan = null;
   rentalExpect = null;
+  rentalMachine = null;
   let plan = null;
   try {
     if (ask.kind === "start" || ask.kind === "stop" || ask.kind === "once")
@@ -325,7 +367,10 @@ ipcMain.handle("rental:plan", async (event, ask) => {
   } catch {
     return null;
   }
-  if (plan && RUNNABLE.has(plan.kind)) rentalPlan = plan;
+  if (plan && RUNNABLE.has(plan.kind)) {
+    rentalPlan = plan;
+    rentalMachine = machineOf(ask.machine);
+  }
   return plan;
 });
 /**
@@ -340,10 +385,21 @@ function removeKeyFirst(rental) {
   const key = keyOf(keys().read(), bootAt(), bootTrail());
   return !key || key.state === "confirmed" || key.state === "ask";
 }
+/** The elevated worker (rental-exec.cjs), after Windows' UAC prompt. */
+const elevated = () =>
+  startWorker({
+    imageDir: imageDir(),
+    // This app again, as the worker (start.cjs); `electron .` needs the app's folder first.
+    command: (pipe, token, dir) => ({
+      file: process.execPath,
+      args: [...(process.defaultApp ? [app.getAppPath()] : []), "--swiff-rental-worker", pipe, token, dir],
+    }),
+  });
 ipcMain.handle("rental:run", async (event) => {
   if (!fromApp(event) || !rentalPlan || rentalRun) return null;
   const plan = rentalPlan;
   const expect = rentalExpect;
+  const machine = rentalMachine;
   // Nothing changes what the PC starts while a drive's BitLocker recovery key is not saved: read the
   // PC now, since BitLocker may have been turned on since the screen's read, and refuse when it cannot be read.
   if (BOOT_CHANGES.has(plan.kind)) {
@@ -357,6 +413,19 @@ ipcMain.handle("rental:run", async (event) => {
         results: [],
       };
   }
+  let record = null;
+  if (plan.steps.some((s) => s.ops.some((o) => o.op === "provision"))) {
+    try {
+      record = provisioning(machine);
+    } catch (error) {
+      return {
+        status: "failed",
+        done: [],
+        failed: { step: "provision", op: "provision", error: error.message },
+        results: [],
+      };
+    }
+  }
   rentalRun = {};
   restartReady = false;
   const tell = (e) => {
@@ -364,14 +433,7 @@ ipcMain.handle("rental:run", async (event) => {
   };
   let worker;
   try {
-    worker = await startWorker({
-      imageDir: imageDir(),
-      // This app again, as the worker (start.cjs); `electron .` needs the app's folder first.
-      command: (pipe, token, dir) => ({
-        file: process.execPath,
-        args: [...(process.defaultApp ? [app.getAppPath()] : []), "--swiff-rental-worker", pipe, token, dir],
-      }),
-    });
+    worker = await elevated();
   } catch (error) {
     rentalRun = null;
     return {
@@ -383,7 +445,8 @@ ipcMain.handle("rental:run", async (event) => {
   }
   try {
     const outcome = await runPlan(plan, {
-      apply: worker.apply,
+      // The machine key, read when the run started, goes nowhere but to the worker.
+      apply: async (op, progress) => worker.apply(op.op === "provision" ? { ...op, record } : op, progress),
       // The owner agreed to every step at once, with the OK that started this run.
       confirm: async () => true,
       only: plan.steps.filter((s) => !restarts(s)).map((s) => s.id),
@@ -394,9 +457,13 @@ ipcMain.handle("rental:run", async (event) => {
           // Remove Swiff OS: its key's restart, then the start that shows Windows after it.
           removalStep(removals(), plan, e.id, Date.now(), expect);
         }
+        provisionEvent(provisions(), e, Date.now());
         tell(e);
       },
     });
+    // A run that stopped short leaves no machine key on the disk; should the wipe fail, the next start tries again.
+    if (record && leftRecord(outcome)) await wipeRecord(worker.apply, provisions());
+    else if (record && outcome.status === "done") provisions().finished();
     restartReady = outcome.status === "done" && plan.steps.some(restarts);
     return outcome;
   } finally {
@@ -405,6 +472,32 @@ ipcMain.handle("rental:run", async (event) => {
     rentalPlan = null;
   }
 });
+/**
+ * At start: a provisioning record an earlier run noted is zeroed (one UAC
+ * prompt) unless a finished run's restart may still take it in (provision.cjs
+ * fateOf, wipesAtStart). The boot trail is this power-on's measured-boot log:
+ * a PC that lost power after Lanterel OS's boot loader started and before
+ * swiff-provision ran gives `wait`, so the note stays for a cancel, the
+ * uninstall or the next Go live to wipe the record. With no record noted,
+ * nothing asks for administrator rights.
+ */
+async function wipeLeftRecord() {
+  const store = provisions();
+  const note = store.read();
+  if (!note || rentalRun) return;
+  if (!wipesAtStart(fateOf(note, bootAt(), bootTrail()))) return;
+  rentalRun = {};
+  let worker = null;
+  try {
+    worker = await elevated();
+    await wipeRecord(worker.apply, store);
+  } catch {
+    // Declined or failed: the note stays, and the next start asks again.
+  } finally {
+    worker?.close();
+    rentalRun = null;
+  }
+}
 // Restart now: after a run that ended at its restart, or with a key request still waiting for one.
 ipcMain.handle("rental:restart", async (event) => {
   if (!fromApp(event) || rentalRun) return false;
@@ -709,6 +802,7 @@ app.whenReady().then(() => {
 
   createWindow();
   void watchGames();
+  void wipeLeftRecord();
   try {
     createTray();
   } catch (cause) {

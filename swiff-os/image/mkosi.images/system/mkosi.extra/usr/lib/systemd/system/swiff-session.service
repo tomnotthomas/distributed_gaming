@@ -4,12 +4,15 @@
 # from steam/session). It runs as the unprivileged renter user. There is no
 # display manager, desktop or login prompt; when the session ends it is simply
 # started again. It never runs without the firewall, with VT switching open or
-# without the verified games view.
+# without the verified games view. Steam's client, kept from the last boot,
+# is laid under the renter's Steam folder first (swiff-steam-client), and kept
+# for the next boot once Steam waits at its sign-in (swiff-steam-client-save).
 [Unit]
 Description=Lanterel renter session (gamescope + Steam sign-in)
-After=systemd-user-sessions.service systemd-logind.service home.mount swiff-games.service nftables.service swiff-vtlock.service swiff-error-tracking.service
+After=systemd-user-sessions.service systemd-logind.service home.mount swiff-games.service nftables.service swiff-vtlock.service swiff-error-tracking.service swiff-steam-client.service
 Wants=swiff-error-tracking.service
 Requires=home.mount nftables.service swiff-vtlock.service swiff-games.service
+Wants=swiff-steam-client.service swiff-steam-client-save.service
 Conflicts=getty@tty1.service
 
 [Service]

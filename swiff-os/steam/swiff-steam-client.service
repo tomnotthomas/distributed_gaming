@@ -1,0 +1,26 @@
+# The renter's Steam client kept from the last boot, laid under the renter's
+# Steam folder before the session starts Steam (steam/client prepare). It
+# waits for swiff-hostd to open the persistent state, as long as 15 minutes;
+# on a machine not provisioned it does nothing, and Steam runs in the wiped
+# home alone. Only the session and swiff-steam-client-save, which the session
+# pulls in, want it, so its wait holds them and graphical.target, which waits
+# for the session, never multi-user.target or what is ordered after it.
+[Unit]
+Description=Lanterel renter's Steam client, kept from the last boot
+After=swiff-provision.service home.mount systemd-tmpfiles-setup.service
+Before=swiff-session.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/swiff/steam-client prepare
+TimeoutStartSec=20min
+# The state and the overlay it mounts are the system's, for the session: nothing
+# here may give it a mount namespace of its own (PrivateTmp=, Protect*=).
+IPAddressDeny=any
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
