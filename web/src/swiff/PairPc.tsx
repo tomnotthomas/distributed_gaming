@@ -28,7 +28,7 @@ import type { Swiff } from "./useSwiff";
 const ART = GAMES.find((g) => g.id === "cs")!;
 
 /** Where the owner stands: added, refused, no answer, or nothing yet. */
-type Outcome = { machineId: string } | PairRefusal | "failed" | "sign-out-failed" | null;
+type Outcome = { machineId: string } | PairRefusal | "failed" | "sign-out-failed" | "storage-blocked" | null;
 
 /** The pill's arrow. */
 const Arrow = () => (
@@ -66,8 +66,10 @@ export function PairPc({ swiff }: { swiff: Swiff }) {
   };
   /** Sign out, then in again with another Steam account, back to this pairing. */
   const otherAccount = () => {
+    const signIn = signInToPair(k);
+    if (!signIn) return setOutcome("storage-blocked");
     void endSignIn(
-      () => location.assign(signInToPair(k)),
+      () => location.assign(signIn),
       () => setOutcome("sign-out-failed"),
     );
   };
@@ -122,9 +124,20 @@ export function PairPc({ swiff }: { swiff: Swiff }) {
         </button>
       </>
     );
+  } else if (outcome === "storage-blocked" || ((!signedIn || outcome === "signed-out") && !signInToPair(k))) {
+    // Signing in would carry the hash through Steam: this browser has to keep it instead.
+    action = (
+      <>
+        <p role="alert">{t("pr.storage")}</p>
+        <button type="button" className="lpill solid" onClick={() => location.reload()}>
+          {t("jn.retry")}
+          <Arrow />
+        </button>
+      </>
+    );
   } else if (!signedIn || outcome === "signed-out") {
     action = (
-      <a className="lpill solid" href={signInToPair(k)}>
+      <a className="lpill solid" href={signInToPair(k) ?? undefined}>
         {t("pr.signIn")}
         <Arrow />
       </a>

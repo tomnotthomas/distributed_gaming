@@ -391,9 +391,11 @@ The machine key comes from pairing, the host app's Account step before Go live
 the PC (`POST /api/pairings { keyHash }`, signed in); the app asks
 `GET /api/pairings/mine` with the key (any origin) until the server answers with the
 machine id it gave the PC and its owner (Steam persona, else Steam id), which the Account
-step shows. Only the hash ever leaves the PC, and whoever added the PC is its owner, so the
-page treats the hash as a secret: it stays out of analytics and the Steam sign-in round
-trip. Pairing again reuses the key the app keeps, which the server answers with the same
+step shows. The pairing link carries only the key's hash; the app sends the key itself
+only to its own server, as the bearer of its Host API calls. Whoever adds the PC is its
+owner, so the page treats the hash as a secret: it stays out of analytics and never rides
+through Steam sign-in (with the browser's storage blocked, the page offers no sign-in to
+pair). Pairing again reuses the key the app keeps, which the server answers with the same
 machine id, except "Pair again" on the paired Account step, which makes a fresh key: a new
 claim for a PC paired with the wrong account. A key can also be minted by hand, `npm run machine-key -- <machine-id>
 <owner-steam-id>` into `MACHINE_KEYS`, which records the owner the same way: either way the

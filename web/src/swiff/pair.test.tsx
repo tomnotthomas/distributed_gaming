@@ -70,11 +70,11 @@ describe("pairing addresses", () => {
     expect(sessionStorage.getItem("swiff.pair")).toBe(K);
   });
 
-  it("keeps the key hash out of the Steam round trip, unless storage is blocked", () => {
+  it("never sends the key hash through Steam: with storage blocked there is no sign-in to pair", () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new DOMException("blocked", "SecurityError");
     });
-    expect(signInToPair(K)).toBe(`/auth/steam/login?to=${encodeURIComponent(`/pair?k=${K}`)}`);
+    expect(signInToPair(K)).toBeNull();
   });
 
   it("cuts every key hash out of an analytics event", () => {
@@ -179,6 +179,19 @@ describe("the pairing page", () => {
     fireEvent.click(screen.getByRole("button", { name: /Sign in with another account/ }));
     await waitFor(() => expect(assign).toHaveBeenCalledWith(signInToPair(K)));
     expect(get).toHaveBeenCalledWith("/api/signout", { method: "POST" });
+  });
+
+  it("signed out with storage blocked: no Steam sign-in that would carry the hash, one sentence and Try again", () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("blocked", "SecurityError");
+    });
+    at(`/pair?k=${K}`);
+    render(onPairScreen(fakeSwiff({ signedIn: false })));
+    expect(screen.queryByRole("link", { name: /Sign in with Steam/ })).toBeNull();
+    expect(screen.getByRole("alert").textContent).toBe(
+      "This browser blocks the site data Lanterel keeps the pairing in while you sign in: allow site data for this page, then try again.",
+    );
+    expect(screen.getByRole("button", { name: /Try again/ })).toBeTruthy();
   });
 
   it("no answer: says so, and tries again", async () => {

@@ -475,6 +475,8 @@ export const CREW_COPY = {
     "pr.tooMany":
       "Your account already has 10 PCs, the most it can have: add this PC with another Steam account.",
     "pr.failed": "Lanterel didn't answer: check your connection and try again.",
+    "pr.storage":
+      "This browser blocks the site data Lanterel keeps the pairing in while you sign in: allow site data for this page, then try again.",
     "pr.how": "How your PC joins",
     "pr.step1": "Sign in with Steam",
     "pr.step1Line": "With your own Steam account, on Steam's page. No new account.",
@@ -956,6 +958,8 @@ export const CREW_COPY = {
     "pr.tooMany":
       "Dein Konto hat schon 10 PCs, mehr geht nicht: Füg diesen PC mit einem anderen Steam-Konto hinzu.",
     "pr.failed": "Lanterel hat nicht geantwortet: Prüf deine Verbindung und versuch es nochmal.",
+    "pr.storage":
+      "Dein Browser blockiert die Websitedaten, in denen Lanterel die Kopplung während der Anmeldung hält: Erlaub Websitedaten für diese Seite und versuch es nochmal.",
     "pr.how": "So kommt dein PC dazu",
     "pr.step1": "Mit Steam anmelden",
     "pr.step1Line": "Mit deinem eigenen Steam-Konto, auf Steams Seite. Kein neues Konto.",

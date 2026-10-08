@@ -2,10 +2,10 @@
 // the page Lanterel on the PC opens (/pair?k=<hash>). `k` is the SHA-256 of
 // the machine key the app made, which stays on the PC. Whoever adds the hash
 // first owns the PC, so it is treated as a seat link is (seat.ts): never sent
-// to analytics (withoutInviteTokens), kept out of the address bar and the Steam
-// sign-in round trip once this tab remembers it, and left in the query only
-// with storage blocked. The owner signs in and adds the PC; the app, asking
-// with its key, carries on by itself.
+// to analytics (withoutInviteTokens), kept out of the address bar once this tab
+// remembers it, and never sent through the Steam sign-in round trip: with
+// storage blocked there is no sign-in for pairing. The owner signs in and adds
+// the PC; the app, asking with its key, carries on by itself.
 
 import { STEAM_LOGIN_URL } from "./steam";
 
@@ -60,10 +60,13 @@ export function forgetPair(): void {
   }
 }
 
-/** Steam sign-in that comes back to this pairing: to plain /pair when this tab remembers it, so the hash never rides through Steam. */
-export function signInToPair(k: string): string {
-  const to = rememberPair(k) ? PAIR_PATH : `${PAIR_PATH}?k=${k}`;
-  return `${STEAM_LOGIN_URL}?to=${encodeURIComponent(to)}`;
+/**
+ * Steam sign-in that comes back to this pairing, at plain /pair: this tab
+ * remembers the hash, so it never rides through Steam. Null when storage is
+ * blocked, since the hash would have to.
+ */
+export function signInToPair(k: string): string | null {
+  return rememberPair(k) ? `${STEAM_LOGIN_URL}?to=${encodeURIComponent(PAIR_PATH)}` : null;
 }
 
 /** Why adding the PC was refused: another Steam account has it, the owner has the most PCs, or nobody is signed in. */

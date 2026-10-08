@@ -4,15 +4,33 @@
 // bundled to C:\swiff\ek.cjs). The owner's side, signing in and adding the PC,
 // is the test's, on the host.
 //
-//   node pair-register.cjs start  <server ws url>   a new key, kept in C:\swiff\pair\key; the page to open
+//   node pair-register.cjs start  <server ws url>   a new key, kept DPAPI-protected; the page to open
 //   node pair-register.cjs finish <server ws url>   ask until the server knows the key, then register the EK
+//   node pair-register.cjs forget                   delete the protected key
 //
-// Prints one JSON line. The key itself is never printed.
+// Prints one JSON line. The key itself is never printed or written in the
+// clear: between the steps (and across the restart onto another TPM) it is
+// kept as the app keeps it, encrypted by Windows' DPAPI (the app's safeStorage),
+// here with the machine's scope, which an SSH session without a password can use.
 
+const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const { askPaired, keyHashOf, newMachineKey, pairingCode, pairLink } = require("C:/swiff/pair.cjs");
 
-const KEY_FILE = "C:/swiff/pair/key";
+const KEY_FILE = "C:/swiff/pair/key.dpapi";
+
+/** `data` through DPAPI's Protect or Unprotect (machine scope), handed over in the environment, never the command line. */
+function dpapi(verb, data) {
+  const script =
+    "Add-Type -AssemblyName System.Security; $s=[Security.Cryptography.DataProtectionScope]::LocalMachine; " +
+    (verb === "protect"
+      ? "[Convert]::ToBase64String([Security.Cryptography.ProtectedData]::Protect([Text.Encoding]::UTF8.GetBytes($env:SWIFF_PAIR_IN), $null, $s))"
+      : "[Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String($env:SWIFF_PAIR_IN), $null, $s))");
+  return execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
+    env: { ...process.env, SWIFF_PAIR_IN: data },
+    encoding: "utf8",
+  }).trim();
+}
 
 /** Ask every 2 s, as the app does, for up to `seconds`. */
 async function waitPaired(url, key, seconds) {
@@ -27,18 +45,37 @@ async function waitPaired(url, key, seconds) {
 
 async function main() {
   const [step, url] = process.argv.slice(2);
+  if (step === "forget") {
+    fs.rmSync(KEY_FILE, { force: true });
+    console.log(JSON.stringify({ forgotten: !fs.existsSync(KEY_FILE) }));
+    return;
+  }
   if (step === "start") {
     const key = newMachineKey();
     fs.mkdirSync("C:/swiff/pair", { recursive: true });
-    fs.writeFileSync(KEY_FILE, key);
+    fs.writeFileSync(KEY_FILE, dpapi("protect", key));
     const hash = await keyHashOf(key);
+    const link = pairLink(url, hash);
     // Before the owner has added it, the server knows no such key.
     const before = await askPaired(url, key);
-    console.log(JSON.stringify({ hash, code: pairingCode(hash), link: pairLink(url, hash), before }));
+    const out = {
+      // The hash is for the test's owner to add the PC with, as the /pair page does; the test keeps it in memory only.
+      hash,
+      linkCarriesHash:
+        link ===
+        `${new URL(url).protocol === "wss:" ? "https" : "http"}://${new URL(url).host}/pair?k=${hash}`,
+      codeIsHash: pairingCode(hash) === `${hash.slice(0, 3)}-${hash.slice(3, 6)}`.toUpperCase(),
+      before,
+      keyProtected:
+        !fs.readFileSync(KEY_FILE, "utf8").includes(key) &&
+        dpapi("unprotect", fs.readFileSync(KEY_FILE, "utf8")) === key,
+    };
+    const line = JSON.stringify(out);
+    console.log(JSON.stringify({ ...out, keyInOutput: line.includes(key) }));
     return;
   }
-  if (step !== "finish") throw new Error("usage: pair-register.cjs start|finish <server ws url>");
-  const key = fs.readFileSync(KEY_FILE, "utf8");
+  if (step !== "finish") throw new Error("usage: pair-register.cjs start|finish <server ws url> | forget");
+  const key = dpapi("unprotect", fs.readFileSync(KEY_FILE, "utf8"));
   const paired = await waitPaired(url, key, 60);
   if (typeof paired !== "object") {
     console.log(JSON.stringify({ paired }));
