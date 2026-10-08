@@ -1285,10 +1285,8 @@ describe("when a step stops", () => {
       // The server doesn't know the TPM's maker: the details go to Lanterel first, then Try again.
       expect(said("untrusted")).toMatchObject({ action: "send", label: "Send details to Lanterel" });
       expect(said("untrusted", { reportedAt: 1 })).toMatchObject({ action: "again" });
-      // Registered after BootNext was set (a new TPM read as Go live started): the next start says so.
-      expect(said("failed", { steps: { ek: "done", once: "done" } }).changed).toBe(
-        "The next restart starts Lanterel OS once, which can't host yet, and the one after starts Windows.",
-      );
+      // The EK is registered before anything changes what the PC starts: a stop here changed nothing.
+      expect(said("failed", { steps: { ek: "done" } }).changed).toBe("Nothing on this PC has changed.");
     });
   });
 

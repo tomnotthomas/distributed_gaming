@@ -279,38 +279,49 @@ export function useRental({
   /**
    * Swiff OS once, for now: going live for good (Swiff OS first in the boot order) waits on Swiff OS
    * handing the PC back. Holding Go live is the owner's OK, so it restarts by itself, once the server
-   * has this TPM's EK: registered before BootNext when the last check read it, and again after the
-   * plan's own read only when the TPM has changed since (another board) or none was read before.
+   * has this TPM's EK, which is always before anything changes what the PC starts: the app registers
+   * the one the last check read, and the plan's own read stops it before BootNext when the TPM has
+   * another (a new board) or none was read before. That read is recorded, so the app registers it and
+   * goes live again, once.
    */
   const goLive = () => {
     const host = bridge();
     if (!host || busy) return;
     const n = nextPlan();
-    const known = read?.facts.checked?.certificate
-      ? { certificate: read.facts.checked.certificate, intermediates: read.facts.checked.intermediates }
-      : null;
+    const checked = (r: RentalRead | null): EkCertificate | null =>
+      r?.facts.checked?.certificate
+        ? { certificate: r.facts.checked.certificate, intermediates: r.facts.checked.intermediates }
+        : null;
     void (async () => {
-      const plan = await host.planRental({ kind: "once" }).catch(() => null);
-      if (!plan || n !== plans.current) return;
-      setPreview(plan);
-      if (known) {
-        setRun({ ...IDLE_RUN, status: "running", startedAt: Date.now(), stepStartedAt: Date.now() });
-        const registered = await registerEk(known);
+      let registered = checked(read);
+      for (let again = false; ; again = true) {
+        if (registered)
+          setRun({ ...IDLE_RUN, status: "running", startedAt: Date.now(), stepStartedAt: Date.now() });
+        const plan = await host
+          .planRental({ kind: "once", registered: registered?.certificate ?? null })
+          .catch(() => null);
         if (n !== plans.current) return;
-        if (!registered.ok) return ekFailed(registered.error);
+        if (!plan) {
+          if (registered) setRun(IDLE_RUN);
+          return;
+        }
+        setPreview(plan);
+        if (registered) {
+          const result = await registerEk(registered);
+          if (n !== plans.current) return;
+          if (!result.ok) return ekFailed(result.error);
+        }
+        const outcome = await runPlan(plan);
+        if (n !== plans.current || !outcome) return;
+        if (outcome.status === "done") return restart();
+        if (outcome.failed?.step !== "ek" || again) return;
+        // The TPM step stopped before any boot change: its read is recorded. A certificate other than
+        // the one registered is this TPM's, to register before going live again; none, or the same one,
+        // leaves the run's own failure on screen.
+        const now = checked(await host.readRental().catch(() => null));
+        if (n !== plans.current || !now || now.certificate === registered?.certificate) return;
+        registered = now;
       }
-      const outcome = await runPlan(plan);
-      if (n !== plans.current || outcome?.status !== "done") return;
-      const ek = (outcome.results.find((r) => r.op === "ek") as { ek?: EkCertificate | null } | undefined)
-        ?.ek;
-      if (!ek) return ekFailed("none");
-      if (ek.certificate !== known?.certificate) {
-        setRun((r) => ({ ...r, status: "running", stepStartedAt: Date.now() }));
-        const registered = await registerEk(ek);
-        if (n !== plans.current) return;
-        if (!registered.ok) return ekFailed(registered.error);
-      }
-      restart();
     })();
   };
 

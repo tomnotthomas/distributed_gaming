@@ -47,6 +47,22 @@ describe("registering the TPM's EK", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
+  it("registers nothing on a 200 that is not the server's answer, which would hold the PC", async () => {
+    for (const answer of [
+      new Response("<html>Sign in to the Wi-Fi</html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      }),
+      json(200, {}),
+      json(200, { fingerprint: "not-a-fingerprint" }),
+      json(200, { fingerprint: FINGERPRINT.toUpperCase() }),
+    ]) {
+      const fetch = vi.fn(async () => answer);
+      expect(await registerEk(MACHINE, CHAIN, fetch)).toEqual({ ok: false, error: "unavailable" });
+      expect(fetch).toHaveBeenCalledOnce();
+    }
+  });
+
   it("goes on when the server attests without EKs", async () => {
     const fetch = vi.fn(async () => json(503, { error: "not-configured" }));
     expect(await registerEk(MACHINE, CHAIN, fetch)).toEqual({ ok: true, registered: "not-needed" });

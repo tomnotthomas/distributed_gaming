@@ -19,6 +19,7 @@ import { copyChecked, MANIFEST, SIGNATURE, readImageSet, trustOf } from "../imag
 import { channelOf, clientOf, dryRun, handshake, runPlan, startWorker } from "../rental-exec.cjs";
 import { checkOp, createWorker, diskPath, serve, type Windows } from "../rental-worker.cjs";
 import {
+  EK_UNREGISTERED,
   installOf,
   installPlan,
   keyRemovalPlan,
@@ -417,6 +418,25 @@ describe("the elevated worker", () => {
     expect(pc.vars.get(pc.key(efi.GLOBAL, "BootNext"))).toBeUndefined();
   });
 
+  it("stops Go live before BootNext when the TPM's certificate is not the one the app registered", async () => {
+    const { pc, worker } = await setup();
+    const bootNext = () => pc.vars.get(pc.key(efi.GLOBAL, "BootNext"));
+    pc.tpm.certificates = [EK.root, EK.intermediate, EK.ek];
+    // None registered yet, or another TPM's: the read is recorded for the app, and nothing else runs.
+    for (const registered of [null, "QkJC"]) {
+      const outcome = await runPlan(switchPlan("once", { registered }), { apply: skipping(worker.apply) });
+      expect(outcome).toMatchObject({ status: "failed", failed: { step: "ek", error: EK_UNREGISTERED } });
+      expect(bootNext()).toBeUndefined();
+      expect(JSON.parse(fs.readFileSync(path.join(dir, "state", "rental-check.json"), "utf8"))).toMatchObject(
+        { certificate: EK.ek },
+      );
+    }
+    // Not a certificate the app could have sent: refused before the TPM is read.
+    await expect(worker.apply({ op: "ek", registered: 7 } as unknown as PlanOp)).rejects.toThrow(
+      /bad TPM step/,
+    );
+  });
+
   it("installs Lanterel OS next to Windows, then takes it all off again", async () => {
     const { pc, worker, layout } = await setup();
     const before = pc.cSize();
@@ -469,9 +489,9 @@ describe("the elevated worker", () => {
     expect(JSON.stringify(worker.state())).not.toMatch(/"bootEntry":\d/);
     expect(rentalOf(pc.facts()).installed).toBe(true);
 
-    // Once: the TPM's EK certificate read again, for the app to register, then BootNext alone.
+    // Once: the TPM's EK certificate read again, the one the app registered, then BootNext alone.
     pc.vars.delete(pc.key(efi.GLOBAL, "BootNext"));
-    expect(await runPlan(switchPlan("once"), { apply: worker.apply })).toMatchObject({
+    expect(await runPlan(switchPlan("once", { registered: EK.ek }), { apply: worker.apply })).toMatchObject({
       status: "done",
       results: [
         { step: "ek", op: "ek", ek: { certificate: EK.ek, intermediates: [EK.intermediate] } },

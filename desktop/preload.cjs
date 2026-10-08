@@ -61,6 +61,9 @@ contextBridge.exposeInMainWorld("swiffHost", {
       kind: String(ask?.kind),
       target: ask?.target ?? null,
       ...(typeof ask?.key === "boolean" ? { key: ask.key } : {}),
+      ...(ask?.registered === null || typeof ask?.registered === "string"
+        ? { registered: ask.registered }
+        : {}),
     }),
   runRental: () => ipcRenderer.invoke("rental:run"),
   restartRental: () => ipcRenderer.invoke("rental:restart"),

@@ -133,7 +133,7 @@ type GptAddPartition = {
 
 export type PlanOp =
   | { op: "check"; shrink?: { disk: number; partition: number | null; size: number; letter: string } }
-  | { op: "ek" }
+  | { op: "ek"; registered?: string | null }
   | { op: "image-check" }
   | { op: "bitlocker-suspend"; letter: string; restarts: number }
   | { op: "bitlocker-resume"; letter: string }
@@ -286,8 +286,17 @@ export function uninstallPlan(rental: RentalRead): RentalPlan;
 export function keyRemovalPlan(code?: string, rental?: RentalRead | null): RentalPlan;
 /** Remove Swiff OS, in two parts (`phase`): Swiff's key off through MokManager first when `key`, then the disk. */
 export function removePlan(rental: RentalRead, options?: { key?: boolean; code?: string }): RentalPlan;
-/** Start Swiff OS once, start sharing (Swiff OS first in the boot order), or stop (Windows first again). */
-export function switchPlan(kind: "once" | "start" | "stop"): RentalPlan;
+/**
+ * Start Swiff OS once, start sharing (Swiff OS first in the boot order), or stop (Windows first again).
+ * With `registered` (the EK certificate the app registered, or null), the TPM step stops the plan
+ * before any boot change when the TPM has another, with EK_UNREGISTERED.
+ */
+export function switchPlan(
+  kind: "once" | "start" | "stop",
+  options?: { registered?: string | null },
+): RentalPlan;
+/** The TPM step's error when the TPM's EK certificate is not the one the app registered. */
+export const EK_UNREGISTERED: string;
 /** A TPM's endorsement key certificate and the intermediate CAs beside it, base64 DER, as the server takes them. */
 export type EkCertificate = { certificate: string; intermediates: string[] };
 /** The TPM's EK certificate among the `ek-cert:` lines its read printed; null when it has none. */

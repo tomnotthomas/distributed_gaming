@@ -1121,24 +1121,32 @@ function removePlan(rental, { key = false, code = mokCode() } = {}) {
   return { kind: "remove", phase: "disk", steps };
 }
 
+/** Why going live stopped at its TPM step: the TPM's certificate is not the one the app registered. */
+const EK_UNREGISTERED = "This PC's TPM certificate isn't registered with Lanterel yet.";
+
 /**
- * Going live reads the TPM's EK certificate first, as administrator, so the app registers the one
- * this TPM has now with the server before Swiff OS attests with it (a new board, a new TPM).
+ * Going live reads the TPM's EK certificate first, as administrator. With `registered` (the
+ * certificate the app registered with the server, or null for none), the step stops the plan when
+ * the TPM has another one (a new board, a new TPM), before anything changes what the PC starts: the
+ * app registers the one it read, then goes live again. Without it (the console installer), it reads.
  */
-const EK_STEP = () => step("ek", "Read this PC's TPM certificate", [{ op: "ek" }]);
+const EK_STEP = (registered) =>
+  step("ek", "Read this PC's TPM certificate", [
+    { op: "ek", ...(registered === undefined ? {} : { registered }) },
+  ]);
 
 /**
  * Start Swiff OS once: BootNext, then restart; whatever happens there, the
  * next start is Windows again. Start sharing: Swiff OS first in the boot
  * order, so a power cut or a crash comes back to it, and BootNext for this
- * restart. Stop: Windows first again.
+ * restart. Stop: Windows first again. `registered`: the EK the app registered, for EK_STEP.
  */
-function switchPlan(kind) {
+function switchPlan(kind, { registered } = {}) {
   if (kind === "once") {
     return {
       kind,
       steps: [
-        EK_STEP(),
+        EK_STEP(registered),
         step("once", "Start Lanterel OS on the next restart only", [{ op: "boot-next", entry: "swiff" }]),
         step(
           "restart",
@@ -1153,7 +1161,7 @@ function switchPlan(kind) {
     return {
       kind,
       steps: [
-        EK_STEP(),
+        EK_STEP(registered),
         step("boot-order", "Put Lanterel OS first in the boot order", [{ op: "boot-first", entry: "swiff" }]),
         step("boot-next", "Start Lanterel OS on this restart", [{ op: "boot-next", entry: "swiff" }]),
         step(
@@ -1218,4 +1226,5 @@ module.exports = {
   installPlan,
   uninstallPlan,
   switchPlan,
+  EK_UNREGISTERED,
 };

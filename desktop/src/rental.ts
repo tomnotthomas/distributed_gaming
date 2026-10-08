@@ -917,11 +917,8 @@ function ekFailure(setup: RentalSetup, error: string, stoppedAt: string): Failur
   const { read, run } = setup;
   const base = {
     kind: "ek" as const,
-    // BootNext is set only once the plan's read went through: then the next start is Lanterel OS's.
-    changed:
-      run.steps.once === "done"
-        ? "The next restart starts Lanterel OS once, which can't host yet, and the one after starts Windows."
-        : "Nothing on this PC has changed.",
+    // The server has the TPM's EK before anything changes what the PC starts (useRental's goLive).
+    changed: "Nothing on this PC has changed.",
     action: "again" as const,
     label: "Try again",
     rail: "TPM not registered",

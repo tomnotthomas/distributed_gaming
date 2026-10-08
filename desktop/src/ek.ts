@@ -62,8 +62,11 @@ export async function registerEk(
     if (has.status === 503 && (body as { error?: unknown } | null)?.error === "not-configured")
       return { ok: true, registered: "not-needed" };
     if (!has.ok) return { ok: false, error: refusal(has.status, body) };
-    if ((body as { fingerprint?: unknown } | null)?.fingerprint === (await fingerprint(ek.certificate)))
-      return { ok: true, registered: "already" };
+    // Not the server's answer (a captive portal's page, say): registering again would hold the PC.
+    const theirs = (body as { fingerprint?: unknown } | null)?.fingerprint;
+    if (theirs !== null && !(typeof theirs === "string" && /^[0-9a-f]{64}$/.test(theirs)))
+      return { ok: false, error: "unavailable" };
+    if (theirs === (await fingerprint(ek.certificate))) return { ok: true, registered: "already" };
     const put = await fetch(route, {
       method: "PUT",
       headers: { authorization, "content-type": "application/json" },

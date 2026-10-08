@@ -52,6 +52,7 @@ const { writeRootFile } = require("./esp-file.cjs");
 const {
   BOOT_PATH,
   BOOT_TITLE,
+  EK_UNREGISTERED,
   ERROR_REPORTS_FILE,
   GAMES_LABEL,
   MOK_CERT,
@@ -354,7 +355,12 @@ function checkOp(op) {
         );
       return;
     case "ek":
-      return;
+      return must(
+        op.registered === undefined ||
+          op.registered === null ||
+          (typeof op.registered === "string" && op.registered.length < 64 * 1024),
+        "A bad TPM step.",
+      );
     case "bitlocker-suspend":
       return must(
         isLetter(op.letter) && Number.isInteger(op.restarts) && op.restarts >= 1 && op.restarts <= 15,
@@ -633,9 +639,11 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
       }
       case "ek": {
         // Going live: the certificate the TPM has now, for the app to register before Swiff OS attests,
-        // which it cannot without one: the plan stops here, before BootNext.
+        // which it cannot without one: the plan stops here, before BootNext. So it does when the TPM's
+        // is not the one the app registered: the app registers this one first (it is recorded above).
         const ek = recordEk(await run(op));
         must(ek, "The TPM has no endorsement key certificate Windows can read.");
+        if (op.registered !== undefined) must(ek.certificate === op.registered, EK_UNREGISTERED);
         return { ek };
       }
       case "image-check": {

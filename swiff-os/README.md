@@ -95,8 +95,9 @@ BitLocker is on again where it was, and the install record is gone. The screen s
 marked where one is not as it was. Should the owner miss the blue screen, the removal goes
 on without the key (shim, the only thing that would trust it, is gone with the partitions), or
 they ask for the key's removal again. Once installed, going live reads the TPM's EK
-certificate as administrator and sets only BootNext for now, and restarts only once the server
-has that EK registered, stopping without one (see Attestation in
+certificate as administrator and sets only BootNext for now, both only once the server has that EK
+registered: the read stops before BootNext when the TPM has another than the one registered, and
+the app registers it and goes live again, stopping without one (see Attestation in
 `docs/system-design/session-keys.md`); the restart after that is Windows again, and Swiff OS first in
 BootOrder waits until Swiff OS can hand the PC back. Without `MokTimeout`, MokManager waits only 10 seconds, then drops
 the request; shim then fails to verify the next stage and falls through into Windows in the
