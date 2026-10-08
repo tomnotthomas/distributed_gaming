@@ -1109,6 +1109,10 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
           : null;
       const onAction = () => {
         if (f.action === "send") return actions.reportRental();
+        if (f.action === "pair") {
+          actions.pair();
+          return go("pair");
+        }
         if (f.action === "use" && other) {
           actions.chooseRentalTarget(other.id);
           return actions.closeRentalPreview();
@@ -1121,7 +1125,7 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
       };
       action = (
         <Pill
-          icon={f.action === "use" ? "arrow" : f.action === "send" ? "arrow" : "refresh"}
+          icon={f.action === "use" || f.action === "send" || f.action === "pair" ? "arrow" : "refresh"}
           onClick={onAction}
         >
           {f.label}

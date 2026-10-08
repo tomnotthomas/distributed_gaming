@@ -1346,17 +1346,27 @@ describe("when a step stops", () => {
         changed: "Nothing on this PC has changed.",
         action: "again",
       });
+      // A key or machine the server doesn't know, or none at all: pairing with Steam is the way on, never Settings.
       expect(said("bad-key")).toMatchObject({
-        title: "The server didn't accept the machine key",
-        why: expect.stringMatching(/check the machine id and key in Settings, then go live again\.$/),
+        title: "The server didn't accept this PC's key",
+        why: expect.stringMatching(/pair the PC with your Steam account again, then go live again\.$/),
+        action: "pair",
+        label: "Pair again",
       });
-      expect(said("no-machine").why).toMatch(/add them in Settings, then go live again\.$/);
       // A missing server address is not blamed on the machine id and key.
       expect(said("no-server")).toMatchObject({
         title: "Add the server's address",
         why: expect.stringMatching(/^[^.:]+: add the signaling server in Settings, then go live again\.$/),
       });
-      expect(said("unknown-machine").why).toMatch(/check it in Settings/);
+      expect(said("no-machine")).toMatchObject({
+        title: "Pair this PC first",
+        why: expect.stringMatching(/pair it, then go live again\.$/),
+        action: "pair",
+        label: "Pair this PC",
+      });
+      expect(said("unknown-machine")).toMatchObject({ action: "pair", label: "Pair again" });
+      for (const error of ["bad-key", "no-machine", "unknown-machine"])
+        expect(said(error).why).not.toMatch(/Settings/);
       expect(said("failed").why).toMatch(/check the internet connection, then try again\.$/);
       // A local failure of the elevated read is the TPM's, not the network's; a server fault says try later.
       expect(said("something new")).toMatchObject({

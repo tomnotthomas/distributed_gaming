@@ -52,7 +52,13 @@
 #             certificates: none on the base's TPM (Go live stops), then registered once,
 #             not again, and again for another TPM. Needs the server built and swtpm_setup.
 #
-# Usage: vm/windows-install-test.sh prepare|test|ek     ($SWIFF_SCENARIOS="2 3" runs only those)
+#   pair      from a copy of the base: pairing with the owner's Steam account as the app does it
+#             (src/pairing.ts) against a server on this host that knows no machine, the owner's
+#             side signed in with Steam, then Go live's TPM step with the machine id and key that
+#             pairing gave, on a TPM swtpm_setup makes with an EK certificate. Needs the server
+#             built and swtpm_setup.
+#
+# Usage: vm/windows-install-test.sh prepare|test|ek|pair     ($SWIFF_SCENARIOS="2 3" runs only those)
 #
 # Needs: sudo (QEMU, when /dev/kvm is not writable), qemu-system-x86_64,
 # qemu-img, swtpm, OVMF's Secure Boot build with Microsoft's keys, xorriso,
@@ -101,8 +107,8 @@ die() {
 for tool in qemu-system-x86_64 qemu-img swtpm ssh scp curl node; do
 	command -v "$tool" > /dev/null || die "$tool not found"
 done
-# What only preparing Windows and the install's scenarios use: ek runs without them.
-if [ "${1:-}" != ek ]; then
+# What only preparing Windows and the install's scenarios use: ek and pair run without them.
+if [ "${1:-}" != ek ] && [ "${1:-}" != pair ]; then
 	for tool in xorriso mdir; do
 		command -v "$tool" > /dev/null || die "$tool not found"
 	done
@@ -940,9 +946,139 @@ writeFileSync(process.argv[1] + "/policy.pem", publicKey.export({ format: "pem",
 	fi
 }
 
+# --- pair: pairing with the owner's Steam account, then Go live's TPM step ---------------------
+#
+# The app's pairing (src/pairing.ts, bundled) runs in Windows against a server on this host that
+# knows no machine at all (MACHINE_KEYS empty): it makes the PC's key and the page to open, and
+# the server knows no such key. The owner, signed in with Steam (a session cookie this test signs
+# with the server's SESSION_SECRET), adds the PC by its key's hash, as the /pair page does. The app
+# then learns its machine id with the key, and Go live's TPM step registers the TPM's EK with that
+# id and key: on the base's TPM there is no EK certificate to register; BitLocker is suspended and
+# the next start gets a TPM with one, which registers once, then not again, and a key nobody
+# paired is refused for that machine.
+pair_run() {
+	[ -s "$dir/base.qcow2" ] || die "no Windows base: run prepare first"
+	command -v swtpm_setup > /dev/null || die "swtpm_setup not found"
+	local repo=$desktop/.. server_port=${SWIFF_PAIR_SERVER_PORT:-18382} owner=76561198000000077
+	local session_secret
+	session_secret=$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("hex"))')
+	[ -s "$repo/server/dist/index.js" ] && [ -s "$repo/server/dist/pairing.js" ] || die "no server build: npm run build -w @swiff/server"
+	rm -rf "$run" && mkdir -p "$run/ek/ca" "$run/ek/roots/firmware"
+	qemu-img create -q -f qcow2 -b "$dir/base.qcow2" -F qcow2 "$run/disk.qcow2"
+	cp "$dir/base-vars.fd" "$run/vars.fd"
+	# A copy, even of a base whose TPM state is a link to another's: a boot changes the TPM's state.
+	cp -rL "$dir/base-tpm" "$run/tpm"
+	trap 'vm_kill; kill "${server_pid:-}" 2> /dev/null || true' EXIT
+	local fail=0
+	result() { printf '%-4s  %-30s %s\n' "$1" "$2" "$3" | tee -a "$run/results.txt"; [ "$1" = PASS ] || fail=1; }
+	expect() { # name detail command...
+		local name=$1 detail=$2
+		shift 2
+		if "$@" > /dev/null 2>&1; then result PASS "$name" "$detail"; else result FAIL "$name" "$detail"; fi
+	}
+	# A JavaScript expression over a JSON file's value `v`, as JSON: pair_value FILE 'v.paired'.
+	pair_value() { node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); console.log(JSON.stringify(eval(process.argv[2])))' "$@"; }
+
+	# The TPM maker, as in ek: swtpm's local CA, trusted by the server.
+	printf 'statedir = %s\nsigningkey = %s/signkey.pem\nissuercert = %s/issuercert.pem\ncertserial = %s/certserial\n' \
+		"$run/ek/ca" "$run/ek/ca" "$run/ek/ca" "$run/ek/ca" > "$run/ek/localca.conf"
+	printf -- '--platform-manufacturer Swiff\n--platform-version 2.1\n--platform-model QEMU\n' > "$run/ek/localca.options"
+	printf 'create_certs_tool = %s\ncreate_certs_tool_config = %s\ncreate_certs_tool_options = %s\n' \
+		"$(command -v swtpm_localca)" "$run/ek/localca.conf" "$run/ek/localca.options" > "$run/ek/swtpm_setup.conf"
+	mkdir -p "$run/tpm-a" "$run/tpm-a-certs"
+	swtpm_setup --tpm2 --tpmstate "$run/tpm-a" --create-ek-cert --pcr-banks sha256 --config "$run/ek/swtpm_setup.conf" \
+		--write-ek-cert-files "$run/tpm-a-certs" > "$run/tpm-a-setup.log" 2>&1 || die "swtpm_setup failed: $(cat "$run/tpm-a-setup.log")"
+	cat "$run/ek/ca/swtpm-localca-rootca-cert.pem" "$run/ek/ca/issuercert.pem" > "$run/ek/roots/firmware/swtpm-localca.pem"
+
+	log "The server: no machine keys, Steam sign-in's session secret, the TPM verifier"
+	(cd "$repo/server" && node --input-type=module -e '
+import { signBootPolicy } from "./dist/boot-policy.js";
+import { generateKeyPairSync } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
+const r = JSON.parse(readFileSync("src/test/fixtures/tpm-attestation.json", "utf8")).release;
+const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+const release = { name: "vm", pcr11: [r.pcr11], pcr12: [r.pcr12], pcr13: [r.pcr13], bootApplications: r.bootApplications, uki: r.uki, secureBootAuthorities: r.secureBootAuthorities, iommu: true };
+writeFileSync(process.argv[1] + "/policy.json", signBootPolicy({ version: 1, releases: [release] }, privateKey));
+writeFileSync(process.argv[1] + "/policy.pem", publicKey.export({ format: "pem", type: "spki" }));' "$run/ek")
+	(cd "$repo/server" && PORT=$server_port MACHINE_KEYS= SESSION_SECRET=$session_secret \
+		ATTESTATION_VERIFIER=tpm ROOM_SECRET=$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("hex"))') \
+		ATTESTATION_TPM_ROOTS="$run/ek/roots" ATTESTATION_POLICY="$run/ek/policy.json" ATTESTATION_POLICY_KEY="$run/ek/policy.pem" \
+		SWIFF_PLAYABILITY=off exec node dist/index.js) > "$run/ek/server.log" 2>&1 &
+	server_pid=$!
+	for _ in $(seq 30); do curl -fsS "http://127.0.0.1:$server_port/api/ping" > /dev/null 2>&1 && break; sleep 1; done
+	expect pair-server "the server answers, knowing no machine" grep -q "no PC paired yet" "$run/ek/server.log"
+	# The owner adds the PC, signed in with Steam, as the /pair page does: the test signs a session for
+	# them and hands it to the VM on stdin, so the key's hash (the claim ticket) never leaves Windows.
+	add_pc() { # name -> the answer's HTTP status
+		(cd "$repo/server" && node --input-type=module -e '
+import { mintRenterSession } from "./dist/access.js";
+process.stdout.write(mintRenterSession(process.argv[1], process.argv[2], 3600));' "$session_secret" "$owner") |
+			on_vm "C:\\node\\node.exe C:\\swiff\\vm\\pair-register.cjs add $server_url" | tr -d '\r' > "$run/pair-$1.json" || true
+		pair_value "$run/pair-$1.json" 'v.status'
+	}
+	"$repo/node_modules/.bin/esbuild" "$desktop/src/pairing.ts" --bundle --platform=node --format=cjs --log-level=warning --outfile="$run/ek/pair.cjs"
+	"$repo/node_modules/.bin/esbuild" "$desktop/src/ek.ts" --bundle --platform=node --format=cjs --log-level=warning --outfile="$run/ek/ek.cjs"
+	local server_url=ws://10.0.2.2:$server_port/ws
+	# Pairing's last half, then Go live's TPM step, in the VM, into $run/pair-NAME.json; tried again
+	# while Windows has not taken a new TPM into use yet ("The TPM is not ready.").
+	pair_finish() { # name
+		for _ in $(seq 20); do
+			on_vm "C:\\node\\node.exe C:\\swiff\\vm\\pair-register.cjs finish $server_url" | tr -d '\r' > "$run/pair-$1.json" || true
+			grep -q 'TPM is not ready' "$run/pair-$1.json" || break
+			sleep 15
+		done
+	}
+
+	log "Windows, with the base's TPM: pairing"
+	vm_start "$run/disk.qcow2" "$run/vars.fd" "$run/tpm"
+	ssh_wait 1800 || die "Windows did not answer on SSH"
+	on_vm 'New-Item -ItemType Directory -Force C:\swiff\desktop, C:\swiff\vm, C:\swiff\no-image | Out-Null'
+	to_vm "$desktop"/*.cjs "$desktop"/image-trust*.json swiff@127.0.0.1:'C:/swiff/desktop/'
+	to_vm "$here/windows/pair-register.cjs" swiff@127.0.0.1:'C:/swiff/vm/'
+	to_vm "$run/ek/pair.cjs" "$run/ek/ek.cjs" swiff@127.0.0.1:'C:/swiff/'
+	on_vm "C:\\node\\node.exe C:\\swiff\\vm\\pair-register.cjs start $server_url" | tr -d '\r' > "$run/pair-start.json" || true
+	expect pair-link "the app's page to open carries its key's hash, and the code is the hash's" \
+		test "$(pair_value "$run/pair-start.json" 'v.hashIsSha256 && v.linkCarriesHash && v.codeIsHash')" = true
+	expect pair-unknown "before the owner adds it, the server knows no such key" test "$(pair_value "$run/pair-start.json" 'v.before')" = '"waiting"'
+	expect pair-key-private "the key is kept DPAPI-protected, never in the clear, and neither it nor its hash is in any output" \
+		test "$(pair_value "$run/pair-start.json" 'v.keyProtected && !v.keyInOutput && !v.hashInOutput')" = true
+	expect pair-added "the owner, signed in with Steam, adds the PC" test "$(add_pc add)" = 201
+	local machine
+	machine=$(pair_value "$run/pair-add.json" 'v.machineId' | tr -d '"')
+	expect pair-again "adding it again gives the same machine" test "$(add_pc add-again)" = 200
+	expect pair-again-same "the same machine id both times" test "$(pair_value "$run/pair-add-again.json" 'v.machineId')" = "\"$machine\""
+	pair_finish none
+	expect pair-learned "the app learns its machine id with its key" test "$(pair_value "$run/pair-none.json" 'v.paired.machineId')" = "\"$machine\""
+	expect pair-none-stops "no EK certificate on this TPM: Go live's step stops there, nothing registered" \
+		test "$(pair_value "$run/pair-none.json" '[/no endorsement key certificate/.test(v.worked.error), v.certificate, v.registered]')" = '[true,null,null]'
+	on_vm 'manage-bde -protectors -disable C: -RebootCount 1' > "$run/ek/bitlocker-suspend.txt"
+	on_vm 'Stop-Computer -Force' || true
+	vm_wait_off 600 || die "Windows did not shut down"
+
+	log "Windows, with a TPM that has an EK certificate: Go live's TPM step with the paired key"
+	vm_start "$run/disk.qcow2" "$run/vars.fd" "$run/tpm-a"
+	ssh_wait 1800 || die "Windows did not come back on the new TPM (screens in $run)"
+	pair_finish a
+	expect pair-a-registered "the paired PC registers its TPM's EK" test "$(pair_value "$run/pair-a.json" 'v.registered')" = '{"ok":true,"registered":"now"}'
+	expect pair-a-again "and not again" test "$(pair_value "$run/pair-a.json" 'v.again')" = '{"ok":true,"registered":"already"}'
+	expect pair-a-stranger "a key nobody paired is refused for this machine: the app says Pair again" \
+		test "$(pair_value "$run/pair-a.json" 'v.stranger')" = '{"ok":false,"error":"bad-key"}'
+	on_vm "C:\\node\\node.exe C:\\swiff\\vm\\pair-register.cjs forget" | tr -d '\r' > "$run/pair-forget.json" || true
+	expect pair-forgotten "the protected key is deleted once the test is done" test "$(pair_value "$run/pair-forget.json" 'v.forgotten')" = true
+	on_vm 'Stop-Computer -Force' || true
+	vm_wait_off 600 || vm_kill
+
+	echo
+	if [ "$fail" = 0 ]; then echo "Windows pairing VM test: PASS"; else
+		echo "Windows pairing VM test: FAIL (logs in $run)"
+		exit 1
+	fi
+}
+
 case "${1:-}" in
 	prepare) prepare ;;
 	test) test_run ;;
 	ek) ek_run ;;
-	*) die "usage: windows-install-test.sh prepare|test|ek" ;;
+	pair) pair_run ;;
+	*) die "usage: windows-install-test.sh prepare|test|ek|pair" ;;
 esac

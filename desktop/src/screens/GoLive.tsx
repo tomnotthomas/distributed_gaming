@@ -161,7 +161,7 @@ export function CrewPicker({
  * Who can play is asked here, as the platform holds it for Swiff OS's offers.
  */
 export function GoLive(props: ScreenProps) {
-  const { view, actions } = props;
+  const { view, actions, go } = props;
   if (WINDOWS_SHARE) return <GoLiveWindows {...props} />;
   // Reachable only once rental mode is ready (stepLocked): the shell shows rental mode until then.
   const setup = view.rental;
@@ -204,9 +204,13 @@ export function GoLive(props: ScreenProps) {
             <div className="acts">
               {/* The failure's own next step, as on the rental screen. */}
               <Pill
-                icon={failed.action === "send" ? "arrow" : "refresh"}
+                icon={failed.action === "send" || failed.action === "pair" ? "arrow" : "refresh"}
                 onClick={() => {
                   if (failed.action === "send") return actions.reportRental();
+                  if (failed.action === "pair") {
+                    actions.pair();
+                    return go("pair");
+                  }
                   if (failed.action === "restart") return actions.restartRental();
                   if (failed.action === "check") {
                     actions.closeRentalPreview();

@@ -3,8 +3,8 @@
 // are fully German and English ones fully English, one form per term
 // (Crew-Link, Zockrunde, Gaming-PC; crew link, session, gaming PC), from the
 // approved launch pages; a friend seat's page (st.*) too, in the approved seat
-// invite's words. `{name}`, `{names}`, `{crew}`, `{pc}`, `{link}`, `{app}`, `{day}`,
-// `{days}`, `{time}`, `{friend}`, `{of}`, `{when}`, `{step}`, `{game}`, `{owner}` and `{n}` are filled in where they appear.
+// invite's words; pairing a PC (pr.*) in the same look. `{name}`, `{names}`, `{crew}`, `{pc}`, `{link}`, `{app}`, `{day}`,
+// `{days}`, `{time}`, `{friend}`, `{of}`, `{when}`, `{step}`, `{game}`, `{owner}`, `{code}` and `{n}` are filled in where they appear.
 
 export type Lang = "en" | "de";
 
@@ -450,6 +450,40 @@ export const CREW_COPY = {
     "st.loading": "Opening your seat…",
     "st.unanswered": "The seat couldn't be opened.",
     "st.failed": "Grabbing the seat didn't work. Try again.",
+
+    "pr.tag": "Your gaming PC",
+    "pr.h1": "Add this PC",
+    "pr.h1b": "to your account.",
+    "pr.lead":
+      "Lanterel on your gaming PC opened this page. Add the PC to your Steam account, and it can play for your crews.",
+    "pr.screen": "Lanterel on your PC",
+    "pr.code": "Lanterel on your PC shows {code}",
+    "pr.codeLine": "Check your PC shows the same code before you add it.",
+    "pr.signIn": "Sign in with Steam",
+    "pr.add": "Add this PC",
+    "pr.adding": "Adding this PC…",
+    "pr.steam": "You sign in on Steam's own page. Lanterel never sees your password.",
+    "pr.loading": "Opening…",
+    "pr.done": "This PC is yours now",
+    "pr.doneLine": "Go back to Lanterel on your PC: it carries on by itself.",
+    "pr.toCrews": "Go to your crews",
+    "pr.invalid": "This pairing link isn't complete: open it again from Lanterel on your PC.",
+    "pr.toStart": "Go to Lanterel",
+    "pr.elsewhere": "Another Steam account already has this PC: sign in with that account to add it.",
+    "pr.otherAccount": "Sign in with another account",
+    "pr.signOutFailed": "Signing out didn't work: try again.",
+    "pr.tooMany":
+      "Your account already has 10 PCs, the most it can have: add this PC with another Steam account.",
+    "pr.failed": "Lanterel didn't answer: check your connection and try again.",
+    "pr.storage":
+      "This browser blocks the site data Lanterel keeps the pairing in while you sign in: allow site data for this page, then try again.",
+    "pr.how": "How your PC joins",
+    "pr.step1": "Sign in with Steam",
+    "pr.step1Line": "With your own Steam account, on Steam's page. No new account.",
+    "pr.step2": "Add this PC",
+    "pr.step2Line": "Once the code here matches the one on your PC.",
+    "pr.step3": "Back to your PC",
+    "pr.step3Line": "Lanterel on your PC sees it's added and carries on by itself.",
   },
   de: {
     brand: "Lanterel",
@@ -898,6 +932,41 @@ export const CREW_COPY = {
     "st.loading": "Dein Platz wird geöffnet…",
     "st.unanswered": "Der Platz konnte nicht geöffnet werden.",
     "st.failed": "Das hat nicht geklappt. Versuch es nochmal.",
+
+    "pr.tag": "Dein Gaming-PC",
+    "pr.h1": "Füg diesen PC",
+    "pr.h1b": "deinem Konto hinzu.",
+    "pr.lead":
+      "Lanterel auf deinem Gaming-PC hat diese Seite geöffnet. Füg den PC deinem Steam-Konto hinzu, dann kann er für deine Crews laufen.",
+    "pr.screen": "Lanterel auf deinem PC",
+    "pr.code": "Lanterel auf deinem PC zeigt {code}",
+    "pr.codeLine": "Prüf, dass dein PC denselben Code zeigt, bevor du ihn hinzufügst.",
+    "pr.signIn": "Mit Steam anmelden",
+    "pr.add": "PC hinzufügen",
+    "pr.adding": "PC wird hinzugefügt…",
+    "pr.steam": "Du meldest dich auf Steams eigener Seite an. Lanterel sieht dein Passwort nie.",
+    "pr.loading": "Wird geöffnet…",
+    "pr.done": "Der PC gehört jetzt dir",
+    "pr.doneLine": "Geh zurück zu Lanterel auf deinem PC: Dort geht es von selbst weiter.",
+    "pr.toCrews": "Zu deinen Crews",
+    "pr.invalid": "Dieser Link ist unvollständig: Öffne ihn nochmal aus Lanterel auf deinem PC.",
+    "pr.toStart": "Zu Lanterel",
+    "pr.elsewhere":
+      "Ein anderes Steam-Konto hat diesen PC schon: Melde dich mit diesem Konto an, um ihn hinzuzufügen.",
+    "pr.otherAccount": "Mit anderem Konto anmelden",
+    "pr.signOutFailed": "Abmelden hat nicht geklappt: Versuch es nochmal.",
+    "pr.tooMany":
+      "Dein Konto hat schon 10 PCs, mehr geht nicht: Füg diesen PC mit einem anderen Steam-Konto hinzu.",
+    "pr.failed": "Lanterel hat nicht geantwortet: Prüf deine Verbindung und versuch es nochmal.",
+    "pr.storage":
+      "Dein Browser blockiert die Websitedaten, in denen Lanterel die Kopplung während der Anmeldung hält: Erlaub Websitedaten für diese Seite und versuch es nochmal.",
+    "pr.how": "So kommt dein PC dazu",
+    "pr.step1": "Mit Steam anmelden",
+    "pr.step1Line": "Mit deinem eigenen Steam-Konto, auf Steams Seite. Kein neues Konto.",
+    "pr.step2": "PC hinzufügen",
+    "pr.step2Line": "Sobald der Code hier zu dem auf deinem PC passt.",
+    "pr.step3": "Zurück zum PC",
+    "pr.step3Line": "Lanterel auf deinem PC merkt, dass er dazugehört, und macht von selbst weiter.",
   },
 } as const satisfies Record<Lang, Record<string, string>>;
 

@@ -14,7 +14,7 @@ import type { ScreenProps } from "./types";
 const yes = (on: boolean | undefined, reading: boolean) => (reading ? "Checking" : on ? "Yes" : "No");
 
 /** The statement at the top: the one thing to do next. */
-function statement({ steam, games }: HostView): { title: string; line: string } {
+function statement({ steam, games, pairing }: HostView): { title: string; line: string } {
   const { status } = steam;
   if (!status)
     return { title: "Checking Steam", line: "Players play the games installed in Steam on this PC." };
@@ -30,9 +30,12 @@ function statement({ steam, games }: HostView): { title: string; line: string } 
     };
   return {
     title: "Steam is ready",
-    line: games.installed.length
-      ? "Next, pick the games players can play."
-      : "Next, install a few games. Free-to-play games work for every player.",
+    line:
+      pairing.kind !== "paired"
+        ? "Next, pair this PC with your Steam account."
+        : games.installed.length
+          ? "Next, pick the games players can play."
+          : "Next, install a few games. Free-to-play games work for every player.",
   };
 }
 
@@ -98,14 +101,22 @@ export function SteamSetup({ view, actions, go }: ScreenProps) {
         </Zone>
         <Zone title="Next">
           <p className="soft">
-            {installs.length
-              ? `Steam is installing ${count(installs.length, "game", "games")}.`
-              : "See which games to install."}
+            {view.pairing.kind !== "paired"
+              ? "Pair this PC with your Steam account, in one sign-in."
+              : installs.length
+                ? `Steam is installing ${count(installs.length, "game", "games")}.`
+                : "See which games to install."}
           </p>
           <div className="acts">
-            <Pill icon="arrow" onClick={() => go("games")}>
-              Choose games
-            </Pill>
+            {view.pairing.kind !== "paired" ? (
+              <Pill icon="arrow" onClick={() => go("pair")}>
+                Pair this PC
+              </Pill>
+            ) : (
+              <Pill icon="arrow" onClick={() => go("games")}>
+                Choose games
+              </Pill>
+            )}
           </div>
         </Zone>
       </div>

@@ -827,7 +827,7 @@ configured the server lets nobody in (`server/src/access.ts`).
 
 | Side      | Credential                                                                                                                   | Checked how                                                                                                                |
 | --------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Gaming PC | **Machine key**: a random secret per machine, pasted into the host app once and stored there encrypted by Windows.           | The server keeps only its SHA-256 (`MACHINE_KEYS`) and compares hashes. A wrong key cannot register or take over the room. |
+| Gaming PC | **Machine key**: a random secret per machine, made by the host app when it pairs and stored there encrypted by Windows.      | The server keeps only its SHA-256 (`MACHINE_KEYS`) and compares hashes. A wrong key cannot register or take over the room. |
 | Renter    | **Join ticket**: names one room and an expiry, signed by the platform with `ROOM_SECRET` (HMAC-SHA256). Returned by `claim`. | The server checks the signature and expiry, and refuses a ticket whose session has ended.                                  |
 
 - **One renter at a time.** While a renter is in the room, a join with a different
@@ -861,7 +861,8 @@ configured the server lets nobody in (`server/src/access.ts`).
   keeps the seat.
 - **Tickets come from `claim`,** which only the signed-in renter who made the booking
   can call. `npm run ticket -- <machine-id>` still mints one by hand for testing.
-  Machine keys are made by hand: `npm run machine-key -- <machine-id> <owner-steam-id>`.
+  Machine keys come from pairing with Steam in the host app, or by hand with
+  `npm run machine-key -- <machine-id> <owner-steam-id>` ([`host.md`](host.md)).
 
 The server hands both peers the TURN relay when a renter joins: the renter in `joined`, the
 PC in `peer-joined`, each with a credential of its own for that seat, expiring with the

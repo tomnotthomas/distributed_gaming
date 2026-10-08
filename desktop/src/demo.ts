@@ -260,6 +260,7 @@ export const isRentalCase = (id: string): id is RentalCase => RENTAL_CASES.some(
 export const DEMO_SCREENS = [
   { id: "pc", name: "Read this PC" },
   { id: "steam", name: "Set up Steam" },
+  { id: "pair", name: "Pair with Steam" },
   { id: "games", name: "Choose your games" },
   ...RENTAL_CASES,
   { id: "golive", name: "Go live" },
@@ -323,6 +324,8 @@ export function demoState(screen: DemoScreen): DemoState {
       return { ...base, setupDone: false, step: "pc", live: off, clockAt: evening(20, 52) };
     case "steam":
       return { ...base, setupDone: false, step: "steam", live: off, clockAt: evening(20, 53) };
+    case "pair":
+      return { ...base, setupDone: false, step: "pair", live: off, clockAt: evening(20, 54) };
     case "games":
       return { ...base, setupDone: false, step: "games", live: off, clockAt: evening(20, 55) };
 

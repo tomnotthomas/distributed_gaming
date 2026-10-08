@@ -69,7 +69,7 @@ function machineProblem({ serverUrl, machineId }) {
  */
 function machineKeyProblem(machineKey) {
   if (typeof machineKey === "string" && MACHINE_KEY.test(machineKey)) return null;
-  return "This PC has no machine key Lanterel OS can use: paste it in Settings again.";
+  return "This PC has no machine key Lanterel OS can use: pair it with your Steam account again, in the Account step.";
 }
 
 /**

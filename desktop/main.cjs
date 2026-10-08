@@ -324,7 +324,7 @@ function machineOf(machine) {
  * sent nowhere but to the elevated worker.
  */
 function provisioning(machine) {
-  if (!machine) throw new Error("Set this PC's server address and machine id in Settings first.");
+  if (!machine) throw new Error("Pair this PC with your Steam account first, in the Account step.");
   let machineKey = "";
   try {
     if (safeStorage.isEncryptionAvailable())
@@ -333,7 +333,8 @@ function provisioning(machine) {
     machineKey = "";
   }
   machineKey = machineKey.trim();
-  if (!machineKey) throw new Error("Lanterel needs this PC's machine key: paste it in Settings.");
+  if (!machineKey)
+    throw new Error("Lanterel has no key for this PC: pair it with your Steam account in the Account step.");
   // Checked before the run, not at its provision step: the steps before that one change the disk.
   const problem = machineKeyProblem(machineKey);
   if (problem) throw new Error(problem);
@@ -615,11 +616,13 @@ const TITLE_BAR =
 
 /**
  * Links the app may hand to the OS: installing a game in Steam, opening
- * Steam (to sign in) or its library, Steam's store, and the page where a
- * Microsoft account keeps its BitLocker recovery keys.
+ * Steam (to sign in) or its library, Steam's store, the page where a
+ * Microsoft account keeps its BitLocker recovery keys, and the page on
+ * Lanterel's server where the owner pairs this PC (src/pairing.ts), which
+ * carries only the hash of its key: on https, or plain http on this PC itself.
  */
 const EXTERNAL =
-  /^(steam:\/\/install\/\d+|steam:\/\/open\/(main|games)|https:\/\/store\.steampowered\.com\/app\/\d+\/?|https:\/\/aka\.ms\/myrecoverykey)$/;
+  /^(steam:\/\/install\/\d+|steam:\/\/open\/(main|games)|https:\/\/store\.steampowered\.com\/app\/\d+\/?|https:\/\/aka\.ms\/myrecoverykey|(https:\/\/[a-z0-9.-]+|http:\/\/(localhost|127\.0\.0\.1))(:\d{1,5})?\/pair\?k=[0-9a-f]{64})$/;
 
 /** Open allowed links outside the app; the app itself never navigates away. */
 function guardNavigation(contents) {

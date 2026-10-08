@@ -133,6 +133,14 @@ function fakeBridge(idle = 600): HostBridge {
   };
 }
 
+/**
+ * The server's answer to whose this PC is (usePairing asks it once the saved
+ * key is read): the saved machine, Lena's. Not a Host API report, so it is
+ * left out of `calls`.
+ */
+const pairedAnswer = () =>
+  Response.json({ machineId: localStorage.getItem("swiff.machineId") || "gaming-pc-1", owner: "Lena" });
+
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
   vi.setSystemTime(NOW);
@@ -148,6 +156,7 @@ beforeEach(() => {
     vi.fn(async (url: string, init: RequestInit) => {
       const path = new URL(url).pathname;
       if (path.endsWith("/demand")) throw new TypeError("no network in tests");
+      if (path === "/api/pairings/mine") return pairedAnswer();
       const body = typeof init.body === "string" ? JSON.parse(init.body) : null;
       calls.push({ method: init.method ?? "GET", path, body, keepalive: Boolean(init.keepalive) });
       return new Response(path.endsWith("/upload-test") ? null : "{}", {
@@ -195,6 +204,8 @@ describe("useHost", () => {
     expect(localStorage.getItem("swiff.notOffered")).toBe("730");
     act(() => result.current.actions.toggleOffer!(730));
     expect(result.current.view.games.offered).toEqual([730, 1245620]);
+    // Paired before this run: the server says whose it is.
+    expect(result.current.view.pairing).toEqual({ kind: "paired", machineId: "gaming-pc-1", owner: "Lena" });
     // Nothing the platform does not report.
     expect([view.rate, view.standing, view.earnings, view.earlyEnd]).toEqual([null, null, null, null]);
   });
@@ -360,6 +371,7 @@ describe("useHost", () => {
       vi.fn(async (url: string, init: RequestInit) => {
         const path = new URL(url).pathname;
         if (path.endsWith("/demand")) throw new TypeError("no network in tests");
+        if (path === "/api/pairings/mine") return pairedAnswer();
         if (path.endsWith("/upload-test")) return new Response(null, { status: 204 });
         const body = typeof init.body === "string" ? JSON.parse(init.body) : null;
         calls.push({ method: init.method ?? "GET", path, body, keepalive: Boolean(init.keepalive) });
@@ -427,6 +439,7 @@ describe("useHost", () => {
         vi.fn(async (url: string, init: RequestInit) => {
           const path = new URL(url).pathname;
           if (path.endsWith("/demand")) throw new TypeError("no network in tests");
+          if (path === "/api/pairings/mine") return pairedAnswer();
           const body = typeof init.body === "string" ? JSON.parse(init.body) : null;
           calls.push({ method: init.method ?? "GET", path, body, keepalive: Boolean(init.keepalive) });
           const answer = answers.shift() ?? "ok";

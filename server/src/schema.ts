@@ -10,7 +10,7 @@
 
 import type { Database } from "./db.js";
 
-/** Held while migrating. Any constant will do: nothing else here takes advisory locks. */
+/** Held while migrating. Any constant other than pairing.ts's PAIRING_LOCK, the only other advisory lock, will do. */
 const MIGRATION_LOCK = 5_317_001;
 
 /** Each migration's statements, in order; the version is its place in the list, from 1. */
@@ -438,6 +438,18 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     // A crew's link made because its admin removed someone (platform.ts,
     // leaveCrew), which renews the link: the crew page says why it is new.
     `ALTER TABLE crew_invites ADD COLUMN after_removal BOOLEAN NOT NULL DEFAULT false`,
+  ],
+  [
+    // Gaming PCs paired with their owner's Steam account (pairing.ts), beside
+    // the ones MACHINE_KEYS names: the machine id, the SHA-256 of its key (as
+    // MACHINE_KEYS keeps it), and the Steam id of the owner who added it.
+    `CREATE TABLE paired_machines (
+      id         TEXT PRIMARY KEY,
+      key_hash   TEXT NOT NULL UNIQUE,
+      owner_id   TEXT NOT NULL,
+      paired_at  BIGINT NOT NULL
+    )`,
+    `CREATE INDEX paired_machines_by_owner ON paired_machines (owner_id)`,
   ],
 ];
 

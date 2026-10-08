@@ -835,8 +835,8 @@ export type Failure = {
   why: string;
   /** What is different on this PC now: the safety fact. */
   changed: string;
-  /** The one action: ask Windows again, try again, use another drive, check again, or send details. */
-  action: "ask" | "again" | "use" | "check" | "send" | "restart";
+  /** The one action: ask Windows again, try again, use another drive, check again, send details, or pair the PC. */
+  action: "ask" | "again" | "use" | "check" | "send" | "restart" | "pair";
   label: string;
   /** The rail's line. */
   rail: string;
@@ -952,16 +952,16 @@ function ekFailure(setup: RentalSetup, error: string, stoppedAt: string): Failur
       "This PC has no server address to register its TPM with: add the signaling server in Settings, then go live again.",
     ],
     "no-machine": [
-      "Add this PC's machine key",
-      "Lanterel registers this PC's TPM with the server using its machine id and key: add them in Settings, then go live again.",
+      "Pair this PC first",
+      "Lanterel registers this PC's TPM with the server once the PC is paired with your Steam account: pair it, then go live again.",
     ],
     "bad-key": [
-      "The server didn't accept the machine key",
-      "The server refused this PC's machine key: check the machine id and key in Settings, then go live again.",
+      "The server didn't accept this PC's key",
+      "The server refused the key this PC signs in with: pair the PC with your Steam account again, then go live again.",
     ],
     "unknown-machine": [
       "The server doesn't know this PC",
-      "The server has no PC with this machine id: check it in Settings against the one you were given, then go live again.",
+      "The server has no PC with this PC's machine id: pair it with your Steam account again, then go live again.",
     ],
     untrusted: [
       "The server doesn't trust this TPM yet",
@@ -983,6 +983,11 @@ function ekFailure(setup: RentalSetup, error: string, stoppedAt: string): Failur
   const [title, line] = why[/no endorsement key certificate/i.test(error) ? "none" : error] ?? why.read!;
   if (error === "untrusted" && run.reportedAt === null)
     return { ...base, title, why: line, action: "send", label: "Send details to Lanterel" };
+  // Pairing gives the PC a machine id and key the server knows (pairing.ts).
+  if (error === "no-machine")
+    return { ...base, title, why: line, action: "pair", label: "Pair this PC", rail: "Not paired" };
+  if (error === "bad-key" || error === "unknown-machine")
+    return { ...base, title, why: line, action: "pair", label: "Pair again", rail: "Not paired" };
   return { ...base, title, why: line };
 }
 

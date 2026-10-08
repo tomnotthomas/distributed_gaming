@@ -332,8 +332,8 @@ export const SCREEN_COPY = {
 
 export type ScreenKey = keyof (typeof SCREEN_COPY)["en"];
 
-/** The screens translated whole: the wall, an invite, a seat and the crew pages. Every other screen is English only. */
-const TRANSLATED: ReadonlySet<Screen> = new Set(["home", "invite", "seat", "crew"]);
+/** The screens translated whole: the wall, an invite, a seat, pairing a PC and the crew pages. Every other screen is English only. */
+const TRANSLATED: ReadonlySet<Screen> = new Set(["home", "invite", "seat", "pair", "crew"]);
 
 /**
  * The language `screen` speaks, and everything on it with it: the top bar, the

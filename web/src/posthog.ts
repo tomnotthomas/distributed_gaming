@@ -31,6 +31,10 @@ if (!projectToken) {
     defaults: "2026-05-30",
     // An invite link is the whole credential for joining a crew: no event carries one.
     before_send: withoutInviteTokens,
+    // Nor a pairing hash (pair.ts): before_send never sees the URLs posthog-js
+    // keeps for the person and sends with its feature flag requests.
+    mask_personal_data_properties: true,
+    custom_personal_data_properties: ["k"],
   });
 }
 

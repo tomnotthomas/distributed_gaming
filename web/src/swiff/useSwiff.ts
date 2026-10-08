@@ -70,7 +70,7 @@ import {
   type StoreData,
 } from "./steam";
 
-export type Screen = "home" | "game" | "profile" | "share" | "invite" | "seat" | "crew";
+export type Screen = "home" | "game" | "profile" | "share" | "invite" | "seat" | "pair" | "crew";
 export type Phase = "idle" | "connecting" | "live";
 export type Quality = "auto" | "fps" | "resolution";
 export type Device = "kb" | "mouse" | "pad";

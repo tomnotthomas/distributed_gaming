@@ -385,8 +385,24 @@ in one write, that each PC whose socket pinged since the last round was there th
 a crash or restart a PC that never comes back is taken offline as of that last stored
 round, and a session it was running ends, priced for the time played, at that moment.
 
-The machine key comes from `npm run machine-key -- <machine-id> <owner-steam-id>`, which
-also records the owner, so the owner is never matched to their own PC. The host app keeps it
+The machine key comes from pairing, the host app's Account step before Go live
+(`desktop/src/pairing.ts`, `server/src/pairing.ts`): the app makes the key itself and opens
+`/pair?k=<SHA-256 of the key>` on the server, where the owner signs in with Steam and adds
+the PC (`POST /api/pairings { keyHash }`, signed in); the app asks
+`GET /api/pairings/mine` with the key (any origin) until the server answers with the
+machine id it gave the PC and its owner (Steam persona, else Steam id), which the Account
+step shows; when the server doesn't know the kept key, or answers it for another machine id,
+the step claims no ownership and asks the owner to pair again, and when it knows the key but
+links no Steam account (a hand-made key with no owner), the step says so and goes on. The pairing link carries only the key's hash; the app sends the key itself
+only to its own server, as the bearer of its Host API calls. Whoever adds the PC is its
+owner, so the page treats the hash as a secret: it stays out of analytics and never rides
+through Steam sign-in (with the browser's storage blocked, the page offers no sign-in to
+pair). Pairing again reuses the key the app keeps, which the server answers with the same
+machine id, except "Pair again" beside a named owner on the Account step, which makes a fresh key: a new
+claim for a PC paired with the wrong account. A key can also be minted by hand, `npm run machine-key -- <machine-id>
+<owner-steam-id>` into `MACHINE_KEYS`, which records the owner the same way: either way the
+owner is never matched to their own PC. Pairing answers a hand-made key with its own
+machine id and owner and never gives it a new id. The host app keeps it
 encrypted with Electron `safeStorage` (Windows DPAPI), and the renderer can only reach it
 through two calls in `desktop/preload.cjs`. The server stores only its hash. See "Room
 access" in [`renter.md`](renter.md). Each time the app restarts the PC into Swiff OS (Go live,
