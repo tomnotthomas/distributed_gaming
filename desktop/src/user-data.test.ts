@@ -55,14 +55,21 @@ describe("moveUserData", () => {
     expect(KEPT).toContain("swiff-os");
   });
 
-  it("links the image set's finished files and leaves its unfinished parts", () => {
+  it("links the image set's finished files, copies its manifest and signature, and leaves its unfinished parts", () => {
     put(where.old, "swiff-os/swiffos.json", "{}");
+    put(where.old, "swiff-os/swiffos.json.sig", "sig");
     put(where.old, "swiff-os/swiffos_0.1.0.esp.raw", "esp");
     put(where.old, "swiff-os/.download/root.gz.000", "part");
     moveUserData(where);
     const from = fs.statSync(path.join(where.old, "swiff-os/swiffos_0.1.0.esp.raw"));
     const to = fs.statSync(path.join(where.dir, "swiff-os/swiffos_0.1.0.esp.raw"));
     expect(to.ino).toBe(from.ino);
+    expect(read(where.dir, "swiff-os/swiffos.json")).toBe("{}");
+    expect(read(where.dir, "swiff-os/swiffos.json.sig")).toBe("sig");
+    // The download writes these in place (image-download.cjs downloadSet): a link would let one app's update rewrite the other's.
+    for (const name of ["swiff-os/swiffos.json", "swiff-os/swiffos.json.sig"])
+      expect(fs.statSync(path.join(where.dir, name)).ino).not.toBe(fs.statSync(path.join(where.old, name)).ino);
+    fs.writeFileSync(path.join(where.old, "swiff-os/swiffos.json"), '{"version":"0.2.0"}');
     expect(read(where.dir, "swiff-os/swiffos.json")).toBe("{}");
     expect(has(where.dir, "swiff-os/.download")).toBe(false);
   });

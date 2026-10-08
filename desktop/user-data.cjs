@@ -7,6 +7,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { MANIFEST, SIGNATURE } = require("./image-set.cjs");
 
 /**
  * What the app keeps in its user data: the machine key, and Chromium's Local
@@ -37,7 +38,8 @@ const userDataOf = (appData) => ({
 /**
  * Copy `src` to `dest`, keeping what `dest` has. The image set's files are
  * linked, not copied: they are gigabytes, and the download only ever renames a
- * finished file into place. Its unfinished parts, which it appends to, and
+ * finished file into place. Its manifest and signature, which the download
+ * writes in place, are copied. Its unfinished parts, which it appends to, and
  * Local Storage's LOCK, which a running Swiff Host holds, stay behind.
  */
 function copyInto(src, dest, link, files) {
@@ -48,7 +50,7 @@ function copyInto(src, dest, link, files) {
     for (const n of files.readdirSync(src)) copyInto(path.join(src, n), path.join(dest, n), link, files);
   } else if (!files.existsSync(dest)) {
     try {
-      if (!link) throw new Error("copy");
+      if (!link || name === MANIFEST || name === SIGNATURE) throw new Error("copy");
       files.linkSync(src, dest);
     } catch {
       files.copyFileSync(src, dest);
