@@ -540,6 +540,18 @@ founder is the crew's admin, who renames it, replaces its link and removes membe
 the admin leaves, whoever has been in the crew longest takes over, and the last one out
 archives it, which also kills its link.
 
+Crew names are unique per person: nobody founds or renames a crew to the name of a crew
+they are in already, founded or joined, in any case ("Zocker" and "ZOCKER" are one name).
+A crew with no name of its own is called after its admin, so each person is the admin of
+one such crew at most. Joining someone else's crew of the same name is never refused, and
+crews of the same name a person had before this rule are kept as they are. Taking a crew
+over when its admin leaves, or another crew's admin renaming it, is never refused either,
+like joining, since that person did not pick the name; where a person ends up with two of
+one name, the clash names the one they joined first (then by membership id), and a seat
+goes into their crew with no name of its own founded first (then by crew id). Founding is
+idempotent: the page sends a key with each founding, and the same key again is the crew it
+founded rather than a second one, while its founder is its admin.
+
 A crew has one link, `/invite/<token>`, which anyone in it may share: whoever opens it and
 joins is in that crew, attributed to the invite. The token is the invite's random id
 followed by its HMAC-SHA256 under `SESSION_SECRET` in a domain of its own, cut to 16 bytes
@@ -583,9 +595,14 @@ GET  /crews
   how many PCs play for it, `pcArrived` whether its first PC came after they joined,
   within the last 7 days, which the web app celebrates on their next visit. → 401 signed out.
 
-POST /crews { name? }
+POST /crews { name?, key? }
   → 201 { crew }
-  Found a crew; its PCs are the founder's. `crew` is a crew in full, as below.
+  Found a crew; its PCs are the founder's. `crew` is a crew in full, as below. `key` (up
+  to 64 letters, digits, `-` or `_`) names this founding: sent again by the same player, it
+  answers with the crew it founded, as it is now, while they are still in it.
+  → 409 { error, code: "name-taken", crew: { id, name, crewName, own } } when the player is
+  in a crew by that name already (for no name, one with no name of its own they are the
+  admin of): which one, to go to it or pick another name.
   → 409 { error, code: "too-many-crews" } for a player in 50 crews already.
 
 GET  /crews/:id
@@ -613,7 +630,8 @@ POST /crews/:id/name { name }   → 200 { crew }
 POST /crews/:id/link            → 200 { crew }
   As its admin: give the crew a name of its own (up to 24 characters; empty names it after
   the admin again), or a new link in place of the old one. → 403 for a member who is not
-  the admin. → 404 as above.
+  the admin. → 409 name-taken, as for founding, when the admin is in another crew by that
+  name. → 404 as above.
 
 POST /crews/:id/pc { pc: "yes" | "off" }
   → 200 { crew }
@@ -682,7 +700,11 @@ The web app (`web/src/swiff/CrewPage.tsx`, `CrewInvite.tsx`, `CrewsCard.tsx`) fo
 decided "Sofort-Crew" flow in the launch set's lobby look: `/crews` lists the player's crews
 and founds one in a tap right there (at once from `/crews?found=1` for a player with none,
 the marketing site's buttons, and from `/crews?found=new` whatever they have, the app's own
-"Start a new crew"), then becomes its page; `/crews/<id>` is one crew. The crew page
+"Start a new crew"), then becomes its page; `/crews/<id>` is one crew, whose sign-in, signed
+out, comes back to that crew rather than founding one. A name the player has a crew by
+already founds nothing: the page says so ("You already have a crew called …") with "Go to
+that crew" and "Pick another name"; renaming says the same. The list marks the crews the
+player is the admin of ("Name · Admin"). The crew page
 guides its member one step at a time on a ticket for the crew's next Zockrunde: one coupon
 per step, only the current one open with one main button, done steps one line with a tick,
 their value and "change", later steps only names. The founder sets the date (the admin may
@@ -720,10 +742,10 @@ and Ignition. The session's own screen is English only. So no screen mixes the t
 
 A host keeps up to four named seats at their gaming PC for friends (`server/src/platform.ts`,
 seats; `MAX_SEATS`), from the host app (host.md, `/machines/:id/seats`). Each seat is in a
-crew the PC plays for: the first of its owner's, or, when the PC plays for none of theirs, a
-crew founded for it, which that PC then plays for (a PC open to anyone stays open; the
-founding does not bring the owner's PCs, so their other PCs, now or later, stay out of
-it). A seat names the friend it is for and waits for them for 14 days (`SEAT_HOLD_MS`); an
+crew the PC plays for: the first of its owner's, or, when the PC plays for none of theirs,
+their crew with no name of its own, founded for it when they have none (never a second
+one called after them), which that PC then plays for (a PC open to anyone stays open; this
+does not bring the owner's other PCs, now or later). A seat names the friend it is for and waits for them for 14 days (`SEAT_HOLD_MS`); an
 unanswered seat that ran out no longer counts against the four.
 
 Each seat has its own link, `/seat/<token>`, signed as a crew link is but in a domain of its

@@ -127,6 +127,7 @@ import {
   MAX_SEATS,
   seatNameOf,
   type CrewDetail,
+  type CrewNameTaken,
   type HostSeat,
   type Platform,
   type Rtts,
@@ -246,6 +247,14 @@ function reply(
 ): void {
   res.writeHead(status, { ...headers, "content-type": "application/json", "cache-control": "no-store" });
   res.end(JSON.stringify(body));
+}
+
+/** A founding's key, which makes sending it again found nothing more (POST /api/crews). */
+const FOUND_KEY = /^[\w-]{1,64}$/;
+
+/** A crew not founded or renamed for a name the person has a crew by already: which crew, with code name-taken. */
+function replyNameTaken(res: ServerResponse, { taken }: CrewNameTaken): void {
+  reply(res, 409, { error: "you have a crew of that name already", code: "name-taken", crew: taken });
 }
 
 /**
@@ -789,16 +798,28 @@ export function createApi({
     }
 
     // Found a crew, with its own name when one is given; it is named after the founder until then.
+    // The same `key` again is the crew it founded: a found sent twice founds one crew.
     if (resource === "crews" && !id && method === "POST") {
       const steamId = requireRenter(req, sessionSecret);
       const body = await readJson(req);
       if (body.name !== undefined && typeof body.name !== "string")
         throw new HttpError(400, "name must be text");
+      if (body.key !== undefined && (typeof body.key !== "string" || !FOUND_KEY.test(body.key)))
+        throw new HttpError(400, "key must be up to 64 letters, digits, - or _");
       // The founder is shown by their Steam persona: kept from this read, when Steam answers.
       const read = await profile(steamId).catch(() => null);
-      const crew = await platform.createCrew(steamId, read?.persona || null, (body.name as string) ?? null);
+      const crew = await platform.createCrew(
+        steamId,
+        read?.persona || null,
+        (body.name as string) ?? null,
+        (body.key as string) ?? null,
+      );
       if (crew === "too-many") {
         reply(res, 409, { error: `you are in ${MAX_CREWS} crews already`, code: "too-many-crews" });
+        return true;
+      }
+      if ("taken" in crew) {
+        replyNameTaken(res, crew);
         return true;
       }
       reply(res, 201, { crew: crewReply(crew) });
@@ -826,6 +847,10 @@ export function createApi({
       }
       if (!crew) throw new HttpError(404, "no such crew");
       if (crew === "forbidden") throw new HttpError(403, "only the crew's admin may do that");
+      if ("taken" in crew) {
+        replyNameTaken(res, crew);
+        return true;
+      }
       reply(res, 200, { crew: crewReply(crew) });
       return true;
     }

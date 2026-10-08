@@ -8,6 +8,8 @@ import { E2E_CREW_PC, E2E_CREW_PC_KEY, E2E_CREW_PC_OWNER, signIn } from "./crede
 import { failOnPageError } from "./hosts";
 
 const FOUNDER = "76561198000000101";
+/** Founds a crew, then tries for a second of the same name. */
+const NAMER = "76561198000000111";
 
 /** The heartbeat that keeps the crewmate's PC on offer, while one runs. */
 let beating: ReturnType<typeof setInterval> | undefined;
@@ -90,4 +92,50 @@ test("found a crew, a friend joins without a PC, brings one later, and the crew 
   expect(friendErrors).toEqual([]);
   await founderContext.close();
   await friendContext.close();
+});
+
+test("a crew by a name the player has already founds nothing: they go to it or pick another name", async ({
+  browser,
+  baseURL,
+}) => {
+  const context = await browser.newContext();
+  await signIn(context, baseURL!, NAMER);
+  const page = await context.newPage();
+  const errors = failOnPageError(page, "namer");
+  await page.goto("/crews?found=1");
+  await expect(page).toHaveURL(/\/crews\/[\w-]{22}$/);
+  const first = new URL(page.url()).pathname;
+
+  // "Start a new crew" again, with no name: they have the crew called after them already.
+  await page.goto("/crews?found=new");
+  const clash = page.getByRole("alert");
+  await expect(clash).toContainText("You already have a crew called");
+  await expect(page.locator(".crew-pick")).toHaveCount(1);
+  await expect(page.locator(".crew-pick")).toContainText("· Admin");
+  await clash.getByRole("button", { name: "Go to that crew" }).click();
+  await expect(page).toHaveURL(new RegExp(`${first}$`));
+
+  // Or another name, which founds the second crew.
+  await page.goto("/crews?found=new");
+  await page.getByRole("button", { name: "Pick another name" }).click();
+  await page.getByRole("textbox", { name: "Name your crew" }).fill("Night Owls");
+  await page.getByRole("button", { name: /Start a crew/ }).click();
+  await expect(page).toHaveURL(/\/crews\/[\w-]{22}$/);
+  expect(new URL(page.url()).pathname).not.toBe(first);
+  const { crews } = await (await page.request.get("/api/crews")).json();
+  expect(crews.map((c: { crewName: string | null }) => c.crewName)).toEqual([null, "Night Owls"]);
+
+  // Signed out, a crew's page signs in and comes back to that crew, founding none.
+  const outContext = await browser.newContext();
+  const out = await outContext.newPage();
+  await out.goto(first);
+  await expect(out.getByRole("heading", { name: "Sign in to see your crew" })).toBeVisible();
+  await expect(out.getByRole("link", { name: /Sign in with Steam/ })).toHaveAttribute(
+    "href",
+    `/auth/steam/login?to=${encodeURIComponent(first)}`,
+  );
+
+  expect(errors).toEqual([]);
+  await context.close();
+  await outContext.close();
 });

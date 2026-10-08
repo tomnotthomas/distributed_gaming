@@ -278,7 +278,7 @@ describe("crew live sessions", () => {
   /** A crew `founder` founds, named `name`, that `members` join by its link and whose PCs the owner brings. */
   async function crewOf(founder: string, name: string | null, members: [string, string][]) {
     const crew = await platform.createCrew(founder, PERSONA[founder] ?? null, name);
-    assert.ok(crew !== "too-many" && crew.inviteId);
+    assert.ok(crew !== "too-many" && !("taken" in crew) && crew.inviteId);
     for (const [id, persona] of [...members, [OWNER, "Owner"] as [string, string]]) {
       assert.ok((await platform.joinCrew(crew.inviteId, id, persona)).ok);
     }
@@ -355,7 +355,7 @@ describe("crew live sessions", () => {
     await maraCrew();
     // Mara's other crew, which the PC does not play for: Stranger is in it.
     const night = await platform.createCrew(MARA, "Mara", "Night Owls");
-    assert.ok(night !== "too-many" && night.inviteId);
+    assert.ok(night !== "too-many" && !("taken" in night) && night.inviteId);
     assert.ok((await platform.joinCrew(night.inviteId, STRANGER, "Stranger")).ok);
     const { sessionId } = await plays(MARA);
     assert.deepEqual((await call("GET", "/api/crew-live", STRANGER)).body.live, []);
@@ -1258,9 +1258,12 @@ describe("watching through the signaling server", () => {
   });
 
   /** A room playing for Mara's first crew and a fresh one the stranger is in; Lea asks, Mara shares, pinning the first. */
+  /** How many crews pinnedThenLeft founded: each is a new one, by a name of its own. */
+  let leftCrews = 0;
   async function pinnedThenLeft() {
     const first = await crew();
-    const other = await call("POST", "/api/crews", MARA, { name: "Still Here" });
+    const other = await call("POST", "/api/crews", MARA, { name: `Still Here ${++leftCrews}` });
+    assert.equal(other.status, 201);
     const otherId = other.body.crew.id as string;
     for (const member of [STRANGER, OWNER]) {
       assert.equal((await call("POST", `/api/invites/${other.body.crew.token}/join`, member)).status, 200);

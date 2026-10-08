@@ -99,7 +99,7 @@ const open = async () => {
 /** Found a crew, as someone in fewer than MAX_CREWS crews. */
 async function found(...args: Parameters<Platform["createCrew"]>) {
   const crew = await platform.createCrew(...args);
-  assert.ok(crew !== "too-many");
+  assert.ok(crew !== "too-many" && !("taken" in crew));
   return crew;
 }
 
@@ -198,15 +198,162 @@ describe("crews", () => {
     it("renames as its admin only, cuts a long name, and names it after its admin again when emptied", async () => {
       const { crewId, inviteId } = await hostJoinsAlex();
       const renamed = await platform.renameCrew(crewId, ALEX, "  Couch \n Koop  ");
-      assert.equal(renamed !== null && renamed !== "forbidden" && renamed.crewName, "Couch Koop");
+      assert.equal(
+        renamed !== null && renamed !== "forbidden" && !("taken" in renamed) && renamed.crewName,
+        "Couch Koop",
+      );
       assert.equal(await platform.renameCrew(crewId, HOST, "Mine now"), "forbidden");
       assert.equal(await platform.renameCrew(crewId, STRANGER, "Mine now"), null);
       assert.equal((await platform.invite(inviteId))?.crewName, "Couch Koop");
 
       const long = await platform.renameCrew(crewId, ALEX, "x".repeat(40));
-      assert.equal(long !== null && long !== "forbidden" && long.crewName, "x".repeat(CREW_NAME_MAX));
+      assert.equal(
+        long !== null && long !== "forbidden" && !("taken" in long) && long.crewName,
+        "x".repeat(CREW_NAME_MAX),
+      );
       const emptied = await platform.renameCrew(crewId, ALEX, "   ");
-      assert.equal(emptied !== null && emptied !== "forbidden" && emptied.crewName, null);
+      assert.equal(
+        emptied !== null && emptied !== "forbidden" && !("taken" in emptied) && emptied.crewName,
+        null,
+      );
+    });
+
+    it("refuses a crew of a name its founder has a crew by, whatever its case, and says which", async () => {
+      const night = await found(ALEX, "Alex", "Night Owls");
+      // Jo's crew of the same name: Alex joins it all the same.
+      const jos = await found(JO, "Jo", "Zockerbande");
+      assert.ok((await platform.joinCrew(jos.inviteId!, ALEX, "Alex")).ok);
+      assert.deepEqual(await platform.createCrew(ALEX, "Alex", "  NIGHT   owls "), {
+        taken: { id: night.id, name: "Alex", crewName: "Night Owls", own: true },
+      });
+      // A crew they joined counts as theirs.
+      assert.deepEqual(await platform.createCrew(ALEX, "Alex", "zockerbande"), {
+        taken: { id: jos.id, name: "Jo", crewName: "Zockerbande", own: false },
+      });
+      // Another person's crew of that name is no reason to refuse it.
+      assert.equal((await found(HOST, "Sam", "Night Owls")).crewName, "Night Owls");
+      assert.equal((await found(ALEX, "Alex", "Night Owls 2")).crewName, "Night Owls 2");
+    });
+
+    it("lets its founder be the admin of one crew with no name of its own, called after them, at most", async () => {
+      const first = await found(ALEX, "Alex");
+      assert.deepEqual(await platform.createCrew(ALEX, "Alex"), {
+        taken: { id: first.id, name: "Alex", crewName: null, own: true },
+      });
+      // Jo's crew with no name is called after Jo: Alex may still found one, and join Jo's.
+      const jos = await found(JO, "Jo");
+      assert.ok((await platform.joinCrew(jos.inviteId!, ALEX, "Alex")).ok);
+      assert.equal((await found(HOST, "Sam")).crewName, null);
+      // Named, the first one makes room for another with no name.
+      await platform.renameCrew(first.id, ALEX, "Freitagsrunde");
+      assert.equal((await found(ALEX, "Alex")).crewName, null);
+    });
+
+    it("lets a member take over a crew with no name while admin of one, and keeps to their oldest", async () => {
+      const own = await found(HOST, "Sam");
+      now += 1000;
+      const jos = await found(JO, "Jo");
+      now += 1000;
+      assert.ok((await platform.joinCrew(jos.inviteId!, HOST, "Sam")).ok);
+      now += 1000;
+      // Jo leaves: the host takes Jo's crew over, a second one called after them.
+      assert.equal(await platform.leaveCrew(jos.memberId, JO), true);
+      assert.deepEqual(
+        (await platform.crews(HOST)).map((c) => [c.id, c.crewName, c.own]),
+        [
+          [own.id, null, true],
+          [jos.id, null, true],
+        ],
+      );
+      assert.deepEqual(await platform.createCrew(HOST, "Sam"), {
+        taken: { id: own.id, name: "Sam", crewName: null, own: true },
+      });
+      await offer("pc-1", { crews: [] });
+      const seat = await platform.createSeat("pc-1", "Mia", "Sam");
+      assert.ok(seat.ok);
+      assert.equal(seat.seat.crewId, own.id);
+    });
+
+    it("founds once for a founding sent again with the same key, and anew for another key", async () => {
+      const crew = await found(ALEX, "Alex", "Freitagsrunde", "key-1");
+      now += 1000;
+      const again = await found(ALEX, "Alex", "Freitagsrunde", "key-1");
+      assert.equal(again.id, crew.id);
+      assert.deepEqual(
+        (await platform.crews(ALEX)).map((c) => c.id),
+        [crew.id],
+      );
+      // The key is the founder's own: Jo's founding with it is a crew of Jo's.
+      const jos = await found(JO, "Jo", "Freitagsrunde", "key-1");
+      assert.notEqual(jos.id, crew.id);
+      // A new key with a name they have is refused rather than founding a second.
+      assert.deepEqual(await platform.createCrew(ALEX, "Alex", "Freitagsrunde", "key-2"), {
+        taken: { id: crew.id, name: "Alex", crewName: "Freitagsrunde", own: true },
+      });
+      // Left, the crew a key founded is no answer to it any more: it founds anew.
+      assert.equal(await platform.leaveCrew(crew.memberId, ALEX), true);
+      const anew = await found(ALEX, "Alex", "Freitagsrunde", "key-1");
+      assert.notEqual(anew.id, crew.id);
+    });
+
+    it("lets a key go with its crew's admin: the new admin's own founding by it stays theirs", async () => {
+      const alexs = await found(ALEX, "Alex", "Freitagsrunde", "key-1");
+      const jos = await found(JO, "Jo", "Montagsrunde", "key-1");
+      assert.ok((await platform.joinCrew(alexs.inviteId!, JO, "Jo")).ok);
+      assert.equal(await platform.leaveCrew(alexs.memberId, ALEX), true);
+      assert.equal((await platform.crew(alexs.id, JO))?.own, true);
+      assert.equal((await found(JO, "Jo", "Montagsrunde", "key-1")).id, jos.id);
+    });
+
+    it("refuses a new name the admin has another crew by, and keeps the one it has", async () => {
+      const night = await found(ALEX, "Alex", "Night Owls");
+      const other = await found(ALEX, "Alex", "Couch Koop");
+      assert.deepEqual(await platform.renameCrew(other.id, ALEX, "night OWLS"), {
+        taken: { id: night.id, name: "Alex", crewName: "Night Owls", own: true },
+      });
+      const unnamed = await found(ALEX, "Alex");
+      assert.deepEqual(await platform.renameCrew(other.id, ALEX, " "), {
+        taken: { id: unnamed.id, name: "Alex", crewName: null, own: true },
+      });
+      // Its own name again, in another case too, is no clash.
+      const same = await platform.renameCrew(night.id, ALEX, "Night Owls");
+      assert.ok(same && same !== "forbidden" && !("taken" in same));
+      const recased = await platform.renameCrew(night.id, ALEX, "NIGHT OWLS");
+      assert.ok(recased && recased !== "forbidden" && !("taken" in recased));
+      assert.equal(recased.crewName, "NIGHT OWLS");
+    });
+
+    it("keeps crews of the same name a person had before, and founds no more of it", async () => {
+      const first = await found(ALEX, "Alex", "Zockerbande");
+      // Two of the same name, as founding made them before names were checked.
+      await database.query(
+        "INSERT INTO crews (id, owner_id, owner_name, name, created_at) VALUES ($1, $2, $3, $4, $5)",
+        ["old-crew", ALEX, "Alex", "zockerbande", now],
+      );
+      await database.query(
+        "INSERT INTO crew_members (id, crew_id, user_id, name, joined_at) VALUES ($1, $2, $3, $4, $5)",
+        ["old-member", "old-crew", ALEX, "Alex", now + 1],
+      );
+      assert.deepEqual(
+        (await platform.crews(ALEX)).map((c) => c.crewName),
+        ["Zockerbande", "zockerbande"],
+      );
+      const refused = await platform.createCrew(ALEX, "Alex", "ZOCKERBANDE");
+      assert.ok(refused !== "too-many" && "taken" in refused);
+      // Saving either one's name unchanged still works.
+      const kept = await platform.renameCrew(first.id, ALEX, "Zockerbande");
+      assert.ok(kept && kept !== "forbidden" && !("taken" in kept));
+      // So does a new spelling of its own name, the other one of that name notwithstanding.
+      const recased = await platform.renameCrew(first.id, ALEX, "ZOCKERBANDE");
+      assert.ok(recased && recased !== "forbidden" && !("taken" in recased));
+      assert.equal(recased.crewName, "ZOCKERBANDE");
+      const widened = await platform.renameCrew(first.id, ALEX, "Ｚｏｃｋｅｒｂａｎｄｅ");
+      assert.ok(widened && widened !== "forbidden" && !("taken" in widened), "NFKC: the same name");
+      assert.equal(widened.crewName, "Ｚｏｃｋｅｒｂａｎｄｅ");
+      // A name other than its own is still refused for the other one.
+      const other = await found(ALEX, "Alex", "Couch Koop");
+      const clash = await platform.renameCrew(other.id, ALEX, "ZockerBande");
+      assert.ok(clash && clash !== "forbidden" && "taken" in clash);
     });
 
     it("keeps a name to what can be shown: no control characters, emoji counted as one", () => {
@@ -216,8 +363,8 @@ describe("crews", () => {
     });
     it("keeps anyone to MAX_CREWS crews, founded and joined alike", async () => {
       const joinable = await found(JO, "Jo");
-      for (let i = 0; i < MAX_CREWS; i++) await found(ALEX, "Alex");
-      assert.equal(await platform.createCrew(ALEX, "Alex"), "too-many");
+      for (let i = 0; i < MAX_CREWS; i++) await found(ALEX, "Alex", `Crew ${i}`);
+      assert.equal(await platform.createCrew(ALEX, "Alex", "One more"), "too-many");
       assert.deepEqual(await platform.joinCrew(joinable.inviteId!, ALEX), { ok: false, reason: "too-many" });
       // Leaving one makes room again; a crew they are in already still opens.
       const [first] = await platform.crews(ALEX);
@@ -705,11 +852,40 @@ describe("crew API", () => {
     assert.equal((await call("GET", "/api/crews")).status, 401);
   });
 
+  it("refuses a crew of a name the player has with 409 name-taken, saying which, and founds once per key", async () => {
+    const first = await call("POST", "/api/crews", ALEX, { name: "Freitagsrunde", key: "k-1" });
+    assert.equal(first.status, 201);
+    const again = await call("POST", "/api/crews", ALEX, { name: "Freitagsrunde", key: "k-1" });
+    assert.equal(again.status, 201);
+    assert.equal(again.body.crew.id, first.body.crew.id, "the same founding sent again is the crew it made");
+
+    const clash = await call("POST", "/api/crews", ALEX, { name: "freitagsrunde", key: "k-2" });
+    assert.equal(clash.status, 409);
+    assert.equal(clash.body.code, "name-taken");
+    assert.deepEqual(clash.body.crew, {
+      id: first.body.crew.id,
+      name: "Alex",
+      crewName: "Freitagsrunde",
+      own: true,
+    });
+    for (const key of [7, "", "has space", "x".repeat(65)])
+      assert.equal((await call("POST", "/api/crews", ALEX, { key })).status, 400);
+
+    const other = await call("POST", "/api/crews", ALEX, { name: "Couch Koop" });
+    const renamed = await call("POST", `/api/crews/${other.body.crew.id}/name`, ALEX, {
+      name: "FREITAGSRUNDE",
+    });
+    assert.equal(renamed.status, 409);
+    assert.equal(renamed.body.code, "name-taken");
+    assert.equal(renamed.body.crew.id, first.body.crew.id);
+    assert.equal((await call("GET", "/api/crews", ALEX)).body.crews.length, 2);
+  });
+
   it("refuses to found or join past MAX_CREWS crews with 409", async () => {
     const { body } = await call("POST", "/api/crews", JO, {});
     for (let i = 0; i < MAX_CREWS; i++)
-      assert.equal((await call("POST", "/api/crews", ALEX, {})).status, 201);
-    const founding = await call("POST", "/api/crews", ALEX, {});
+      assert.equal((await call("POST", "/api/crews", ALEX, { name: `Crew ${i}` })).status, 201);
+    const founding = await call("POST", "/api/crews", ALEX, { name: "One more" });
     assert.equal(founding.status, 409);
     assert.equal(founding.body.code, "too-many-crews");
     const joining = await call("POST", `/api/invites/${body.crew.token}/join`, ALEX);

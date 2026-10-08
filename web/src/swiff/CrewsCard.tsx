@@ -40,7 +40,8 @@ export function CrewsCard({ swiff }: { swiff: Swiff }) {
           {crews.map((c) => (
             <li key={c.id}>
               <span>
-                {crewTitle(lang, c)} ·{" "}
+                {crewTitle(lang, c)}
+                {c.own ? ` · ${t("crews.admin")}` : null} ·{" "}
                 {t(c.state === "ready" ? "cp.ready" : c.state === "offline" ? "cp.offline" : "cp.almost")}
               </span>
               <button type="button" className="share-link" onClick={() => swiff.openCrew(c.id)}>

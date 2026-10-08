@@ -118,6 +118,8 @@ test.describe("watching a friend play", () => {
    * The player founds a crew, the PC's owner brings it to the crew and the
    * friend joins it, and the player launches on that PC and plays.
    */
+  /** How many crews playerPlays founded: each is a new one, by a name of its own. */
+  let crewsFounded = 0;
   async function playerPlays(browser: Browser, baseURL: string, request: APIRequestContext) {
     await offerHost(request, true, E2E_WATCH_PC, E2E_WATCH_PC_KEY);
     const player = await openPage(browser, PLAYER, baseURL);
@@ -129,12 +131,19 @@ test.describe("watching a friend play", () => {
     // The player founds the crew; its link brings in the PC's owner, who brings the PC, and the friend.
     await player.goto("/");
     const crew = await player.evaluate(
-      async () =>
+      async (name) =>
         (
-          (await (await fetch("/api/crews", { method: "POST" })).json()) as {
+          (await (
+            await fetch("/api/crews", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ name }),
+            })
+          ).json()) as {
             crew: { id: string; token: string };
           }
         ).crew,
+      `Watch Crew ${++crewsFounded}`,
     );
     await owner.goto("/");
     expect(

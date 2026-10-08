@@ -375,6 +375,18 @@ describe("CrewPage: signed out, founding and the list", () => {
     expect(calls).toEqual([]);
   });
 
+  it("signs a signed-out visitor at a crew's page in and back to that crew, never to founding one", () => {
+    const calls = fetchFrom({});
+    render(<CrewPage swiff={atCrew("c1", { signedIn: false })} />);
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Sign in to see your crew");
+    expect(screen.getByRole("link", { name: /Sign in with Steam/ })).toHaveAttribute(
+      "href",
+      "/auth/steam/login?to=%2Fcrews%2Fc1",
+    );
+    expect(screen.queryByRole("link", { name: /Start a crew/ })).toBeNull();
+    expect(calls).toEqual([]);
+  });
+
   it("founds the crew once, right on the list, and puts its id in the address: no page of its own", async () => {
     const calls = fetchFrom({
       "GET /api/crews": [200, { crews: [] }],
@@ -388,7 +400,9 @@ describe("CrewPage: signed out, founding and the list", () => {
     );
     fireEvent.click(await screen.findByRole("button", { name: /Start a crew/ }));
     await waitFor(() => expect(swiff.replaceCrew).toHaveBeenCalledWith("c-new"));
-    expect(calls.filter(([method]) => method === "POST")).toEqual([["POST", "/api/crews", "{}"]]);
+    const posts = calls.filter(([method]) => method === "POST");
+    expect(posts).toHaveLength(1);
+    expect(JSON.parse(posts[0]![2]!)).toEqual({ key: expect.stringMatching(/^[0-9a-f]{32}$/) });
     expect(swiff.replaceCrew).toHaveBeenCalledTimes(1);
     expect(screen.queryByText(/Starting your crew/)).toBeNull();
   });
@@ -403,7 +417,67 @@ describe("CrewPage: signed out, founding and the list", () => {
     answer = [201, { crew: crewOf({ id: "c-new" }) }];
     fireEvent.click(screen.getByRole("button", { name: /Start a crew/ }));
     await waitFor(() => expect(swiff.replaceCrew).toHaveBeenCalledWith("c-new"));
-    expect(calls.filter(([method]) => method === "POST")).toHaveLength(2);
+    const posts = calls.filter(([method]) => method === "POST");
+    expect(posts).toHaveLength(2);
+    // The same founding again: a crew made by the first, whose answer was lost, is the one it gets.
+    expect(posts[1]![2]).toBe(posts[0]![2]);
+  });
+
+  it("founds no crew by a name the player has one by: goes to that crew, or picks another name", async () => {
+    const lenas = { id: "c1", name: "Lena", crewName: null, own: true };
+    let answer: [number, unknown] = [409, { code: "name-taken", crew: lenas }];
+    const calls = fetchFrom({
+      "GET /api/crews": [200, { crews: [crewOf(), crewOf({ id: "c2", name: "Max", own: false })] }],
+      "POST /api/crews": () => answer,
+    });
+    const swiff = fakeSwiff();
+    render(<CrewPage swiff={swiff} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Start a new crew/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("You already have a crew called Lena's crew.");
+    fireEvent.click(screen.getByRole("button", { name: /Go to that crew/ }));
+    expect(swiff.openCrew).toHaveBeenCalledWith("c1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Pick another name" }));
+    const name = screen.getByRole("textbox", { name: "Name your crew" });
+    expect(screen.getByRole("button", { name: /Start a crew/ })).toBeDisabled();
+    fireEvent.change(name, { target: { value: "Night Owls" } });
+    answer = [
+      409,
+      { code: "name-taken", crew: { id: "c3", name: "Max", crewName: "night owls", own: false } },
+    ];
+    fireEvent.click(screen.getByRole("button", { name: /Start a crew/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("You already have a crew called night owls.");
+    fireEvent.click(screen.getByRole("button", { name: "Pick another name" }));
+    expect(screen.getByRole("textbox", { name: "Name your crew" })).toHaveValue("Night Owls");
+    fireEvent.change(screen.getByRole("textbox", { name: "Name your crew" }), {
+      target: { value: "Zocker" },
+    });
+    answer = [201, { crew: crewOf({ id: "c-new", crewName: "Zocker" }) }];
+    fireEvent.click(screen.getByRole("button", { name: /Start a crew/ }));
+    await waitFor(() => expect(swiff.replaceCrew).toHaveBeenCalledWith("c-new"));
+    const posts = calls.filter(([method]) => method === "POST").map(([, , body]) => JSON.parse(body!));
+    expect(posts.map((p) => p.name)).toEqual([undefined, "Night Owls", "Zocker"]);
+  });
+
+  it("says a taken name in German on a German page, all of it", async () => {
+    fetchFrom({
+      "GET /api/crews": [200, { crews: [crewOf(), crewOf({ id: "c2", name: "Max", own: false })] }],
+      "POST /api/crews": [
+        409,
+        { code: "name-taken", crew: { id: "c1", name: "Lena", crewName: null, own: true } },
+      ],
+    });
+    render(
+      <ScreenLang.Provider value="de">
+        <CrewPage swiff={fakeSwiff()} />
+      </ScreenLang.Provider>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /Neue Crew gründen/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Du hast schon eine Crew „Lenas Crew“.");
+    expect(screen.getByRole("button", { name: /Zu dieser Crew/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Anderen Namen" }));
+    expect(screen.getByRole("textbox", { name: "Gib deiner Crew einen Namen" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Crew gründen/ })).toBeInTheDocument();
   });
 
   it("says why when the player is in as many crews as anyone may be", async () => {
@@ -428,8 +502,11 @@ describe("CrewPage: signed out, founding and the list", () => {
     render(<CrewPage swiff={swiff} />);
     expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("Your crews");
     const lena = screen.getByRole("button", { name: /Lena's crew/ });
+    expect(lena).toHaveTextContent("Lena's crew · Admin");
     expect(lena).toHaveTextContent("1 person · Almost ready.");
-    expect(screen.getByRole("button", { name: /Max's crew/ })).toHaveTextContent("3 people · Ready to play!");
+    const max = screen.getByRole("button", { name: /Max's crew/ });
+    expect(max).toHaveTextContent("3 people · Ready to play!");
+    expect(max).not.toHaveTextContent("Admin");
     fireEvent.click(lena);
     expect(swiff.openCrew).toHaveBeenCalledWith("c1");
     expect(screen.getByRole("button", { name: /Start a new crew/ })).toBeEnabled();
@@ -1036,6 +1113,32 @@ describe("CrewPage: the guided crew page", () => {
     fireEvent.click(screen.getByRole("button", { name: "Make a new link" }));
     expect(await screen.findByText("New link made. The old one doesn't work any more.")).toBeInTheDocument();
     expect(calls).toContainEqual(["POST", "/api/crews/c1/link"]);
+  });
+
+  it("renames to no name the admin has another crew by: goes to that crew, or picks another name", async () => {
+    const calls = fetchFrom({
+      "GET /api/crews/c1": [200, { crew: crewOf({ crewName: "Couch Koop" }) }],
+      "POST /api/crews/c1/name": [
+        409,
+        { code: "name-taken", crew: { id: "c2", name: "Lena", crewName: "Friday Squad", own: true } },
+      ],
+    });
+    const swiff = atCrew("c1");
+    render(<CrewPage swiff={swiff} />);
+    expect(await screen.findByText("More about the crew")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    fireEvent.change(screen.getByLabelText("Your crew's name"), { target: { value: "friday squad" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "You already have a crew called Friday Squad.",
+    );
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Couch Koop");
+    fireEvent.click(screen.getByRole("button", { name: /Go to that crew/ }));
+    expect(swiff.openCrew).toHaveBeenCalledWith("c2");
+    fireEvent.click(screen.getByRole("button", { name: "Pick another name" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByLabelText("Your crew's name")).toHaveValue("friday squad");
+    expect(calls.filter(([method]) => method === "POST")).toHaveLength(1);
   });
 
   it("asks before leaving, then leaves and goes back to the crews", async () => {
@@ -1681,10 +1784,12 @@ describe("CrewInvite", () => {
 
 describe("the ways into crews", () => {
   it("lists the player's crews on the card, each opening its page, and founds another", async () => {
-    fetchFrom({ "GET /api/crews": [200, { crews: [crewOf(), readyCrew({ id: "c2", name: "Max" })] }] });
+    fetchFrom({
+      "GET /api/crews": [200, { crews: [crewOf(), readyCrew({ id: "c2", name: "Max", own: false })] }],
+    });
     const swiff = fakeSwiff({ screen: "profile" });
     render(<CrewsCard swiff={swiff} />);
-    expect(await screen.findByText("Lena's crew · Almost ready.")).toBeInTheDocument();
+    expect(await screen.findByText("Lena's crew · Admin · Almost ready.")).toBeInTheDocument();
     expect(screen.getByText("Max's crew · Ready to play!")).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: "Open" })[1]!);
     expect(swiff.openCrew).toHaveBeenCalledWith("c2");
