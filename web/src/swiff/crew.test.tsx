@@ -1603,7 +1603,9 @@ describe("CrewInvite", () => {
     at(`/invite/${TOKEN}`);
     const calls = fetchFrom({ [`/api/invites/${TOKEN}`]: [200, { crew: REMOVED }] });
     const { unmount } = render(<CrewInvite swiff={fakeSwiff()} />);
-    expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("You're no longer in this crew");
+    expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent(
+      "You're no longer in this crew",
+    );
     expect(screen.queryByRole("list")).toBeNull();
     expect(screen.queryByRole("button", { name: /Join/ })).toBeNull();
     expect(screen.queryByText(/Session/)).toBeNull();
