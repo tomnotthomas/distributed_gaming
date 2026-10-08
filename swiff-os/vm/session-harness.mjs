@@ -35,6 +35,11 @@
 //      and measures into PCR 12). The server refuses its attestation, so it
 //      gets no state key and is never offered.
 //
+// SWIFF_SESSION_NO_IOMMU=1 boots the VM without its virtual IOMMU instead, and
+// stops after the owner's steps: the boot must not reach `ready` (the image's
+// swiff-dmaguard.service fails, so systemd-pcrphase.service never extends it
+// into PCR 11), and the PC gets no state key and is never offered.
+//
 // Every step is one line, PASS or FAIL, with what the VM reported on its serial
 // console (sessiontest-monitor, swiff-hostd's and the streamer's logs). The run
 // passes only when every expected step passed. A stand-in Steam (no account,
@@ -81,6 +86,8 @@ const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
  * public to the VM, and ICE picks the path.
  */
 const RELAY_ONLY = process.env.SWIFF_SESSION_RELAY_ONLY === "1";
+/** SWIFF_SESSION_NO_IOMMU=1: the VM has no IOMMU, so it must never reach `ready` or be offered. */
+const NO_IOMMU = process.env.SWIFF_SESSION_NO_IOMMU === "1";
 const SERVER_IP = "198.51.100.10";
 const TURN_IP = "198.51.100.20";
 const PORT = 8199;
@@ -105,48 +112,58 @@ const OVMF_CODE = "/usr/share/OVMF/OVMF_CODE_4M.secboot.fd";
 const OVMF_VARS = "/usr/share/OVMF/OVMF_VARS_4M.fd";
 
 // Every step the run must pass: the VM's, per boot, and the harness's own.
-const EXPECTED = [
-  "the release's boot policy, signed",
-  "the owner registers the PC's EK certificate",
-  "boot1/secure-boot",
-  "boot1/root-is-verity",
-  "boot1/node-22",
-  "boot1/session-runs-steam-agent",
-  "boot1/zbar-reads-steam-code",
-  "boot1/hostd-active",
-  "boot1/hostd-attested",
-  "boot1/state-open",
-  "boot1/hostd-offered",
-  "renter sees the PC on the wall",
-  "renter's Ignition waits on the PC",
-  "hostd serves the renter's session",
-  "streamer encodes",
-  "streamer registers with its session key",
-  "renter's page shows Steam's code from the PC",
-  "renter's page shows Steam's fresh code",
-  "nothing billed before Steam signs in",
-  "boot1/streamer-own-user",
-  "boot1/streamer-no-capabilities",
-  "boot1/streamer-environment",
-  "boot1/streamer-steam-socket",
-  "boot1/renter-cannot-read-streamer",
-  "boot1/agent-socket",
-  "boot1/steam-remembers-nothing",
-  "streamer relays Steam's sign-in and the game on screen",
-  "renter plays the game in Swiff",
-  "billed from the first frame after sign-in",
-  RELAY_ONLY ? "media through the TURN relay alone" : "media on the path ICE picked",
-  "renter reloads and reconnects to the same session",
-  "renter ends the session",
-  "streamer stops when the session ends",
-  "hostd restarts the PC clean",
-  "boot2/hostd-attested",
-  "boot2/state-open",
-  "boot2/hostd-offered",
-  "the PC is offered again after the restart",
-  "a tampered boot is refused attestation",
-  "the tampered boot gets no state key and is not offered",
-];
+const EXPECTED = NO_IOMMU
+  ? [
+      "the release's boot policy, signed",
+      "the owner registers the PC's EK certificate",
+      "boot1/secure-boot",
+      "boot1/root-is-verity",
+      "boot1/hostd-active",
+      "the boot without an IOMMU does not reach ready",
+      "the boot without an IOMMU gets no state key and is not offered",
+    ]
+  : [
+      "the release's boot policy, signed",
+      "the owner registers the PC's EK certificate",
+      "boot1/secure-boot",
+      "boot1/root-is-verity",
+      "boot1/node-22",
+      "boot1/session-runs-steam-agent",
+      "boot1/zbar-reads-steam-code",
+      "boot1/hostd-active",
+      "boot1/hostd-attested",
+      "boot1/state-open",
+      "boot1/hostd-offered",
+      "renter sees the PC on the wall",
+      "renter's Ignition waits on the PC",
+      "hostd serves the renter's session",
+      "streamer encodes",
+      "streamer registers with its session key",
+      "renter's page shows Steam's code from the PC",
+      "renter's page shows Steam's fresh code",
+      "nothing billed before Steam signs in",
+      "boot1/streamer-own-user",
+      "boot1/streamer-no-capabilities",
+      "boot1/streamer-environment",
+      "boot1/streamer-steam-socket",
+      "boot1/renter-cannot-read-streamer",
+      "boot1/agent-socket",
+      "boot1/steam-remembers-nothing",
+      "streamer relays Steam's sign-in and the game on screen",
+      "renter plays the game in Swiff",
+      "billed from the first frame after sign-in",
+      RELAY_ONLY ? "media through the TURN relay alone" : "media on the path ICE picked",
+      "renter reloads and reconnects to the same session",
+      "renter ends the session",
+      "streamer stops when the session ends",
+      "hostd restarts the PC clean",
+      "boot2/hostd-attested",
+      "boot2/state-open",
+      "boot2/hostd-offered",
+      "the PC is offered again after the restart",
+      "a tampered boot is refused attestation",
+      "the tampered boot gets no state key and is not offered",
+    ];
 
 const results = new Map();
 const started = Date.now();
@@ -600,7 +617,7 @@ function startVm(extra = []) {
         ...["-global", "driver=cfi.pflash01,property=secure,value=on", "-global", "ICH9-LPC.disable_s3=1"],
         ...["-drive", `if=pflash,format=raw,unit=0,readonly=on,file=${OVMF_CODE}`],
         ...["-drive", `if=pflash,format=raw,unit=1,file=${join(RUN, "vars.fd")}`],
-        ...["-device", "intel-iommu,intremap=on"],
+        ...(NO_IOMMU ? [] : ["-device", "intel-iommu,intremap=on"]),
         ...["-chardev", `socket,id=chrtpm,path=${tpm}/sock`, "-tpmdev", "emulator,id=tpm0,chardev=chrtpm"],
         ...["-device", "tpm-crb,tpmdev=tpm0"],
         // QEMU's default cache: a cut power (powerOff) loses only what the guest had not flushed.
@@ -1013,6 +1030,33 @@ async function tamperedBoot() {
   );
 }
 
+/**
+ * The boot without an IOMMU: swiff-dmaguard.service fails, so the boot never
+ * reaches `ready` and its PCR 11 is no release's. The PC gets no state key
+ * and is never offered.
+ */
+async function withoutIommu() {
+  const ready = await until(() => seen(/SWIFF-SESSIONTEST INFO ready-phase /, 1), "the ready phase", 300_000).catch(
+    () => null,
+  );
+  const phase = ready?.line.replace(/^.*ready-phase /, "");
+  record(
+    "the boot without an IOMMU does not reach ready",
+    Boolean(phase) && !/^active\b/.test(phase),
+    phase ?? "not reported",
+  );
+  // Long enough for swiff-hostd's floor check and any tries to attest, which the server refuses.
+  await sleep(120_000);
+  const offered = results.get("boot1/hostd-offered");
+  const state = seen(/the persistent state is open/, 1);
+  const refusal = seen(/\[swiff-hostd\] not offered: /, 1)?.line.replace(/^.*\[swiff-hostd\] /, "");
+  record(
+    "the boot without an IOMMU gets no state key and is not offered",
+    Boolean(ready) && !offered?.ok && !state && !seen(/hostd-phase offered/, 1),
+    `${refusal ?? "no refusal logged"}; offered: ${offered?.ok ? "yes" : "no"}, state opened: ${state ? "yes" : "no"}`,
+  );
+}
+
 // --- The run ------------------------------------------------------------------------------
 
 /** Stops every process the harness started and deletes the fixture disk, which holds the machine key. */
@@ -1039,8 +1083,11 @@ try {
   await ownerGoesLive();
   await ownerRegistersEk();
 
-  await waitVm("boot1/hostd-offered", 600_000);
-  if (results.get("boot1/hostd-offered")?.ok) {
+  if (NO_IOMMU) {
+    await waitVm("boot1/hostd-active", 300_000);
+    await withoutIommu();
+  } else await waitVm("boot1/hostd-offered", 600_000);
+  if (!NO_IOMMU && results.get("boot1/hostd-offered")?.ok) {
     await renter().catch((e) => record("renter", false, e.message));
     await until(() => seen(/\[swiff-hostd\] session \S+ is over/, 1), "the session's end", 60_000).catch(
       () => {},

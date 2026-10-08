@@ -29,6 +29,10 @@
 # its own, on a private address the image's firewall refuses, so the stream
 # can come only through the relay. By default ICE picks the path.
 #
+# SWIFF_SESSION_NO_IOMMU=1 boots the VM without QEMU's virtual IOMMU: the run
+# passes only when the boot does not reach `ready`, and the PC gets no state
+# key and is never offered.
+#
 # Build output, caches and the run's files go to $SWIFF_OS_BUILD_DIR (default
 # ~/.cache/swiff-os), the run in session-vm/. It touches nothing of this PC
 # but those: no disks, boot entries or firmware variables.

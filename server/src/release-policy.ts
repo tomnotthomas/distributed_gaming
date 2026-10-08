@@ -33,8 +33,9 @@
 //               the host app enrolls it). The SbatLevel shim measures there too
 //               is no authority, and the verifier takes it whatever it holds
 //               (eventlog.ts).
-//   iommu       false: the image does not yet refuse to reach `ready` without
-//               DMA remapping on.
+//   iommu       true: every release's image refuses to reach `ready` without
+//               DMA remapping on (swiff-dmaguard.service, which
+//               systemd-pcrphase.service requires).
 
 import { createHash } from "node:crypto";
 import type { Release } from "./boot-policy.js";
@@ -338,7 +339,7 @@ export function releaseEntry(files: ReleaseFiles): Release {
       ),
       variableAuthority(SHIM_LOCK_GUID, "MokListRT", signatureData(SHIM_LOCK_GUID, files.mok)),
     ]),
-    iommu: false,
+    iommu: true,
   };
 }
 

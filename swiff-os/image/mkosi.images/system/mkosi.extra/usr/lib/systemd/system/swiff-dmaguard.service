@@ -1,0 +1,10 @@
+# Required by systemd-pcrphase.service (its drop-in): the boot reaches `ready`
+# in PCR 11 only with DMA remapping on.
+[Unit]
+Description=Lanterel DMA remapping check before the ready boot phase
+DefaultDependencies=no
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/swiff/dmaguard

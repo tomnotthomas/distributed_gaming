@@ -266,7 +266,7 @@ describe("a release's payload", () => {
     dbCerts: [db],
   };
 
-  it("lists the release's PCRs, boot chain and authorities, and claims no IOMMU", () => {
+  it("lists the release's PCRs, boot chain and authorities, and that it boots only with an IOMMU", () => {
     const release = releaseEntry(files);
     const app = (image: Buffer) => authenticodeSha256(image).toString("hex");
     assert.deepEqual(release, {
@@ -284,7 +284,7 @@ describe("a release's payload", () => {
         ),
         variableAuthority(SHIM_LOCK_GUID, "MokListRT", Buffer.concat([guidBytes(SHIM_LOCK_GUID), mok])),
       ],
-      iommu: false,
+      iommu: true,
     });
   });
 
