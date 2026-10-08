@@ -676,7 +676,7 @@ test_run() {
 		if [ ! -s "${SWIFF_HOST_EXE:-}" ] || [ ! -s "${SWIFF_SIGNED_SET:-}/swiffos.json.sig" ]; then
 			result SKIP packaged-app "needs \$SWIFF_HOST_EXE (a pack:test build) and \$SWIFF_SIGNED_SET (the set it trusts)"
 		else
-		local appdata='C:\Users\swiff\AppData\Roaming\@swiff\desktop\swiff-os'
+		local appdata='C:\Users\swiff\AppData\Roaming\Lanterel Host\swiff-os'
 		local ui="node $here/ui-drive.mjs"
 		step() { # name detail command...: one UI step's result
 			local name=$1 detail=$2
@@ -704,7 +704,7 @@ test_run() {
 			on_vm "Set-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' -Name ConsentPromptBehaviorAdmin -Value $1" || true
 		}
 		on_vm "New-Item -ItemType Directory -Force '$appdata' | Out-Null" || true
-		to_vm "$SWIFF_SIGNED_SET"/* swiff@127.0.0.1:"C:/Users/swiff/AppData/Roaming/@swiff/desktop/swiff-os/"
+		to_vm "$SWIFF_SIGNED_SET"/* swiff@127.0.0.1:"C:/Users/swiff/AppData/Roaming/Lanterel Host/swiff-os/"
 		to_vm "$SWIFF_HOST_EXE" swiff@127.0.0.1:'C:/swiff/SwiffHost.exe'
 
 		# --- before any install ---
@@ -719,7 +719,7 @@ test_run() {
 		on_vm "Add-Content -LiteralPath '$appdata\\swiffos.json' ' '" || true
 		step ui-tampered-manifest "a changed manifest reads as not signed by Lanterel" bash -c "$ui click 'Check again' > /dev/null; sleep 5; $ui wait-gone '^Checking' 180 > /dev/null; $ui click 'What Lanterel checked'"
 		ui_has ui-tampered-manifest 'Not signed by Lanterel' || result FAIL ui-tampered-manifest-text "the check did not say so"
-		to_vm "$SWIFF_SIGNED_SET/swiffos.json" swiff@127.0.0.1:"C:/Users/swiff/AppData/Roaming/@swiff/desktop/swiff-os/"
+		to_vm "$SWIFF_SIGNED_SET/swiffos.json" swiff@127.0.0.1:"C:/Users/swiff/AppData/Roaming/Lanterel Host/swiff-os/"
 		# A certificate swapped on disk: the read checks the signed manifest and the fingerprint it lists;
 		# the administrator side checks the file itself, before using it (ui-refused-cert below).
 
@@ -745,7 +745,7 @@ test_run() {
 		step ui-recovery "No, or I'm not sure: first, save the BitLocker recovery key" bash -c "$ui click 'not sure' > /dev/null; $ui wait-h1 'save your bitlocker recovery key' 60"
 		ui_has ui-recovery 'never reads, sends or keeps' || result FAIL ui-recovery-text "the screen does not say the key stays the owner's"
 		step ui-no "I saved my key leads to confirming the key with a new code" bash -c "$ui click 'I saved my key' > /dev/null; $ui wait-h1 'confirm lanterel' 60"
-		on_vm "Get-Content 'C:\Users\swiff\AppData\Roaming\@swiff\desktop\bitlocker-recovery.json'" | tr -d '\r' > "$run/ui-recovery-saved.json" || true
+		on_vm "Get-Content 'C:\Users\swiff\AppData\Roaming\Lanterel Host\bitlocker-recovery.json'" | tr -d '\r' > "$run/ui-recovery-saved.json" || true
 		expect ui-recovery-kept "only the owner's word is kept, for C:, and no key: $(cat "$run/ui-recovery-saved.json")" \
 			bash -c "grep -q '\"drives\":\\[\"C\"\\]' '$run/ui-recovery-saved.json' && ! grep -Eq '[0-9]{6}-[0-9]{6}' '$run/ui-recovery-saved.json'"
 		# Anchored: the rail's Rental mode entry is a button too, and its name lists "Confirm the key".
@@ -760,7 +760,7 @@ test_run() {
 		on_vm "[IO.File]::WriteAllBytes('$appdata\\swiffos-key.cer', [byte[]](48,130,1,10))" || true
 		$ui click 'Ask again' > /dev/null 2>&1 || true
 		step ui-refused-cert "the administrator side refuses a swapped certificate, guided" $ui wait-h1 "files didn't pass the check|not signed|didn't pass" 180
-		to_vm "$SWIFF_SIGNED_SET/swiffos-key.cer" swiff@127.0.0.1:"C:/Users/swiff/AppData/Roaming/@swiff/desktop/swiff-os/"
+		to_vm "$SWIFF_SIGNED_SET/swiffos-key.cer" swiff@127.0.0.1:"C:/Users/swiff/AppData/Roaming/Lanterel Host/swiff-os/"
 		# The refusal's one action is Send details to Swiff; Try again comes after it.
 		$ui click 'Send details' > /dev/null 2>&1 || true
 		$ui click '^Try again' > /dev/null 2>&1 || true
