@@ -1261,11 +1261,11 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
         </Pill>
       );
       plate = (
-        <Plate caption={["Tonight", live.sessions === 1 ? "1 session" : `${live.sessions} sessions`]}>
+        <Plate caption={["Last time live", live.sessions === 1 ? "1 session" : `${live.sessions} sessions`]}>
           <Dial
             progress={1}
             big={live.earned === null ? String(live.sessions) : <Eur n={live.earned} />}
-            small={live.earned === null ? "sessions" : "earned tonight"}
+            small={live.earned === null ? "sessions" : "earned"}
           />
         </Plate>
       );

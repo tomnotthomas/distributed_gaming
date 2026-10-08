@@ -439,8 +439,8 @@ describe("Wall", () => {
           .find((el) => el.closest(".band-tile"))!
           .closest(".band-tile")!;
       expect(meta(busy!)).toHaveTextContent("In use");
-      expect(meta(short!)).toHaveTextContent("Free, not all session");
-      expect(meta(none!)).toHaveTextContent("On no machine yet");
+      expect(meta(short!)).toHaveTextContent("Free, not long enough");
+      expect(meta(none!)).toHaveTextContent("Not on a machine yet");
     });
 
     it("invents no machine coming back when none is on offer", () => {

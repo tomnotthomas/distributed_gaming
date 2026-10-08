@@ -1671,6 +1671,9 @@ describe("rental mode", () => {
     render(<Shell host={host} step="rental" onStep={go} setupDone finishSetup={vi.fn()} paid />);
     expect(h1()).toHaveTextContent("You were live 21:00 to 23:40");
     expect(screen.getByText(/2 sessions, both ran to their end/)).toBeInTheDocument();
+    // The run may have been in the day, or days ago: no time of day.
+    expect(screen.getByText("Last time live")).toBeInTheDocument();
+    expect(screen.queryByText(/tonight/i)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Go live again/ }));
     expect(host.actions.seenLastLive).toHaveBeenCalledOnce();
     expect(go).toHaveBeenCalledWith("live");

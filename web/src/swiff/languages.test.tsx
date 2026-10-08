@@ -48,12 +48,12 @@ function pageWords(): string {
   return [document.body.textContent ?? "", ...attrs].join("\n");
 }
 
-/** The page speaks `lang` only: no piece of the other language's copy, and no time of day. */
+/** The page speaks `lang` only: no piece of the other language's copy, and no time of day (tonight, Abend). */
 function expectOnly(lang: Lang) {
   const text = pageWords();
   const foreign = onlyIn(lang === "de" ? "en" : "de").filter((piece) => text.includes(piece));
   expect(foreign).toEqual([]);
-  expect(text).not.toMatch(/tonight/i);
+  expect(text).not.toMatch(/tonight|abend/i);
 }
 
 function browserIn(lang: Lang) {

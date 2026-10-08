@@ -610,7 +610,7 @@ describe("Ignition's steps", () => {
     expect(ignitionLabels(screenText("de"), "Basement rig", null)).toEqual([
       "PC wird reserviert",
       "Basement rig wird geweckt",
-      "Übertragung wird eingerichtet",
+      "Stream wird eingerichtet",
       "Dein Spiel wird gestartet",
     ]);
   });
