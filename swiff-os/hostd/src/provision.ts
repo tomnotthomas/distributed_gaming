@@ -15,8 +15,9 @@
 //       12      4  length of the body (big-endian)
 //       16     32  SHA-256 of the body
 //       48      …  the body: the sealed key and the encrypted payload, JSON
-//                  { "serverUrl", "machineId", "machineKey" } (handover.ts)
-//                  then zeros, to 4096 bytes
+//                  { "serverUrl", "machineId", "machineKey" } and, for a PC
+//                  on Wi-Fi, "wifi": { "ssid", "security", "passphrase" }
+//                  (handover.ts); then zeros, to 4096 bytes
 //
 // At every boot, before swiff-hostd (swiff-provision.service runs
 // `swiff-hostd provision`):
@@ -37,13 +38,14 @@
 // then unseal provision.cred and write this boot's swiff-hostd config (the
 // image's own settings, /usr/lib/swiff/hostd.json, with this machine's server
 // and id) and its machine key into /var/lib/swiff, root's alone, on the tmpfs
-// /var. The record carries data only: everything that names a program, a
+// /var, and the Wi-Fi network, if there is one, for iwd into /var/lib/iwd,
+// root's alone too. The record carries data only: everything that names a program, a
 // device or a user comes from the image, so a record cannot make the agent run
 // anything. The payload is never logged.
 
 import { createHash } from "node:crypto";
 import { access, open, readFile, rename, rm } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { checkServerUrl, parseConfig } from "./config.ts";
 import { PCR_POLICY, runBytes, runFilter, type RunBytes, type RunFilter } from "./state-key.ts";
 import type { Run } from "./system.ts";
@@ -55,7 +57,11 @@ export const RECORD_BYTES = 4096;
 const HEADER_BYTES = 48;
 
 /** What the owner's app provisions. */
-export type Provisioning = { serverUrl: string; machineId: string; machineKey: string };
+export type Provisioning = { serverUrl: string; machineId: string; machineKey: string; wifi?: Wifi };
+
+/** The Wi-Fi network the owner's PC is on, which Lanterel OS joins. */
+export type Wifi =
+  { ssid: string; security: "open" } | { ssid: string; security: "psk" | "sae"; passphrase: string };
 
 /** A record that is there but cannot be used, or a payload that is not a provisioning. */
 export class ProvisionError extends Error {}
@@ -100,12 +106,10 @@ const MACHINE_ID = /^[^\s,:/\\]{1,128}$/;
 /** A machine key: printable ASCII, no spaces. */
 const MACHINE_KEY = /^[\x21-\x7e]{16,512}$/;
 
-/** The three fields of a provisioning, checked. Throws ProvisionError naming the field. */
+/** The fields of a provisioning, checked. Throws ProvisionError naming the field. */
 export function checkProvisioning(raw: unknown): Provisioning {
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-    throw new ProvisionError("the provisioning is not an object");
-  }
-  const { serverUrl, machineId, machineKey } = raw as Record<string, unknown>;
+  if (!isObject(raw)) throw new ProvisionError("the provisioning is not an object");
+  const { serverUrl, machineId, machineKey, wifi } = raw;
   if (typeof serverUrl !== "string") throw new ProvisionError("the provisioning has no serverUrl");
   try {
     checkServerUrl(serverUrl);
@@ -118,7 +122,59 @@ export function checkProvisioning(raw: unknown): Provisioning {
   if (typeof machineKey !== "string" || !MACHINE_KEY.test(machineKey)) {
     throw new ProvisionError("the provisioning's machineKey is not a machine key");
   }
-  return { serverUrl, machineId, machineKey };
+  if (wifi === undefined) return { serverUrl, machineId, machineKey };
+  return { serverUrl, machineId, machineKey, wifi: checkWifi(wifi) };
+}
+
+function isObject(raw: unknown): raw is Record<string, unknown> {
+  return typeof raw === "object" && raw !== null && !Array.isArray(raw);
+}
+
+/** An SSID iwd takes: 1 to 32 bytes of UTF-8 without control characters. */
+const SSID = /^[^\p{Cc}\p{Cs}]+$/u;
+/** A WPA passphrase iwd takes (IEEE 802.11 Annex M): 8 to 63 printable ASCII characters. */
+const PASSPHRASE = /^[\x20-\x7e]{8,63}$/;
+/** A WPA-PSK given as the key itself: 64 hex digits. */
+const PSK = /^[0-9a-fA-F]{64}$/;
+
+/** The Wi-Fi network of a provisioning, checked. Throws ProvisionError naming the field, never quoting the passphrase. */
+function checkWifi(raw: unknown): Wifi {
+  if (!isObject(raw)) throw new ProvisionError("the provisioning's wifi is not an object");
+  const { ssid, security, passphrase } = raw;
+  if (typeof ssid !== "string" || !SSID.test(ssid) || Buffer.byteLength(ssid) > 32) {
+    throw new ProvisionError("the provisioning's wifi.ssid is not an SSID");
+  }
+  if (security === "open") return { ssid, security };
+  if (security !== "psk" && security !== "sae") {
+    throw new ProvisionError("the provisioning's wifi.security is not open, psk or sae");
+  }
+  if (
+    typeof passphrase !== "string" ||
+    !(PASSPHRASE.test(passphrase) || (security === "psk" && PSK.test(passphrase)))
+  ) {
+    throw new ProvisionError(`the provisioning's wifi.passphrase is not a ${security} passphrase`);
+  }
+  return { ssid, security, passphrase };
+}
+
+/**
+ * iwd's network file for a Wi-Fi network (iwd.network(5)): its name, from the
+ * SSID as iwd itself names it (hex-encoded after "=" unless the SSID is all
+ * letters, digits, spaces, "-" and "_"), and its contents. iwd takes WPA3
+ * (SAE) or WPA2 from what the network offers, the passphrase the same; only a
+ * WPA2 key given as 64 hex digits is a PreSharedKey.
+ */
+export function iwdNetwork(wifi: Wifi): { name: string; contents: string } {
+  const stem = /^[A-Za-z0-9 _-]+$/.test(wifi.ssid)
+    ? wifi.ssid
+    : `=${Buffer.from(wifi.ssid, "utf8").toString("hex")}`;
+  const settings = "[Settings]\nAutoConnect=true\n";
+  if (wifi.security === "open") return { name: `${stem}.open`, contents: settings };
+  const security = PSK.test(wifi.passphrase)
+    ? `PreSharedKey=${wifi.passphrase.toLowerCase()}`
+    : // ell's escapes: a value's leading spaces and every backslash.
+      `Passphrase=${wifi.passphrase.replace(/\\/g, "\\\\").replace(/^ +/, (lead) => "\\s".repeat(lead.length))}`;
+  return { name: `${stem}.psk`, contents: `[Security]\n${security}\n\n${settings}` };
 }
 
 /** The keep partition. */
@@ -153,6 +209,8 @@ export type ProvisionPaths = {
   /** Where this boot's swiff-hostd config goes, and the machine key it names. */
   config: string;
   machineKey: string;
+  /** iwd's network files: the Wi-Fi network the owner's PC is on goes there. */
+  wifi: string;
 };
 
 export const PATHS: ProvisionPaths = {
@@ -160,6 +218,7 @@ export const PATHS: ProvisionPaths = {
   imageConfig: "/usr/lib/swiff/hostd.json",
   config: "/var/lib/swiff/hostd.json",
   machineKey: "/var/lib/swiff/machine-key",
+  wifi: "/var/lib/iwd",
 };
 
 /** The keep partition and where it is mounted. */
@@ -243,6 +302,10 @@ export async function provision({
   // The agent would refuse it at start: refused here, before anything is written.
   parseConfig(config);
   await writeDurably(paths.machineKey, Buffer.from(`${given.machineKey}\n`));
+  if (given.wifi) {
+    const network = iwdNetwork(given.wifi);
+    await writeDurably(join(paths.wifi, network.name), Buffer.from(network.contents));
+  }
   // Written last: the config is what starts swiff-hostd (ConditionPathExists).
   await writeDurably(paths.config, Buffer.from(`${JSON.stringify(config, null, 2)}\n`));
   return true;
