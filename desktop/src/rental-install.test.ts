@@ -26,6 +26,7 @@ import {
   provisionStore,
   RECORD_BYTES,
   wipeRecord,
+  wipesAtStart,
 } from "../provision.cjs";
 import { checkOp, createWorker, diskPath, serve, type Windows } from "../rental-worker.cjs";
 import {
@@ -1135,8 +1136,12 @@ describe("a provisioning record left on the disk", () => {
       expect(fateOf(note, note.at + 60_000, null)).toBe("wait");
       expect(fateOf(note, note.at + 60_000, { at: note.at - 90_000, ...LANTEREL })).toBe("wait");
       expect(fateOf(note, note.at + 60_000, { at: note.at + 90_000, ...WINDOWS })).toBe("wait");
-      // A restart since that started Lanterel OS: it took the record in, and the note goes.
+      // A restart since that started Lanterel OS's boot loader: most likely taken in, but a loader
+      // that started does not prove swiff-provision ran, so the app's start wipes all the same.
       expect(fateOf(note, note.at + 60_000, { at: note.at + 90_000, ...LANTEREL })).toBe("gone");
+      expect(wipesAtStart(fateOf(note, note.at + 60_000, { at: note.at + 90_000, ...LANTEREL }))).toBe(true);
+      // Only a finished run whose restart may still take the record in keeps its note without a prompt.
+      expect(wipesAtStart(fateOf(note, note.at - 60_000, null))).toBe(false);
       // A restart since that went to shim and back to Windows without Lanterel OS's boot loader.
       expect(fateOf(note, note.at + 60_000, { at: note.at + 90_000, ...SHIM_BACK })).toBe("wipe");
     }

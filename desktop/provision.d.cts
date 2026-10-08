@@ -29,6 +29,7 @@ export function fateOf(
   bootAt: number,
   trail?: { at: number; shim: boolean; loader: boolean; windowsAfterShim: boolean } | null,
 ): "wipe" | "wait" | "gone";
+export function wipesAtStart(fate: "wipe" | "wait" | "gone"): boolean;
 export function wipeRecord(
   apply: (op: { op: string }, progress: () => void) => Promise<unknown>,
   store: ProvisionStore,

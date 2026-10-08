@@ -37,6 +37,7 @@ const {
   provisionEvent,
   provisionStore,
   wipeRecord,
+  wipesAtStart,
 } = require("./provision.cjs");
 const { runPlan, startWorker } = require("./rental-exec.cjs");
 const { BITLOCKER_PANEL, drivesOff, recoveryOf, recoveryStore } = require("./recovery-key.cjs");
@@ -472,18 +473,17 @@ ipcMain.handle("rental:run", async (event) => {
   }
 });
 /**
- * At start: a provisioning record an earlier run left on the disk, which no
- * Lanterel OS boot took in, is zeroed (one UAC prompt); one a boot took in is
- * only forgotten, and one no restart is known to have taken in yet stays
- * (provision.cjs fateOf). With no record noted, nothing asks for administrator rights.
+ * At start: a provisioning record an earlier run noted is zeroed (one UAC
+ * prompt) unless a finished run's restart may still take it in (provision.cjs
+ * fateOf, wipesAtStart). A started boot loader alone does not prove
+ * swiff-provision took it in, and `unprovision` zeroes only a record still
+ * there. With no record noted, nothing asks for administrator rights.
  */
 async function wipeLeftRecord() {
   const store = provisions();
   const note = store.read();
   if (!note || rentalRun) return;
-  const fate = fateOf(note, bootAt(), bootTrail());
-  if (fate === "gone") return store.forget();
-  if (fate === "wait") return;
+  if (!wipesAtStart(fateOf(note, bootAt(), bootTrail()))) return;
   rentalRun = {};
   let worker = null;
   try {
