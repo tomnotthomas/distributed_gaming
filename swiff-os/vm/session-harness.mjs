@@ -1047,15 +1047,20 @@ async function withoutIommu() {
     Boolean(phase) && !/^active\b/.test(phase),
     phase ?? "not reported",
   );
-  // Long enough for swiff-hostd's floor check and any tries to attest, which the server refuses.
-  await sleep(120_000);
+  // swiff-hostd's floor check refuses the PC; then a while longer, in which
+  // nothing may offer it or open its state.
+  const refusal = await until(
+    () => seen(/\[swiff-hostd\] not offered: /, 1),
+    "swiff-hostd's refusal",
+    120_000,
+  ).catch(() => null);
+  await sleep(30_000);
   const offered = results.get("boot1/hostd-offered");
   const state = seen(/the persistent state is open/, 1);
-  const refusal = seen(/\[swiff-hostd\] not offered: /, 1)?.line.replace(/^.*\[swiff-hostd\] /, "");
   record(
     "the boot without an IOMMU gets no state key and is not offered",
-    Boolean(ready) && !offered?.ok && !state && !seen(/hostd-phase offered/, 1),
-    `${refusal ?? "no refusal logged"}; offered: ${offered?.ok ? "yes" : "no"}, state opened: ${state ? "yes" : "no"}`,
+    Boolean(ready) && Boolean(refusal) && !offered?.ok && !state && !seen(/hostd-phase offered/, 1),
+    `${refusal?.line.replace(/^.*\[swiff-hostd\] /, "") ?? "no refusal logged"}; offered: ${offered?.ok ? "yes" : "no"}, state opened: ${state ? "yes" : "no"}`,
   );
 }
 
