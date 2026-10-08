@@ -135,6 +135,21 @@ key=$dir/ssh-key
 opts=(-i "$key" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=10)
 on_vm() { ssh "${opts[@]}" -p "$port" swiff@127.0.0.1 "$@"; }
 to_vm() { scp -q -r "${opts[@]}" -P "$port" "$@"; }
+# Copies the files of directory $1 into the VM's folder $2 (a Windows path) without filling this
+# PC's page cache: each is read with O_DIRECT and streamed over SSH, then its size checked. scp
+# reads the 10 GB image set through the page cache, and that squeeze has had vm-run.py's
+# watchdog stop test VMs.
+to_vm_direct() { # dir windows-dir
+	local f name
+	on_vm "New-Item -ItemType Directory -Force '$2' | Out-Null" || return 1
+	for f in "$1"/*; do
+		[ -f "$f" ] || continue
+		name=$(basename "$f")
+		dd if="$f" iflag=direct bs=4M status=none |
+			on_vm "\$o = [IO.File]::Create('$2\\$name'); [Console]::OpenStandardInput().CopyTo(\$o); \$o.Close()" || return 1
+		[ "$(on_vm "(Get-Item '$2\\$name').Length" | tr -d '\r\n')" = "$(stat -c %s "$f")" ] || return 1
+	done
+}
 
 # Starts the VM in the background on disk $1, firmware variables $2, TPM state $3; more QEMU arguments after.
 vm_start() { # disk vars tpm-dir [qemu args...]
@@ -368,7 +383,7 @@ test_run() {
 	# The machine key the provisioning hands Lanterel OS, in a file the console reads (never its command line).
 	on_vm "Set-Content -NoNewline C:\\swiff\\machine-key $(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
 	# Scenario 11 alone needs no image set.
-	[ "${SWIFF_SCENARIOS:-}" = 11 ] || to_vm "$image_set" swiff@127.0.0.1:'C:/swiff/image'
+	[ "${SWIFF_SCENARIOS:-}" = 11 ] || to_vm_direct "$image_set" 'C:\swiff\image'
 	to_vm "$electron_dir" swiff@127.0.0.1:'C:/swiff/electron'
 	on_vm 'New-Item -ItemType Directory -Force C:\swiff\vm | Out-Null'
 	to_vm "$here/windows/disk-open-check.cjs" "$here/windows/key-state.cjs" "$here/windows/app-windows.ps1" swiff@127.0.0.1:'C:/swiff/vm/'
@@ -726,7 +741,7 @@ test_run() {
 			on_vm "Set-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' -Name ConsentPromptBehaviorAdmin -Value $1" || true
 		}
 		on_vm "New-Item -ItemType Directory -Force '$appdata' | Out-Null" || true
-		to_vm "$SWIFF_SIGNED_SET"/* swiff@127.0.0.1:"C:/Users/swiff/AppData/Roaming/Lanterel Host/swiff-os/"
+		to_vm_direct "$SWIFF_SIGNED_SET" "$appdata" || result FAIL ui-signed-set "the signed image set did not copy into the app's data"
 		to_vm "$SWIFF_HOST_EXE" swiff@127.0.0.1:'C:/swiff/SwiffHost.exe'
 
 		# --- before any install ---
