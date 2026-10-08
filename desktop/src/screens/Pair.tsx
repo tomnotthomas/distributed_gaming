@@ -30,7 +30,9 @@ function statement(pairing: Pairing): { title: string; line: string } {
     case "paired":
       return {
         title: "This PC is paired",
-        line: "It's yours on Lanterel, with the Steam account you signed in with. Its key stays encrypted on this PC.",
+        line: pairing.owner
+          ? `It's paired with the Steam account ${pairing.owner}. If that isn't yours, pair again. Its key stays encrypted on this PC.`
+          : "It's yours on Lanterel, with the Steam account you signed in with. Its key stays encrypted on this PC.",
       };
   }
 }
@@ -119,6 +121,7 @@ export function PairSetup({ view, actions, go }: ScreenProps) {
           }
         >
           <Kv label="Paired">{paired ? "Yes" : pairing.kind === "checking" ? "Checking" : "No"}</Kv>
+          <Kv label="Steam account">{paired ? (pairing.owner ?? "Checking") : "None yet"}</Kv>
           <Kv label="Machine ID">{paired ? pairing.machineId : "Given when paired"}</Kv>
         </Zone>
         <Zone title="Next">

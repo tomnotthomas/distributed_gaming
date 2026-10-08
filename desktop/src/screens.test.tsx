@@ -105,7 +105,7 @@ function realView(live: Live, more: Partial<HostView> = {}): HostView {
       notice: null,
       preview: null,
     },
-    pairing: { kind: "paired", machineId: "gaming-pc-1" },
+    pairing: { kind: "paired", machineId: "gaming-pc-1", owner: null },
     payoutSaved: false,
     crew: null,
     ...more,
@@ -516,15 +516,21 @@ describe("going live", () => {
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ready to go live");
   });
 
-  it("shows a paired PC's machine id on its Account step, and goes on to the games", () => {
+  it("shows a paired PC's machine id and Steam account on its Account step, and goes on to the games", () => {
     const go = vi.fn();
     const host = {
-      view: realView(off, { pairing: { kind: "paired", machineId: "pc-0123456789ab" } }),
+      view: realView(off, { pairing: { kind: "paired", machineId: "pc-0123456789ab", owner: "Lena" } }),
       actions: actions(),
     };
     render(<Shell host={host} step="pair" onStep={go} setupDone finishSetup={vi.fn()} paid />);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("This PC is paired");
     expect(screen.getByText("pc-0123456789ab")).toBeInTheDocument();
+    expect(screen.getByText("Lena")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "It's paired with the Steam account Lena. If that isn't yours, pair again. Its key stays encrypted on this PC.",
+      ),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Choose games" }));
     expect(go).toHaveBeenCalledWith("games");
     cleanup();

@@ -1075,13 +1075,16 @@ export function createApi({
       return true;
     }
 
-    // The host app asks with the key it made: which machine it is, once its owner has added it.
+    // The host app asks with the key it made: which machine it is, once its owner has added it, and
+    // whose it is, by their Steam persona when Steam answers, else their Steam id, so a wrong owner shows.
     if (pairings && resource === "pairings" && id === "mine" && !action && method === "GET") {
       const key = bearer(req);
       if (!key) throw new HttpError(401, "bad machine key");
       const machineId = await pairings.pairedWith(key);
       if (!machineId) throw new HttpError(404, "not-paired");
-      reply(res, 200, { machineId });
+      const owner = access.owners.get(machineId)!;
+      const read = await profile(owner).catch(() => null);
+      reply(res, 200, { machineId, owner: read?.persona || owner });
       return true;
     }
 

@@ -10,7 +10,7 @@
 
 import type { Database } from "./db.js";
 
-/** Held while migrating. Any constant will do: nothing else here takes advisory locks. */
+/** Held while migrating. Any constant other than pairing.ts's PAIRING_LOCK, the only other advisory lock, will do. */
 const MIGRATION_LOCK = 5_317_001;
 
 /** Each migration's statements, in order; the version is its place in the list, from 1. */

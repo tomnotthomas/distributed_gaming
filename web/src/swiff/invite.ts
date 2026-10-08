@@ -34,8 +34,9 @@ export function inviteTokenAt(pathname: string): string | null {
 }
 
 /**
- * `value` with every invite link in it cut back to /invite, and every friend
- * seat's link (seat.ts) to /seat, however deep. Shared with the Lanterel Host
+ * `value` with every invite link in it cut back to /invite, every friend
+ * seat's link (seat.ts) to /seat, and every pairing link (pair.ts) to /pair,
+ * however deep. Shared with the Lanterel Host
  * and Lanterel OS error reports, which cut more besides.
  */
 export { withoutInviteTokens } from "@swiff/error-tracking";

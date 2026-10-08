@@ -6,11 +6,21 @@
 // sign-in too: the code is theirs to compare with the app's first. Once the PC
 // is added the app carries on by itself.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LobbyTitle, useCrewText } from "./crewUi";
 import { GAMES } from "./data";
 import { Glyph } from "./Glyph";
-import { addPc, PAIR_PATH, pairingCode, pairKeyAt, signInToPair, type PairRefusal } from "./pair";
+import {
+  addPc,
+  forgetPair,
+  PAIR_PATH,
+  pairingCode,
+  pairKeyAt,
+  rememberedPair,
+  rememberPair,
+  signInToPair,
+  type PairRefusal,
+} from "./pair";
 import { endSignIn, gameArt } from "./steam";
 import type { Swiff } from "./useSwiff";
 
@@ -30,10 +40,17 @@ const Arrow = () => (
 export function PairPc({ swiff }: { swiff: Swiff }) {
   const { t } = useCrewText();
   const { signedIn, signInKnown, openCrew, goHome } = swiff;
-  // Read once: once the PC is added, the address drops the hash.
-  const k = useMemo(() => pairKeyAt(location.pathname, location.search) ?? "", []);
+  // Read once: from the address the app opened, or from this tab, back from Steam sign-in at plain /pair.
+  const k = useMemo(() => pairKeyAt(location.pathname, location.search) || rememberedPair(), []);
   const [adding, setAdding] = useState(false);
   const [outcome, setOutcome] = useState<Outcome>(null);
+
+  // The hash leaves the address bar and history once this tab holds it; with storage blocked it stays in the query.
+  useEffect(() => {
+    if (pairKeyAt(location.pathname, location.search) && rememberPair(k)) {
+      history.replaceState(history.state, "", PAIR_PATH);
+    }
+  }, [k]);
 
   const add = () => {
     setAdding(true);
@@ -41,7 +58,10 @@ export function PairPc({ swiff }: { swiff: Swiff }) {
     void addPc(k).then((answer) => {
       setAdding(false);
       setOutcome(answer ?? "failed");
-      if (answer && typeof answer === "object") history.replaceState(history.state, "", PAIR_PATH);
+      if (answer && typeof answer === "object") {
+        forgetPair();
+        history.replaceState(history.state, "", PAIR_PATH);
+      }
     });
   };
   /** Sign out, then in again with another Steam account, back to this pairing. */

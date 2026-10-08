@@ -316,7 +316,7 @@ export type Pairing =
   | { kind: "unpaired" }
   | { kind: "waiting"; code: string; link: string; unanswered: boolean }
   | { kind: "failed"; why: string }
-  | { kind: "paired"; machineId: string };
+  | { kind: "paired"; machineId: string; owner: string | null };
 
 /** Whether the connection has everything signing in needs. */
 export const connectionReady = (c: Pick<Connection, "url" | "machineId" | "machineKey">): boolean =>

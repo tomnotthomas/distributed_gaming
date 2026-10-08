@@ -20,6 +20,7 @@ describe("withoutInviteTokens", () => {
 describe("scrubText", () => {
   it.each([
     ["GET https://lanterel.com/invite/k3y-t0ken failed", "GET https://lanterel.com/invite failed"],
+    [`open https://lanterel.com/pair?k=${"ab12".repeat(16)} failed`, "open https://lanterel.com/pair failed"],
     ["Authorization: Bearer abc.def.ghi", "Authorization: Bearer <redacted>"],
     ["got eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl back", "got <redacted> back"],
     ['{"sessionKey":"s3cr3t","expiresAt":1}', '{"sessionKey":"<redacted>","expiresAt":1}'],

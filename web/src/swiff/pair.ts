@@ -1,8 +1,11 @@
 // Pairing a gaming PC with its owner's Steam account (server/src/pairing.ts):
 // the page Lanterel on the PC opens (/pair?k=<hash>). `k` is the SHA-256 of
-// the machine key the app made, which stays on the PC; the hash is no secret,
-// so it rides in the address and through Steam sign-in as it is. The owner
-// signs in and adds the PC; the app, asking with its key, carries on by itself.
+// the machine key the app made, which stays on the PC. Whoever adds the hash
+// first owns the PC, so it is treated as a seat link is (seat.ts): never sent
+// to analytics (withoutInviteTokens), kept out of the address bar and the Steam
+// sign-in round trip once this tab remembers it, and left in the query only
+// with storage blocked. The owner signs in and adds the PC; the app, asking
+// with its key, carries on by itself.
 
 import { STEAM_LOGIN_URL } from "./steam";
 
@@ -11,6 +14,9 @@ export const PAIR_PATH = "/pair";
 
 /** A machine key's SHA-256, in lowercase hex. */
 const KEY_HASH = /^[0-9a-f]{64}$/;
+
+/** Where this tab keeps the key hash of the PC it is pairing. */
+const PENDING_KEY = "swiff.pair";
 
 /**
  * The key hash a pairing address carries: the hash, "" for /pair with no
@@ -25,9 +31,40 @@ export function pairKeyAt(pathname: string, search: string): string | null {
 /** The few characters of the hash the owner compares with the app's: "3F9-A2C". */
 export const pairingCode = (k: string): string => `${k.slice(0, 3)}-${k.slice(3, 6)}`.toUpperCase();
 
-/** Steam sign-in that comes back to this pairing. */
-export const signInToPair = (k: string): string =>
-  `${STEAM_LOGIN_URL}?to=${encodeURIComponent(`${PAIR_PATH}?k=${k}`)}`;
+/** Remember the PC this tab is pairing; false when storage is blocked. */
+export function rememberPair(k: string): boolean {
+  try {
+    sessionStorage.setItem(PENDING_KEY, k);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The key hash of the PC this tab was pairing, or "" when there is none. */
+export function rememberedPair(): string {
+  try {
+    const k = sessionStorage.getItem(PENDING_KEY) ?? "";
+    return KEY_HASH.test(k) ? k : "";
+  } catch {
+    return "";
+  }
+}
+
+/** Forget the PC this tab was pairing, once it is added. */
+export function forgetPair(): void {
+  try {
+    sessionStorage.removeItem(PENDING_KEY);
+  } catch {
+    // Blocked storage held nothing.
+  }
+}
+
+/** Steam sign-in that comes back to this pairing: to plain /pair when this tab remembers it, so the hash never rides through Steam. */
+export function signInToPair(k: string): string {
+  const to = rememberPair(k) ? PAIR_PATH : `${PAIR_PATH}?k=${k}`;
+  return `${STEAM_LOGIN_URL}?to=${encodeURIComponent(to)}`;
+}
 
 /** Why adding the PC was refused: another Steam account has it, the owner has the most PCs, or nobody is signed in. */
 export type PairRefusal = "paired-elsewhere" | "too-many" | "signed-out";

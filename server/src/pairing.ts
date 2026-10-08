@@ -5,13 +5,17 @@
 //   owner      signs in with Steam there and adds the PC:
 //              POST /api/pairings { keyHash }   ─►  { machineId }, owned by them
 //   host app   asks with the key itself until the server knows it:
-//              GET  /api/pairings/mine  Bearer <machine key>  ─►  { machineId }
+//              GET  /api/pairings/mine  Bearer <machine key>  ─►  { machineId, owner }
 //
 // The key never leaves the PC until it is used: the link and the server carry
 // only its hash, as MACHINE_KEYS does. Whoever adds the PC owns it (access.ts
-// owners), so they are never matched to it as a renter. The page and the app
-// both show a few characters of the hash (pairingCode), so the owner can see
-// the PC they add is the one in front of them.
+// owners), so they are never matched to it as a renter. That makes the hash a
+// claim ticket: the page keeps it out of analytics and the Steam sign-in round
+// trip (web/src/swiff/pair.ts), and the app shows whose the PC became (owner:
+// their Steam persona, else their Steam id), so a wrong owner is plain to see.
+// The page and the app both show a few characters of the hash (pairingCode),
+// so the owner can see the PC they add is the one in front of them. The app
+// pairs again with the key it keeps, which answers the same machine id.
 //
 // A paired PC is an entry in access.machines and access.owners like any from
 // MACHINE_KEYS: loaded when the server starts, added when it is paired, and
@@ -25,7 +29,7 @@ import type { Database, Queryable } from "./db.js";
 /** The most PCs one Steam account may pair: more than anyone owns, few enough that a script cannot fill the table. */
 export const MAX_PAIRED = 10;
 
-/** Held while pairing, so two pairings for one owner count each other. Nothing else takes this lock. */
+/** Held while pairing, so two pairings for one owner count each other. Nothing else takes this lock (schema.ts takes its own). */
 const PAIRING_LOCK = 5_317_002;
 
 /** SHA-256 of a machine key, in hex: what the link carries and the server keeps. */

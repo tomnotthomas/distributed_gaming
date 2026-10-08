@@ -2,6 +2,7 @@
 // out of every string in it before it is sent:
 //
 //   invite and seat links     /invite/<token> and /seat/<token> become /invite and /seat
+//   pairing links             /pair?k=<key hash> becomes /pair
 //   known secrets             the literal values a caller names (a machine key, its id)
 //   tokens and keys           Bearer and Basic credentials, JWTs, `key=`, `token: ...`,
 //                             `"sessionKey":"..."` and the like, and any long opaque
@@ -15,14 +16,21 @@
 
 /** An invite or seat link's token in a URL, plain or encoded as a sign-in's return. */
 const TOKEN_IN_URL = /(\/|%2F)(invite|seat)(?:\/|%2F)[\w-]+/gi;
+/** A pairing link's key hash (web/src/swiff/pair.ts), plain or encoded, with the separator after it. */
+const PAIR_KEY_IN_URL = /((?:\/|%2F)pair)(\?|%3F)k(?:=|%3D)[0-9a-f]+(&|%26)?/gi;
+/** `text` with every invite, seat and pairing link in it cut back to its path. */
+const withoutLinkTokens = (text: string): string =>
+  text
+    .replace(TOKEN_IN_URL, "$1$2")
+    .replace(PAIR_KEY_IN_URL, (_, path, query, more) => (more ? path + query : path));
 
 /**
- * `value` with every invite link in it cut back to /invite, and every friend
- * seat's link to /seat, however deep: an analytics event's URLs, referrer,
- * person properties and clicked links alike.
+ * `value` with every invite link in it cut back to /invite, every friend
+ * seat's link to /seat, and every pairing link to /pair, however deep: an
+ * analytics event's URLs, referrer, person properties and clicked links alike.
  */
 export function withoutInviteTokens<T>(value: T): T {
-  return deep(value, (text) => text.replace(TOKEN_IN_URL, "$1$2"));
+  return deep(value, withoutLinkTokens);
 }
 
 /** An IPv4 address, and one group of an IPv6 address. */
@@ -41,7 +49,6 @@ const IPV6 = new RegExp(
 
 /** Each pattern, in order, and what it leaves in place of what it found. */
 const CUTS: [RegExp, string][] = [
-  [TOKEN_IN_URL, "$1$2"],
   [/\b(Bearer|Basic)\s+[\w.~+/=-]+/gi, "$1 <redacted>"],
   [/\beyJ[\w-]*\.[\w-]+\.[\w-]*/g, "<redacted>"],
   // A secret's name, then = or : (quoted or not), then its value.
@@ -68,6 +75,7 @@ export function scrubText(text: string, secrets: readonly string[] = []): string
   for (const secret of secrets) {
     if (secret.length >= MIN_SECRET_LENGTH) out = out.split(secret).join("<redacted>");
   }
+  out = withoutLinkTokens(out);
   for (const [pattern, replacement] of CUTS) out = out.replace(pattern, replacement);
   return out;
 }

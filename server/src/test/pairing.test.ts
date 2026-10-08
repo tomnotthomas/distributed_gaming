@@ -14,6 +14,7 @@ import type { Database } from "../db.js";
 import { keyHashOf, MAX_PAIRED, openPairings, pairingCode, type Pairings } from "../pairing.js";
 import { Platform } from "../platform.js";
 import { SESSION_COOKIE } from "../signin.js";
+import { emptyProfile } from "../steam.js";
 import { testDatabase } from "./db.js";
 import { REPORT } from "./report.js";
 
@@ -49,6 +50,10 @@ describe("pairing", () => {
         publicOrigin: "http://localhost",
         fallbackOrigin: "http://localhost",
         pairings,
+        profile: async (steamId) => {
+          if (steamId === KAI) throw new Error("Steam is down");
+          return { ...emptyProfile(steamId), persona: steamId === LENA ? "Lena" : "" };
+        },
       });
       const path = new URL(req.url ?? "/", "http://localhost").pathname;
       if (!(await api(req, res, path))) res.writeHead(418).end("{}");
@@ -101,7 +106,7 @@ describe("pairing", () => {
     assert.equal(added.status, 201);
     assert.match(added.body.machineId, /^pc-[0-9a-f]{12}$/);
     const asked = await mine();
-    assert.deepEqual([asked.status, asked.body], [200, { machineId: added.body.machineId }]);
+    assert.deepEqual([asked.status, asked.body], [200, { machineId: added.body.machineId, owner: "Lena" }]);
     assert.equal(
       asked.headers.get("access-control-allow-origin"),
       "*",
@@ -128,6 +133,11 @@ describe("pairing", () => {
     const first = await add(LENA);
     const again = await add(LENA);
     assert.deepEqual([again.status, again.body], [200, first.body]);
+  });
+
+  it("answers the app whose PC it is by Steam id when Steam gives no persona", async () => {
+    const { machineId } = (await add(KAI)).body;
+    assert.deepEqual((await mine()).body, { machineId, owner: KAI });
   });
 
   it("refuses a PC paired with someone else's account", async () => {

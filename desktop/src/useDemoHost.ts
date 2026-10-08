@@ -31,7 +31,7 @@ import {
 } from "./model";
 
 /** The demo's pairing: paired, as Nova-01 is, except on the pairing screen itself. */
-const DEMO_PAIRED: Pairing = { kind: "paired", machineId: "pc-3f9a2c41d07e" };
+const DEMO_PAIRED: Pairing = { kind: "paired", machineId: "pc-3f9a2c41d07e", owner: "nova_owner" };
 /** What the owner compares in the demo, and the page it would open. */
 const DEMO_WAITING: Pairing = {
   kind: "waiting",

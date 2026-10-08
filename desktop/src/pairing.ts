@@ -8,7 +8,10 @@
 //
 // The key stays on this PC: the page and the server see only its hash. The app
 // and the page both show a few characters of it (pairingCode), so the owner can
-// see that the PC they add is this one.
+// see that the PC they add is this one, and the app shows the Steam account the
+// PC is paired with, so they can see it is theirs. Pairing again uses the key
+// the app keeps, which the server answers with the same machine id; only a PC
+// with no key makes a new one.
 
 import { httpOrigin } from "@swiff/rtc";
 import type { Pairing } from "./model";
@@ -48,8 +51,8 @@ export function pairLink(serverUrl: string, keyHash: string): string | null {
   }
 }
 
-/** Whether the server knows the key yet: its machine id, not yet, or no answer. */
-export type PairAnswer = { machineId: string } | "waiting" | "unanswered";
+/** Whether the server knows the key yet: its machine id and owner (Steam persona or id), not yet, or no answer. */
+export type PairAnswer = { machineId: string; owner: string | null } | "waiting" | "unanswered";
 
 /** Ask the server at `serverUrl` which machine `key` is. Nothing it does throws. */
 export async function askPaired(
@@ -64,8 +67,10 @@ export async function askPaired(
     });
     if (res.status === 404) return "waiting";
     if (!res.ok) return "unanswered";
-    const machineId = ((await res.json()) as { machineId?: unknown } | null)?.machineId;
-    return typeof machineId === "string" && MACHINE_ID.test(machineId) ? { machineId } : "unanswered";
+    const body = (await res.json()) as { machineId?: unknown; owner?: unknown } | null;
+    const machineId = body?.machineId;
+    const owner = typeof body?.owner === "string" && body.owner.trim() ? body.owner.trim() : null;
+    return typeof machineId === "string" && MACHINE_ID.test(machineId) ? { machineId, owner } : "unanswered";
   } catch {
     return "unanswered";
   }

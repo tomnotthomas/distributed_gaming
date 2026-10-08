@@ -33,7 +33,7 @@ export const screenAt = (pathname: string): Screen =>
 /**
  * The address a screen keeps: /share for the estimate, /invite for an invite
  * (whose own address, with its token, is kept as it is), /seat for a friend
- * seat (likewise), /pair for pairing a PC (its key hash stays in the query), /crews for the crew pages (a crew's own, with its id, is
+ * seat (likewise), /pair for pairing a PC (likewise, its key hash in the query), /crews for the crew pages (a crew's own, with its id, is
  * kept as it is), / for everything else: the wall's own address, which is
  * /play while paid gaming is off.
  */

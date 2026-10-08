@@ -8,10 +8,11 @@ type Pending = { key: string; code: string; link: string; unanswered: boolean };
 /**
  * Pairing this PC with its owner's Steam account (pairing.ts). `serverUrl` is
  * the server's ws:// or wss:// address; `saved` is the machine id and key the
- * app keeps, `loaded` once the key has been read. Pairing makes a key, opens
- * the page to add the PC, and asks the server every PAIR_POLL_MS until the
- * owner has: `keep` then saves the machine id and key, and says whether the
- * key could be kept.
+ * app keeps, `loaded` once the key has been read. Pairing uses the saved key,
+ * or makes one when there is none, opens the page to add the PC, and asks the
+ * server every PAIR_POLL_MS until the owner has: `keep` then saves the machine
+ * id and key, and says whether the key could be kept. A paired PC asks the
+ * server once whose it is.
  */
 export function usePairing({
   serverUrl,
@@ -30,17 +31,21 @@ export function usePairing({
 }): { pairing: Pairing; pair(): void; cancel(): void } {
   const [pending, setPending] = useState<Pending | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
+  // Whose the PC is, as the server last said, for the machine id it said it for.
+  const [owner, setOwner] = useState<{ machineId: string; owner: string | null } | null>(null);
   // Each pairing is its own: a click again, or Cancel, makes the one before answer nothing.
   const attempt = useRef(0);
   const keepNow = useRef(keep);
   keepNow.current = keep;
   const openNow = useRef(open);
   openNow.current = open;
+  const savedKey = useRef(saved.machineKey);
+  savedKey.current = saved.machineKey;
 
   const pair = useCallback(() => {
     const n = ++attempt.current;
     setFailed(null);
-    const key = newMachineKey();
+    const key = savedKey.current.trim() || newMachineKey();
     void keyHashOf(key).then((hash) => {
       if (n !== attempt.current) return;
       const link = pairLink(serverUrl, hash);
@@ -75,6 +80,7 @@ export function usePairing({
         if (n !== attempt.current) return;
         attempt.current++;
         setPending(null);
+        setOwner(answer);
         if (!kept)
           setFailed(
             "Windows couldn't keep this PC's key encrypted, so the pairing wasn't saved: pair again.",
@@ -92,6 +98,20 @@ export function usePairing({
     };
   }, [key, serverUrl, pollMs]);
 
+  // A PC paired before this run: ask once whose it is.
+  const pairedId = saved.loaded ? saved.machineId.trim() : "";
+  const pairedKey = saved.loaded ? saved.machineKey.trim() : "";
+  useEffect(() => {
+    if (!pairedId || !pairedKey) return;
+    let live = true;
+    void askPaired(serverUrl, pairedKey).then((answer) => {
+      if (live && typeof answer === "object") setOwner(answer);
+    });
+    return () => {
+      live = false;
+    };
+  }, [serverUrl, pairedId, pairedKey]);
+
   const pairing: Pairing = failed
     ? { kind: "failed", why: failed }
     : pending
@@ -99,7 +119,11 @@ export function usePairing({
       : !saved.loaded
         ? { kind: "checking" }
         : saved.machineKey.trim() && saved.machineId.trim()
-          ? { kind: "paired", machineId: saved.machineId.trim() }
+          ? {
+              kind: "paired",
+              machineId: saved.machineId.trim(),
+              owner: owner?.machineId === saved.machineId.trim() ? owner.owner : null,
+            }
           : { kind: "unpaired" };
   return { pairing, pair, cancel };
 }

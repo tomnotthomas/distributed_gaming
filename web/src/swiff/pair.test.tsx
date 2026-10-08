@@ -4,6 +4,7 @@
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { withoutInviteTokens } from "./invite";
 import { addPc, pairingCode, pairKeyAt, signInToPair } from "./pair";
 import { PairPc } from "./PairPc";
 import { pathOf, screenAt } from "./route";
@@ -44,6 +45,7 @@ const onPairScreen = (swiff: Swiff) => (
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  sessionStorage.clear();
   history.replaceState(null, "", "/");
 });
 
@@ -64,7 +66,31 @@ describe("pairing addresses", () => {
 
   it("shows the code the app shows, and signs in back to the pairing", () => {
     expect(pairingCode(K)).toBe("3F9-A2C");
+    expect(signInToPair(K)).toBe("/auth/steam/login?to=%2Fpair");
+    expect(sessionStorage.getItem("swiff.pair")).toBe(K);
+  });
+
+  it("keeps the key hash out of the Steam round trip, unless storage is blocked", () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("blocked", "SecurityError");
+    });
     expect(signInToPair(K)).toBe(`/auth/steam/login?to=${encodeURIComponent(`/pair?k=${K}`)}`);
+  });
+
+  it("cuts every key hash out of an analytics event", () => {
+    const event = {
+      properties: {
+        $current_url: `https://lanterel.de/pair?k=${K}`,
+        $referrer: `https://lanterel.de/auth/steam/login?to=${encodeURIComponent(`/pair?k=${K}`)}`,
+        $pathname: `/pair?k=${K}&x=1`,
+      },
+    };
+    expect(JSON.stringify(withoutInviteTokens(event))).not.toContain(K);
+    expect(withoutInviteTokens(event).properties).toEqual({
+      $current_url: "https://lanterel.de/pair",
+      $referrer: "https://lanterel.de/auth/steam/login?to=%2Fpair",
+      $pathname: "/pair?x=1",
+    });
   });
 });
 
@@ -106,6 +132,24 @@ describe("the pairing page", () => {
     const signIn = screen.getByRole("link", { name: /Sign in with Steam/ });
     expect(signIn.getAttribute("href")).toBe(signInToPair(K));
     expect(screen.queryByRole("button", { name: /Add this PC/ })).toBeNull();
+    // This tab holds the hash now: it leaves the address bar.
+    expect(location.search).toBe("");
+    expect(sessionStorage.getItem("swiff.pair")).toBe(K);
+  });
+
+  it("back from Steam sign-in at plain /pair: the PC this tab remembers, added on the owner's click", async () => {
+    sessionStorage.setItem("swiff.pair", K);
+    at("/pair");
+    const get = answering(201, { machineId: "pc-1" });
+    render(onPairScreen(fakeSwiff()));
+    expect(screen.getByLabelText("Lanterel on your PC shows 3F9-A2C").textContent).toBe("3F9-A2C");
+    fireEvent.click(screen.getByRole("button", { name: /Add this PC/ }));
+    await screen.findByText("Go back to Lanterel on your PC: it carries on by itself.");
+    expect(get).toHaveBeenCalledWith(
+      "/api/pairings",
+      expect.objectContaining({ body: JSON.stringify({ keyHash: K }) }),
+    );
+    expect(sessionStorage.getItem("swiff.pair")).toBeNull();
   });
 
   it("signed in: adds the PC on the owner's click, then sends them back to the app", async () => {
