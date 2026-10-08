@@ -236,6 +236,17 @@ describe("the TPM's EK certificate", () => {
     });
   });
 
+  it("takes the RSA 2048 EK's over an ECC P-256 EK's listed first, as swiff-attest uses that EK", () => {
+    expect(ekOf(lines(EK.eccEk, EK.intermediate, EK.ek))).toEqual({
+      certificate: EK.ek,
+      intermediates: [EK.intermediate],
+    });
+    expect(ekOf(lines(EK.eccEk, EK.intermediate))).toEqual({
+      certificate: EK.eccEk,
+      intermediates: [EK.intermediate],
+    });
+  });
+
   it("is null when Windows read none, or only CAs", () => {
     expect(ekOf("")).toBeNull();
     expect(ekOf(lines(EK.root, EK.intermediate))).toBeNull();

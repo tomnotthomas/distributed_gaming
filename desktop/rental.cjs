@@ -599,9 +599,18 @@ const EK_LINES = [
 const MAX_EK_INTERMEDIATES = 8;
 
 /**
- * The TPM's EK certificate in `out`, what EK_LINES printed: the first that is no CA's, the TPM's own
- * before Windows' downloads, with the intermediate CAs beside it (never a self-signed root, which the
- * server must already have). Null when there is none.
+ * The EK keys swiff-attest makes, in the order it tries them (swiff-os/hostd/src/attest.ts): RSA 2048,
+ * else ECC P-256. A certificate for any other key is for an EK it never uses.
+ */
+const EK_KEYS = [
+  (key) => key.asymmetricKeyType === "rsa" && key.asymmetricKeyDetails?.modulusLength === 2048,
+  (key) => key.asymmetricKeyType === "ec" && key.asymmetricKeyDetails?.namedCurve === "prime256v1",
+];
+
+/**
+ * The TPM's EK certificate in `out`, what EK_LINES printed: the first that is no CA's for the EK
+ * swiff-attest uses (EK_KEYS), the TPM's own before Windows' downloads, with the intermediate CAs
+ * beside it (never a self-signed root, which the server must already have). Null when there is none.
  */
 function ekOf(out) {
   const certs = [];
@@ -614,7 +623,7 @@ function ekOf(out) {
       // Not a certificate: Windows keeps others beside them, which are no use here.
     }
   }
-  const leaf = certs.find((c) => !c.cert.ca);
+  const leaf = EK_KEYS.map((fits) => certs.find((c) => !c.cert.ca && fits(c.cert.publicKey))).find(Boolean);
   if (!leaf) return null;
   return {
     certificate: leaf.b64,
