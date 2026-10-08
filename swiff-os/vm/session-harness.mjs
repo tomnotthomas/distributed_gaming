@@ -1201,6 +1201,7 @@ try {
   await ownerGoesLive();
   await ownerRegistersEk();
 
+  let client1 = null;
   if (NO_IOMMU) {
     await waitVm("boot1/hostd-active", 300_000);
     await withoutIommu();
@@ -1215,7 +1216,7 @@ try {
       !clear.record && !clear.key,
       `${clear.record ? "the record is still there" : "no record"}; ${clear.key ? "the machine key is in the clear" : "no machine key in the clear"}`,
     );
-    const client1 = steamClient(1);
+    client1 = steamClient(1);
     record(
       "the first boot installs Steam and keeps it on the state before the offer",
       client1?.how === "installed" && client1.kept === "saved",
