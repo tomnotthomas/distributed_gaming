@@ -306,7 +306,10 @@ if ((Get-BitLockerVolume -MountPoint C:).ProtectionStatus -ne "On") { exit 1 }' 
 
 test_run() {
 	[ -s "$dir/base.qcow2" ] || die "no Windows base: run prepare first"
-	[ -s "$image_set/swiffos.json.sig" ] || die "no signed image set in $image_set: run swiff-os/image-set.sh"
+	# Scenarios 11 and 14 need no image set: run only those, and none is asked for.
+	local image_free=false
+	[[ "${SWIFF_SCENARIOS:-}" =~ ^[[:space:]]*((11|14)[[:space:]]*)+$ ]] && image_free=true
+	$image_free || [ -s "$image_set/swiffos.json.sig" ] || die "no signed image set in $image_set: run swiff-os/image-set.sh"
 	rm -rf "$run" && mkdir -p "$run"
 	qemu-img create -q -f qcow2 -b "$dir/base.qcow2" -F qcow2 "$run/disk.qcow2"
 	cp "$dir/base-vars.fd" "$run/vars.fd"
@@ -314,8 +317,8 @@ test_run() {
 	trap 'vm_kill' EXIT
 	printf '#!/bin/sh\nexec %q %q "$@"\n' "$python" "$here/boot-vars.py" > "$run/boot-vars"
 	chmod +x "$run/boot-vars"
-	local cert_hex
-	cert_hex=$(od -An -v -tx1 "$image_set/swiffos-key.cer" | tr -d ' \n')
+	local cert_hex=""
+	$image_free || cert_hex=$(od -An -v -tx1 "$image_set/swiffos-key.cer" | tr -d ' \n')
 	[ -x "$electron_dir/electron.exe" ] || die "no Electron for Windows in \$SWIFF_WIN_ELECTRON"
 	# The app's runtime: Electron as Node, which the worker it starts inherits. Electron is a
 	# windowed program: PowerShell waits for it and hands on its output only through a pipe.
@@ -388,8 +391,7 @@ test_run() {
 	to_vm "$desktop"/*.cjs "$desktop"/image-trust*.json swiff@127.0.0.1:'C:/swiff/desktop/'
 	# The machine key the provisioning hands Lanterel OS, in a file the console reads (never its command line).
 	on_vm "Set-Content -NoNewline C:\\swiff\\machine-key $(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
-	# Scenarios 11 and 14 need no image set.
-	[[ "${SWIFF_SCENARIOS:-}" =~ ^[[:space:]]*((11|14)[[:space:]]*)+$ ]] || to_vm_direct "$image_set" 'C:\swiff\image'
+	$image_free || to_vm_direct "$image_set" 'C:\swiff\image'
 	to_vm "$electron_dir" swiff@127.0.0.1:'C:/swiff/electron'
 	on_vm 'New-Item -ItemType Directory -Force C:\swiff\vm | Out-Null'
 	to_vm "$here/windows/disk-open-check.cjs" "$here/windows/key-state.cjs" "$here/windows/app-windows.ps1" swiff@127.0.0.1:'C:/swiff/vm/'
@@ -866,7 +868,11 @@ test_run() {
 		on_vm "New-Item -ItemType Directory -Force C:\\ProgramData\\Swiff, '$userdata' | Out-Null" || true
 		to_vm "$run/rental-install.json" swiff@127.0.0.1:'C:/ProgramData/Swiff/'
 		# The helper's Electron must have quit: it writes the seal's key to Local State on its way out.
-		on_vm "Remove-Item -Force -ErrorAction SilentlyContinue C:\\swiff\\seal.txt; schtasks /create /tn swiff-seal /tr 'C:\\swiff\\electron\\electron.exe C:\\swiff\\vm\\seal-key.cjs C:\\swiff\\desktop $userdata C:\\swiff\\seal.txt' /sc once /st 23:59 /it /rl LIMITED /f | Out-Null; schtasks /run /tn swiff-seal | Out-Null; foreach (\$i in 1..30) { if (Test-Path C:\\swiff\\seal.txt) { break }; Start-Sleep 2 }; foreach (\$i in 1..30) { if (-not (Get-Process electron -ErrorAction SilentlyContinue)) { break }; Start-Sleep 2 }; Get-Content C:\\swiff\\seal.txt" | tr -d '\r' > "$run/relaunch-seal.txt" || true
+		# Through a .cmd file: the app's user data folder has a space in its name, which schtasks' /tr
+		# quoting would have to carry through SSH and PowerShell.
+		printf '"C:\\swiff\\electron\\electron.exe" C:\\swiff\\vm\\seal-key.cjs C:\\swiff\\desktop "%s" C:\\swiff\\seal.txt\r\n' "$userdata" > "$run/seal.cmd"
+		to_vm "$run/seal.cmd" swiff@127.0.0.1:'C:/swiff/vm/'
+		on_vm "Remove-Item -Force -ErrorAction SilentlyContinue C:\\swiff\\seal.txt; schtasks /create /tn swiff-seal /tr C:\\swiff\\vm\\seal.cmd /sc once /st 23:59 /it /rl LIMITED /f | Out-Null; schtasks /run /tn swiff-seal | Out-Null; foreach (\$i in 1..30) { if (Test-Path C:\\swiff\\seal.txt) { break }; Start-Sleep 2 }; foreach (\$i in 1..30) { if (-not (Get-Process electron -ErrorAction SilentlyContinue)) { break }; Start-Sleep 2 }; Get-Content C:\\swiff\\seal.txt" | tr -d '\r' > "$run/relaunch-seal.txt" || true
 		expect relaunch-staged "installed, and the key's request queued as the app keeps it: $(cat "$run/relaunch-seal.txt")" grep -qx ok "$run/relaunch-seal.txt"
 		app
 		# The first read of the PC can pass the app's limit on a busy host: Check again then.
