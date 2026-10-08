@@ -547,7 +547,8 @@ one such crew at most. Joining someone else's crew of the same name is never ref
 crews of the same name a person had before this rule are kept as they are. Taking a crew
 over when its admin leaves, or another crew's admin renaming it, is never refused either,
 like joining, since that person did not pick the name; where a person ends up with two of
-one name, the clash names their oldest and a seat goes into their oldest. Founding is
+one name, the clash names the one they joined first (then by membership id), and a seat
+goes into their crew with no name of its own founded first (then by crew id). Founding is
 idempotent: the page sends a key with each founding, and the same key again is the crew it
 founded rather than a second one.
 
