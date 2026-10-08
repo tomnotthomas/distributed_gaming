@@ -906,6 +906,8 @@ writeFileSync(process.argv[1] + "/policy.pem", publicKey.export({ format: "pem",
 	expect ek-a-registered "the app registered it" test "$(ek_value "$run/ek-a.json" 'v.registered')" = '{"ok":true,"registered":"now"}'
 	expect ek-a-server "the server has this TPM's RSA EK" test "$(registered_ek)" = "$(sha "$run/tpm-a-certs/ek-rsa2048.crt")"
 	go_live_ek a-again
+	expect ek-a-again-read "Go live again: the step and the app read the same EK again" \
+		test "$(ek_value "$run/ek-a-again.json" 'v.worked.ek.certificate === v.checked.certificate && !!v.checked.certificate')" = true
 	expect ek-a-again "Go live again: the same EK is not registered again" \
 		test "$(ek_value "$run/ek-a-again.json" 'v.registered')" = '{"ok":true,"registered":"already"}'
 	on_vm 'manage-bde -protectors -disable C: -RebootCount 1' >> "$run/ek/bitlocker-suspend.txt"
@@ -917,6 +919,8 @@ writeFileSync(process.argv[1] + "/policy.pem", publicKey.export({ format: "pem",
 	vm_start "$run/disk.qcow2" "$run/vars.fd" "$run/tpm-b"
 	ssh_wait 1800 || die "Windows did not come back on the other TPM (screens in $run)"
 	go_live_ek b
+	expect ek-b-read "Go live's step read the new TPM's EK certificate, and the app's read found the same" \
+		test "$(ek_value "$run/ek-b.json" 'v.worked.ek.certificate === v.checked.certificate && !!v.checked.certificate')" = true
 	expect ek-b-registered "the new TPM's EK is registered over the old one" \
 		test "$(ek_value "$run/ek-b.json" 'v.registered')" = '{"ok":true,"registered":"now"}'
 	expect ek-b-server "the server has the new TPM's EK" test "$(registered_ek)" = "$(sha "$run/tpm-b-certs/ek-rsa2048.crt")"

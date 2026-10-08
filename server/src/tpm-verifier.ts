@@ -397,6 +397,7 @@ export function tpmVerifier({
         return { ok: true } as const;
       }),
 
+    /** SHA-256 (hex) of the EK certificate `room` registered, or null when it has none. */
     async registeredEk(room) {
       const record = await store.get(room);
       return record?.ek ? createHash("sha256").update(record.ek.certificate).digest("hex") : null;

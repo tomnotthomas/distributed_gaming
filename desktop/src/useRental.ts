@@ -288,6 +288,7 @@ export function useRental({
     const host = bridge();
     if (!host || busy) return;
     const n = nextPlan();
+    /** The EK certificate a read says the TPM step last recorded, or null for none. */
     const checked = (r: RentalRead | null): EkCertificate | null =>
       r?.facts.checked?.certificate
         ? { certificate: r.facts.checked.certificate, intermediates: r.facts.checked.intermediates }

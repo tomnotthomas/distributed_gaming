@@ -506,6 +506,7 @@ export function createAttestation({
       }
     },
 
+    /** Which EK machine `room` registered, through the verifier: 503 without one that keeps EKs, 404 for no such machine. */
     async registeredEk(room) {
       if (!verifier?.registeredEk) return refuse(503, { error: "not-configured" });
       if (!access.machines.has(room)) return refuse(404, { error: "not-found" });

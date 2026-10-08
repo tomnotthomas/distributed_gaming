@@ -12,6 +12,7 @@ const { createWorker } = require("C:/swiff/desktop/rental-worker.cjs");
 const { readRental } = require("C:/swiff/desktop/rental.cjs");
 const { registerEk } = require("C:/swiff/ek.cjs");
 
+/** Go live's TPM step from the command line's server and machine, printed as one JSON line. */
 async function main() {
   const [url, machineId, machineKey] = process.argv.slice(2);
   const worker = await createWorker({ imageDir: "C:/swiff/no-image" });
