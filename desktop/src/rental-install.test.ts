@@ -5,12 +5,12 @@
 // uninstall on a stand-in for Windows: a disk in memory, firmware variables
 // in a map, and PowerShell answering the few things it is asked.
 
-import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto";
+import { createHash, generateKeyPairSync, randomBytes, sign, X509Certificate } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as efi from "../efi.cjs";
 import { emptyGpt, gptWrites, readGpt, withPartitions, withResized, type Gpt } from "../gpt.cjs";
 import { testBuild } from "../build-kind.cjs";
@@ -416,6 +416,38 @@ describe("the elevated worker", () => {
       failed: { step: "ek", error: expect.stringMatching(/TPM is not ready/) },
     });
     expect(pc.vars.get(pc.key(efi.GLOBAL, "BootNext"))).toBeUndefined();
+  });
+
+  it("records an EK certificate whose key Node cannot read at the install's check, without a warning", async () => {
+    const { pc, worker } = await setup();
+    pc.tpm.certificates = [EK.root, EK.intermediate, EK.ek];
+    const unreadable = vi.spyOn(X509Certificate.prototype, "publicKey", "get").mockImplementation(() => {
+      throw new Error("unsupported key");
+    });
+    try {
+      expect(await worker.apply({ op: "check" })).toEqual({ warnings: [] });
+    } finally {
+      unreadable.mockRestore();
+    }
+    expect(JSON.parse(fs.readFileSync(path.join(dir, "state", "rental-check.json"), "utf8"))).toMatchObject({
+      ek: true,
+      certificate: EK.ek,
+      intermediates: [EK.intermediate],
+    });
+  });
+
+  it("lets Go live on when Windows lists the registered TPM's certificates in another order", async () => {
+    const { pc, worker } = await setup();
+    for (const certificates of [
+      [EK.root, EK.intermediate, EK.ek, EK.eccEk],
+      [EK.eccEk, EK.intermediate, EK.ek, EK.root],
+      [EK.eccEk, EK.root, EK.intermediate, EK.ek],
+    ]) {
+      pc.tpm.certificates = certificates;
+      expect(await worker.apply({ op: "ek", registered: EK.ek })).toEqual({
+        ek: { certificate: EK.ek, intermediates: [EK.intermediate] },
+      });
+    }
   });
 
   it("stops Go live before BootNext when the TPM's certificate is not the one the app registered", async () => {

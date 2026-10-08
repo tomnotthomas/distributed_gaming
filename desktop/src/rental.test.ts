@@ -269,6 +269,24 @@ describe("the TPM's EK certificate", () => {
     }
   });
 
+  it("takes the same EK whatever order Windows lists the certificates in, so the next Go live registers nothing", () => {
+    const certs = [EK.eccEk, EK.ek, EK.intermediate, EK.root];
+    const orders = (list: string[]): string[][] =>
+      list.length <= 1
+        ? [list]
+        : list.flatMap((c, i) => orders([...list.slice(0, i), ...list.slice(i + 1)]).map((rest) => [c, ...rest]));
+    for (const order of orders(certs))
+      expect(ekOf(lines(...order)), order.join(",")).toEqual({
+        certificate: EK.ek,
+        intermediates: [EK.intermediate],
+      });
+    // Intel PTT: the TPM's own ECC EK first, the RSA one only among Windows' downloads after it.
+    expect(ekOf(lines(EK.eccEk, EK.root, EK.intermediate, EK.ek))).toEqual({
+      certificate: EK.ek,
+      intermediates: [EK.intermediate],
+    });
+  });
+
   it("is null when Windows read none, or only CAs", () => {
     expect(ekOf("")).toBeNull();
     expect(ekOf(lines(EK.root, EK.intermediate))).toBeNull();
