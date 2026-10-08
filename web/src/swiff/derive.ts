@@ -21,7 +21,7 @@ import type { Device, Quality } from "./useSwiff";
 /**
  * The demo tells one evening's story, so its "now" is pinned to 20:00 rather
  * than read off the clock: at 03:00 every demo machine would otherwise read as
- * free with no end time and its free-until times would stop meaning anything. Real
+ * free for 12 h+ and its free-until times would stop meaning anything. Real
  * hosts are told by the real clock (clockMinutes).
  */
 export const NOW_MINUTES = 20 * 60;
@@ -35,7 +35,7 @@ export function clockTime(ms: number): string {
   return `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
 }
 
-// "No end time" has no end time to compare against, so it asks for six hours.
+// The longest play time, "6 h", asks for six hours.
 const SESSION_MINUTES: Record<SessionLength, number> = { quick: 60, evening: 180, night: 6 * 60 };
 
 /** The demo's evening, 20:00 today, as Unix ms: the clock the demo pages read. */
@@ -64,9 +64,9 @@ export function leftAt(machine: Machine, now: number): number {
   return minsLeft(machine, clockMinutes(new Date(now)));
 }
 
-/** "no end time", "3 h 20", "45 min" — never a bare number of minutes. */
+/** "12 h+", "3 h 20", "45 min" — never a bare number of minutes. */
 export function fmtLeft(mins: number): string {
-  if (mins >= 11 * 60) return "no end time";
+  if (mins >= 12 * 60) return "12 h+";
   const hh = Math.floor(mins / 60);
   const mm = mins % 60;
   if (!hh) return `${mm} min`;

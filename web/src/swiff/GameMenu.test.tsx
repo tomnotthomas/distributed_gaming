@@ -123,19 +123,19 @@ describe("GameMenu", () => {
       expect(rows.map((r) => r.querySelector("b")!.textContent)).toEqual(["Basement rig", "A shared PC"]);
       expect(rows[0]).toHaveTextContent("Free all session");
       expect(rows[0]).toHaveTextContent("Ryzen 7 7700, NVIDIA GeForce RTX 4070");
-      expect(rows[0]).toHaveTextContent("no end time");
+      expect(rows[0]).toHaveTextContent("12 h+");
       expect(rows[1]).toHaveTextContent("1080p 60");
       expect(rows[1]).toHaveTextContent("1 h 30 left");
       expect(screen.getByText("+1 back at 23:10")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Hold to launch on Basement rig" })).toBeEnabled();
     });
 
-    it("leaves a host whose offer has passed since it was read no time, not an open end", () => {
+    it("leaves a host whose offer has passed since it was read no time, not 12 h+", () => {
       const swiff = swiffWith("idle", true, { machines: hosts, picked: hosts[0]!, clock: now + 95 * 60_000 });
       const { container } = render(<GameMenu swiff={swiff} />);
       const rows = [...container.querySelectorAll(".ledger-row")];
       expect(rows[1]).toHaveTextContent("0 min left");
-      expect(rows[1]).not.toHaveTextContent("no end time");
+      expect(rows[1]).not.toHaveTextContent("12 h+");
     });
 
     it("says machines are being found until the server answers", () => {

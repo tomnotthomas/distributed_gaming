@@ -84,19 +84,19 @@ function useRotation(count: number, motion: boolean) {
   return { index: at, last: (at + count - 1) % count, hold };
 }
 
-/** "4 h 30" or "No end time": the time a machine stays free from `now` (Unix ms), as the band prints it. */
+/** "4 h 30" or "12 h+": the time a machine stays free from `now` (Unix ms), as the band prints it. */
 const leftLabel = (t: ScreenText, machine: Machine, now: number) => {
   const left = fmtLeft(leftAt(machine, now));
-  return left === "no end time" ? t("wall.openEnd") : left;
+  return left === "12 h+" ? t("wall.openEnd") : left;
 };
 
-/** "4 h 30 free" under Resume, or just "No end time". */
+/** "4 h 30 free" under Resume, or just "12 h+". */
 const heroLeft = (t: ScreenText, machine: Machine, now: number) => {
   const left = leftLabel(t, machine, now);
   return left === t("wall.openEnd") ? left : t("hero.left", { left });
 };
 
-/** "free until 00:30", or "free with no end time" for a machine its owner leaves on. */
+/** "free until 00:30", or "free for 12 h+" for a machine free that long or with no end set. */
 const untilLabel = (t: ScreenText, machine: Machine) =>
   machine.until === "late" ? t("wall.freeOpenEnd") : t("wall.freeUntil", { at: machine.until });
 

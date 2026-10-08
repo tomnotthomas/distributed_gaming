@@ -78,7 +78,7 @@ export const MAX_APPIDS = 100;
 /** A machine the server has no name for. */
 const UNNAMED = "A shared PC";
 
-/** At this many minutes left a machine reads as free with no end time (fmtLeft). */
+/** At this many minutes left a machine reads as free for 12 h+ (fmtLeft). */
 const ALL_NIGHT_MINUTES = 12 * 60;
 
 const PICTURE: Record<Prefs["quality"], PicturePref> = { auto: "best", fps: "120fps", resolution: "4k" };

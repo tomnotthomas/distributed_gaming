@@ -226,10 +226,10 @@ test.describe("live wall on the real hosts", () => {
     await signIn(context, baseURL!);
     await page.goto("/");
 
-    // The game the host can run leads the wall, on that host, free with no end time.
+    // The game the host can run leads the wall, on that host, free for 12 h+.
     const hero = page.getByTestId("hero");
     await expect(hero.locator(".hero-strip-line")).toContainText("E2E rig");
-    await expect(hero.locator(".hero-strip-line")).toContainText("free with no end time");
+    await expect(hero.locator(".hero-strip-line")).toContainText("free for 12 h+");
     await expect(page.locator(".bar-live")).toContainText(/ready now/);
 
     await hero.locator("button.resume").click();

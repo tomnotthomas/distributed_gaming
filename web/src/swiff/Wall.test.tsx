@@ -321,9 +321,7 @@ describe("Wall", () => {
     it("shows a signed-out visitor no availability anywhere", () => {
       render(<Wall swiff={swiffWith(GAMES, null, noop, true, { spots: new Map() })} />);
       expect(screen.queryByText("Nothing is ready right now")).toBeNull();
-      expect(
-        screen.queryAllByText(/free near you|Back at|In use|free until|No end time|Finding/),
-      ).toHaveLength(0);
+      expect(screen.queryAllByText(/free near you|Back at|In use|free until|12 h\+|Finding/)).toHaveLength(0);
       // A free game can be started once signed in; a paid one if you own it.
       expect(screen.getAllByText("Sign in to play").length).toBeGreaterThan(0);
       expect(screen.getAllByText("Sign in to play if you own it").length).toBeGreaterThan(0);
@@ -394,7 +392,7 @@ describe("Wall", () => {
       expect(tabs.some((t) => t.startsWith("Back at 23:00"))).toBe(false);
     });
 
-    it("leaves a host whose offer has passed since it was read no time, not an open end", () => {
+    it("leaves a host whose offer has passed since it was read no time, not 12 h+", () => {
       const games = applySteam(owner, []);
       const until = new Date(2026, 9, 3, 21, 30, 40).getTime();
       const spots = new Map([[games[0]!.id, ready({ ...rig, until: "21:30", untilAt: until })]]);
@@ -408,7 +406,7 @@ describe("Wall", () => {
       );
       const hero = within(screen.getByTestId("hero"));
       expect(hero.getByText("0 min free")).toBeInTheDocument();
-      expect(hero.queryByText(/No end time/)).toBeNull();
+      expect(hero.queryByText(/12 h\+/)).toBeNull();
     });
 
     it("says what is free does not last the session, rather than that nothing is free", () => {

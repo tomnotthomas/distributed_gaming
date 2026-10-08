@@ -15,12 +15,12 @@ function feelShort(machine: Machine, picture: number): string {
   return `${look}, ${response}`;
 }
 
-const untilShort = (machine: Machine) => (machine.until === "late" ? "No end time" : machine.until);
+const untilShort = (machine: Machine) => (machine.until === "late" ? "12 h+" : machine.until);
 
-/** "3 h 20 left", or "no end time" for a machine its owner leaves on. */
+/** "3 h 20 left", or "12 h+" for a machine free that long or with no end set. */
 function leftShort(mins: number): string {
   const left = fmtLeft(mins);
-  return left === "no end time" ? left : `${left} left`;
+  return left === "12 h+" ? left : `${left} left`;
 }
 
 /** "1 PC from 1 player": who is behind the machines listed, where that is known (the demo). */
@@ -236,7 +236,7 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
 
         <p className="ledger-foot mono" hidden={!live.length}>
           {picked
-            ? `${picked.name}, ${picked.until === "late" ? "free with no end time" : `free until ${picked.until}`}`
+            ? `${picked.name}, ${picked.until === "late" ? "free for 12 h+" : `free until ${picked.until}`}`
             : "Pick a PC above"}
           <br />
           Use ← → to move
