@@ -4,6 +4,8 @@ enable swiff-netguard.path
 enable swiff-netguard.timer
 enable nftables.service
 enable systemd-networkd.service
+enable iwd.service
+enable swiff-network.service
 enable systemd-resolved.service
 enable systemd-timesyncd.service
 enable swiff-hwcheck.service
