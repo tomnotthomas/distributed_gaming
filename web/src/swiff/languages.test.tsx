@@ -104,7 +104,6 @@ function serve(more: Record<string, unknown> = {}) {
                   state: "no-pc",
                   pcs: 0,
                   member: false,
-                  removed: false,
                   session: { at: Date.now() + 86_400_000, yes: 1, no: 1 },
                   guests: [
                     { name: "Alex", admin: true, rsvp: "yes" },

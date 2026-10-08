@@ -80,10 +80,12 @@ export type CrewPc = {
 
 /**
  * A crew in full, as its page shows it: `token` is its link's, null when it
- * has none; `shared` whether someone shared the invite since its Zockrunde was set.
+ * has none, and `linkAfterRemoval` whether the admin removing someone made it;
+ * `shared` whether someone shared the invite since its Zockrunde was set.
  */
 export type CrewDetail = MyCrew & {
   token: string | null;
+  linkAfterRemoval: boolean;
   members: CrewMember[];
   machines: CrewPc[];
   shared: boolean;

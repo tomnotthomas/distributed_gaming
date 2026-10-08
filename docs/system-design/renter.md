@@ -577,8 +577,11 @@ crews were groups plays for every crew its owner was in.
 
 A member may leave, and the admin may remove anyone; their PCs leave the crew with them,
 from then on they match none of its PCs, and a match made before goes back at the claim.
-Someone the admin removed cannot come back by the crew's link of then, only by a new one
-the admin makes (`crew_removals`); one who left by themselves comes back by the same link.
+Removing someone renews the crew's link in the same step, as making a new link does, so
+the old one opens nothing for anyone and the one removed comes back only by the new link
+their crew shares; the crew page says the link is new because someone was removed while
+that link is live (`crew_invites.after_removal`). One who left by themselves comes back by
+the same link.
 The crew page offers removing only to the admin, and always asks first; a PC's owner takes
 their PC out of one crew without leaving it (`POST /crews/:id/pc` `off`), also after asking. A
 membership is named by its own random id, never a Steam id, and a member is shown by the
@@ -610,11 +613,12 @@ POST /crews { name?, key? }
   → 409 { error, code: "too-many-crews" } for a player in 50 crews already.
 
 GET  /crews/:id
-  → 200 { crew: { id, memberId, name, crewName, own, size, state, pcs, token, session,
-                  shared, busy: [{ at, owner, mine }], picks, offered,
+  → 200 { crew: { id, memberId, name, crewName, own, size, state, pcs, token,
+                  linkAfterRemoval, session, shared, busy: [{ at, owner, mine }], picks, offered,
                   members: [{ id, name, you, admin, pc, pcs, rsvp, next }],
                   machines: [{ id, name, owner, mine, crewOnly?, crews?, state, games, playing }] } }
-  The crew, for someone in it, with its link's token. A PC's `state` is `ready`, `busy`
+  The crew, for someone in it, with its link's token, and whether removing someone made that
+  link (`linkAfterRemoval`). A PC's `state` is `ready`, `busy`
   or `offline`. `session` is its next Zockrunde, `{ at, yes, no }` (when it starts, Unix
   ms, and how many said yes or no), null until its admin sets one; a member's `rsvp` is
   `yes`, `no` or null while open; `shared` whether anyone in it shared the link since the
@@ -682,27 +686,26 @@ POST /crews/:id/games { appid, want }
   → 404 as above. Leaving the crew drops a member's marks.
 
 GET  /invites/:token
-  → 200 { crew: { name, crewName, own, size, state, pcs, session, member, removed,
+  → 200 { crew: { name, crewName, own, size, state, pcs, session, member,
                   guests: [{ name, admin, rsvp }] } }
   Which crew a link joins, for anyone who opens it; signed in, whether they are in it
   already. `session` is as above, but null once the Zockrunde is over; the link's preview
   says its date the same way. `guests` is who is in it, by Steam persona, founder first,
-  with each answer to the Zockrunde (null while it has none). `removed` is true for someone
-  the admin removed, opening the link of then, which no longer lets them in: they get
-  `guests` empty and `session` null. → 404 for a forged, unknown, replaced or archived crew's link.
+  with each answer to the Zockrunde (null while it has none). → 404 for a forged, unknown,
+  replaced or archived crew's link, the one replaced when the admin removed someone included.
 
 POST /invites/:token/join { rsvp? }
   → 200 { id, crew, joined }
   Join the crew as the signed-in player, and with `rsvp` ("yes" or "no") answer its
   Zockrunde at once while it has one that is not over. `joined` is false for a crew they
   were in already, which changes nothing but the answer. → 409 { error, code: "too-many-crews" } for a player
-  in 50 crews already. → 404 as above, or for someone the admin removed, by the link of
-  then. → 401 signed out.
+  in 50 crews already. → 404 as above. → 401 signed out.
 
 POST /crew-members/:id/remove
   → 200 { removed: true }
   End a membership: the signed-in player's own, leaving the crew, or anyone's in a crew
-  they are the admin of. → 404 for one that is not theirs to end, or is gone.
+  they are the admin of; removing someone gives the crew a new link. → 404 for one that is
+  not theirs to end, or is gone.
 ```
 
 The web app (`web/src/swiff/CrewPage.tsx`, `CrewInvite.tsx`, `CrewsCard.tsx`) follows the

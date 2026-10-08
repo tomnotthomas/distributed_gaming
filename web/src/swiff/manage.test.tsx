@@ -72,6 +72,7 @@ function squad(over: Partial<CrewDetail> = {}): CrewDetail {
     pcs: 1,
     session: session(),
     token: "abcdefghijklmnopqrstuvABCDEFGHIJKLMNOPQRSTUV",
+    linkAfterRemoval: false,
     members: [LENA, TOM, JONAS],
     machines: [
       { id: "q-j", name: "DESKTOP", owner: "Jonas", mine: false, state: "ready", games: [], playing: null },
@@ -111,7 +112,9 @@ describe("removing someone from the crew", () => {
     const ask = screen.getByRole("dialog", { name: "Remove Jonas from the crew?" });
     expect(ask).toHaveTextContent("Jonas won't see Friday Squad any more and won't get invites.");
     expect(ask).toHaveTextContent("Jonas's PC stops playing for the crew.");
-    expect(ask).toHaveTextContent("Jonas can only come back with a new crew link from you.");
+    expect(ask).toHaveTextContent(
+      "The crew gets a new invite link. Jonas can only come back with that new link.",
+    );
     expect(ask).toHaveTextContent("We don't send Jonas a message.");
 
     // Cancel removes nobody.
@@ -150,7 +153,9 @@ describe("removing someone from the crew", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Mehr zu Tom" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Aus der Crew entfernen" }));
     const ask = screen.getByRole("dialog", { name: "Tom aus der Crew entfernen?" });
-    expect(ask).toHaveTextContent("Zurück kommt Tom nur mit einem neuen Crew-Link von dir.");
+    expect(ask).toHaveTextContent(
+      "Die Crew bekommt einen neuen Einladungslink. Zurück kommt Tom nur mit diesem neuen Link.",
+    );
     expect(within(ask).getByRole("button", { name: "Tom entfernen" })).toBeInTheDocument();
   });
 });

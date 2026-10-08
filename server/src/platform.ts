@@ -344,6 +344,8 @@ export type InviteGuest = { name: string | null; admin: boolean; rsvp: Rsvp | nu
  */
 export type CrewDetail = MyCrew & {
   inviteId: string | null;
+  /** The live link was made because the admin removed someone (leaveCrew). */
+  linkAfterRemoval: boolean;
   members: CrewMember[];
   machines: CrewPc[];
   shared: boolean;
@@ -1889,14 +1891,12 @@ export class Platform {
   /**
    * The crew a live invite joins, as `userId` opening the link sees it (null:
    * signed out), with whether they are in it already and its Zockrunde only
-   * while that is not over; null for a revoked or unknown invite. `removed`
-   * when the admin removed them while this was the crew's link, which then no
-   * longer lets them in (joinCrew): they see neither who is in it nor its Zockrunde.
+   * while that is not over; null for a revoked or unknown invite.
    */
   invite(
     inviteId: string,
     userId: string | null = null,
-  ): Promise<(CrewView & { member: boolean; removed: boolean; guests: InviteGuest[] }) | null> {
+  ): Promise<(CrewView & { member: boolean; guests: InviteGuest[] }) | null> {
     return this.#read(async () => {
       const crew = await this.#inviteCrew(inviteId);
       if (!crew) return null;
@@ -1908,23 +1908,13 @@ export class Platform {
       );
       const member = userId !== null && members.some((m) => m.user_id === userId);
       const view = crewView(crew, userId);
-      const removed =
-        userId !== null &&
-        !member &&
-        (await this.#get(
-          "SELECT 1 FROM crew_removals WHERE crew_id = $1 AND user_id = $2 AND invite_id = $3",
-          crew.id,
-          userId,
-          inviteId,
-        )) !== undefined;
-      if (removed) return { ...view, session: null, member, removed, guests: [] };
       const session = liveSession(view.session, this.#now());
       const guests = members.map((m) => ({
         name: m.name,
         admin: m.user_id === crew.owner_id,
         rsvp: session ? m.rsvp : null,
       }));
-      return { ...view, session, member, removed, guests };
+      return { ...view, session, member, guests };
     });
   }
 
@@ -1952,16 +1942,6 @@ export class Platform {
         crew.id,
         userId,
       );
-      // Removed by the admin: the link they had then no longer lets them in, only a new one does.
-      const removed = member
-        ? undefined
-        : await this.#get(
-            "SELECT 1 FROM crew_removals WHERE crew_id = $1 AND user_id = $2 AND invite_id = $3",
-            crew.id,
-            userId,
-            inviteId,
-          );
-      if (removed) return { ok: false, reason: "not-found" };
       if (!member && (await this.#crewCount(userId)) >= MAX_CREWS) return { ok: false, reason: "too-many" };
       const joined =
         (await this.#run(
@@ -1975,7 +1955,6 @@ export class Platform {
           now,
         )) > 0;
       if (joined) {
-        await this.#run("DELETE FROM crew_removals WHERE crew_id = $1 AND user_id = $2", crew.id, userId);
         // They may play on the crew's PCs now: the wall reads again, and the queue is matched anew.
         this.#offerChanged = true;
         await this.#tick(now);
@@ -1998,9 +1977,9 @@ export class Platform {
    * leave the crew with them. An admin who leaves hands the crew to whoever
    * has been in it longest; the last one out archives it. From now on the one
    * gone matches none of the crew's PCs (gate E7), and one matched to them
-   * before goes back at the claim. Someone the admin removed cannot come back
-   * by the crew's link of then, only by a new one (joinCrew). False when it is
-   * not theirs to end, or is gone already.
+   * before goes back at the claim. Removing someone renews the crew's link,
+   * as renewCrewLink does, so they come back only by the new one their crew
+   * shares. False when it is not theirs to end, or is gone already.
    */
   leaveCrew(memberId: string, userId: string): Promise<boolean> {
     return this.#transaction(async () => {
@@ -2012,18 +1991,12 @@ export class Platform {
       if (!member || (member.user_id !== userId && member.owner_id !== userId)) return false;
       const now = this.#now();
       if (member.user_id !== userId) {
-        const live = await this.#get<{ id: string }>(
-          "SELECT id FROM crew_invites WHERE crew_id = $1 AND revoked_at IS NULL",
-          member.crew_id,
-        );
         await this.#run(
-          `INSERT INTO crew_removals (crew_id, user_id, invite_id, removed_at) VALUES ($1, $2, $3, $4)
-             ON CONFLICT (crew_id, user_id) DO UPDATE SET invite_id = $3, removed_at = $4`,
-          member.crew_id,
-          member.user_id,
-          live?.id ?? null,
+          "UPDATE crew_invites SET revoked_at = $1 WHERE crew_id = $2 AND revoked_at IS NULL",
           now,
+          member.crew_id,
         );
+        await this.#newInvite(member.crew_id, userId, now, true);
       }
       await this.#removeMember(memberId, member, now);
       await this.#tick(now);
@@ -2565,15 +2538,17 @@ export class Platform {
     );
   }
 
-  /** A new live link for the crew, made by `userId`: its invite's id. */
-  async #newInvite(crewId: string, userId: string, now: number): Promise<string> {
+  /** A new live link for the crew, made by `userId`, `afterRemoval` when removing someone renewed it: its invite's id. */
+  async #newInvite(crewId: string, userId: string, now: number, afterRemoval = false): Promise<string> {
     const id = newId();
     await this.#run(
-      "INSERT INTO crew_invites (id, crew_id, inviter_id, created_at) VALUES ($1, $2, $3, $4)",
+      `INSERT INTO crew_invites (id, crew_id, inviter_id, created_at, after_removal)
+         VALUES ($1, $2, $3, $4, $5)`,
       id,
       crewId,
       userId,
       now,
+      afterRemoval,
     );
     return id;
   }
@@ -2632,8 +2607,8 @@ export class Platform {
       "SELECT machine_id, appid FROM machine_games WHERE machine_id = ANY ($1::text[]) ORDER BY appid",
       machines.map((q) => q.id),
     );
-    const invite = await this.#get<{ id: string }>(
-      "SELECT id FROM crew_invites WHERE crew_id = $1 AND revoked_at IS NULL",
+    const invite = await this.#get<{ id: string; after_removal: boolean }>(
+      "SELECT id, after_removal FROM crew_invites WHERE crew_id = $1 AND revoked_at IS NULL",
       crewId,
     );
     const ownerOf = (q: { id: string; owner_id: string | null }) => this.#owners.get(q.id) ?? q.owner_id;
@@ -2665,6 +2640,7 @@ export class Platform {
       memberId: me.id,
       ...crewView(crew, userId),
       inviteId: invite?.id ?? null,
+      linkAfterRemoval: invite?.after_removal ?? false,
       shared: crew.shared,
       busy: elsewhere.map(({ machine_id, at }) => {
         const machine = machines.find((q) => q.id === machine_id);

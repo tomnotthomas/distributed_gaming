@@ -461,6 +461,7 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
   const admin = crew.members.find((m) => m.admin);
   const title = crewTitle(lang, crew);
   const link = crew.token ? inviteLink(crew.token) : "";
+  const afterRemoval = crew.linkAfterRemoval ? <p className="gc-fine">{t("share.afterRemoval")}</p> : null;
   const now = Date.now();
   const message = inviteMessage(lang, crew, location.origin, now);
   const firstPc = crew.machines.find((m) => m.state !== "offline") ?? crew.machines[0];
@@ -664,6 +665,7 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
                         <LinkIcon />
                         {t("g.copy")}
                       </button>
+                      {afterRemoval}
                     </div>
                     <figure className="gc-msg">
                       <figcaption>{t("g.preview")}</figcaption>
@@ -906,6 +908,7 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
                 <LinkIcon />
                 {t("g.copy")}
               </button>
+              {afterRemoval}
               {crew.own ? (
                 <button
                   type="button"
