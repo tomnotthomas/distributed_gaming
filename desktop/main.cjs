@@ -306,6 +306,19 @@ async function armRelaunch() {
     console.warn("[swiff] no relaunch after the restart:", cause instanceof Error ? cause.message : cause);
   }
 }
+/** Off again, when no restart is ahead for it; should Windows not let go of it, it opens the app once more. */
+async function clearRelaunch() {
+  if (process.platform !== "win32") return;
+  try {
+    await relaunches().clear();
+  } catch (cause) {
+    console.warn("[swiff] relaunch not cleared:", cause instanceof Error ? cause.message : cause);
+  }
+}
+/** A key request or Lanterel OS's removal still waiting for its restart. */
+const restartWaiting = () =>
+  keyOf(keys().read(), bootAt())?.state === "queued" ||
+  ["queued", "restart"].includes(removalOf(removals().read(), bootAt())?.state);
 /** At start: whether what an earlier start armed is still ahead of its restart (relaunchAtStart); null off Windows. */
 const relaunchNow = () =>
   process.platform === "win32" ? relaunchAtStart(relaunches().read(), bootAt()) : null;
@@ -525,6 +538,8 @@ ipcMain.handle("rental:run", async (event) => {
     restartReady = outcome.status === "done" && plan.steps.some(restarts);
     // The restart is the owner's now, from Restart now or Windows' own menu: either way the app opens after it.
     if (restartReady) await armRelaunch();
+    // A finished run with no restart ahead (Uninstall after the key's request, say): nothing opens the app.
+    else if (outcome.status === "done" && !restartWaiting()) await clearRelaunch();
     return outcome;
   } finally {
     worker.close();
@@ -561,10 +576,7 @@ async function wipeLeftRecord() {
 // Restart now: after a run that ended at its restart, or with a key request still waiting for one.
 ipcMain.handle("rental:restart", async (event) => {
   if (!fromApp(event) || rentalRun) return false;
-  const waiting =
-    keyOf(keys().read(), bootAt())?.state === "queued" ||
-    ["queued", "restart"].includes(removalOf(removals().read(), bootAt())?.state);
-  if (!restartReady && !waiting) return false;
+  if (!restartReady && !restartWaiting()) return false;
   // Armed again: a request waiting since an earlier start may come from a version that armed none.
   await armRelaunch();
   try {
