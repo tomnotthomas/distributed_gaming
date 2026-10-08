@@ -850,12 +850,12 @@ session, the one `/rtc` plays too). Launch is a held press of 600 ms. From then 
 game is on screen, Ignition names each step and moves on what actually happened, not on a
 clock, each step with a timeout of its own:
 
-| Step                 | Done when                                | Timeout                                                                                                     |
-| -------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Reserving a machine  | the booking is matched (202)             | a picked machine taken first (409) offers the next best in one tap                                          |
-| Waking _the PC_      | the PC's first offer                     | 60 s: "Taking longer than usual" with Try another machine                                                   |
-| Negotiating stream   | the connection is up                     | 20 s: joined again with the relay alone (TURN); 20 s more: Try another machine as above                     |
-| Launching _the game_ | the first frame and `game-started`, both | 90 s: Ignition stays up, with Try another machine as above; the stream is never shown before `game-started` |
+| Step                 | Done when                                | Timeout                                                                                                |
+| -------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Reserving a PC       | the booking is matched (202)             | a picked machine taken first (409) offers the next best in one tap                                     |
+| Waking _the PC_      | the PC's first offer                     | 60 s: "Taking longer than usual" with Try another PC                                                   |
+| Negotiating stream   | the connection is up                     | 20 s: joined again with the relay alone (TURN); 20 s more: Try another PC as above                     |
+| Launching _the game_ | the first frame and `game-started`, both | 90 s: Ignition stays up, with Try another PC as above; the stream is never shown before `game-started` |
 
 The claim's session and room are kept in `localStorage` as the booking being played until
 it ends, to come back to (see "Coming back"). Its join ticket is never stored: it is a
@@ -867,7 +867,7 @@ open page still plays, and a page whose seat another took anyway (`replaced`) le
 session to it without ending it. The stream's video is on the page, under Ignition, from the claim on, so its
 first frame can arrive while Ignition is up; that frame starts the session (POST
 /sessions/:id/start, on every new connection's first frame, tried again every 2 s
-while it is lost on that connection; one refused ends the launch), and it is counted then as `session_started`. On a rental-mode PC (the claim's `rentalMode`: its hosting socket registered with `rental: true`, as swiff-hostd does, or with an attested host certificate) or one that sent `steam-login`, sign-in time is not billed: only a frame after `signed-in` starts the session, or `signed-in` itself when a frame came first. The page counts the claim's sign-in time (`STEAM_SIGN_IN_MS` from when it asked to claim, or the rejoin's `signInMs` from when it asked to rejoin, so never later than the server's): once it runs out it drops the code and Try again, says the sign-in time ran out, and offers Book again. Try another machine ends the
+while it is lost on that connection; one refused ends the launch), and it is counted then as `session_started`. On a rental-mode PC (the claim's `rentalMode`: its hosting socket registered with `rental: true`, as swiff-hostd does, or with an attested host certificate) or one that sent `steam-login`, sign-in time is not billed: only a frame after `signed-in` starts the session, or `signed-in` itself when a frame came first. The page counts the claim's sign-in time (`STEAM_SIGN_IN_MS` from when it asked to claim, or the rejoin's `signInMs` from when it asked to rejoin, so never later than the server's): once it runs out it drops the code and Try again, says the sign-in time ran out, and offers Book again. Try another PC ends the
 booking and launches on the best other free machine on the list, or goes back to
 the list when there is none; a session already started there ends first as End ends
 it, and the next machine's clock starts afresh. Cancel ends the booking; once the
@@ -923,7 +923,7 @@ The page (`web/src/swiff/play.ts`, `useSwiff.ts`, `Reconnect.tsx`) shows three s
 | ---------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A, still yours   | a page load finds the booking being played still claimed or playing (GET /bookings/:id) | "Elden Ring is still yours", held _m:ss_ by `heldUntil` (or still running, before the PC has missed the renter). Reconnect asks for the seat again (POST /bookings/:id/rejoin) and goes straight back to the game, without waiting for the game list (the game is named once the list has it; "Your game" until then); a session that had not got past Ignition goes through Ignition. A Reconnect that cannot reach the session says "We couldn't reach _the PC_" and can be pressed again. End session ends it now. |
 | B, reconnecting  | the connection to the PC drops while the game is on screen (ICE disconnected or failed) | "Reconnecting to _the PC_… 0:12", counting up, over the stream. The page joins the room again with the same ticket after 2 s (at once when the connection failed), then every 4 s while the PC has not answered with an offer (one that has is left to finish), for 15 s; then "Can't reach _the PC_", how long the PC still holds it, counted from the first drop however often Reconnect is pressed, Reconnect and End session.                                                                                     |
-| C, still finding | a page load picks up a queued booking kept from before                                  | "Still finding a machine", the game, and "In the queue": the place is held while the page stays open, and kept 2 minutes after it closes. No time is shown, since the page knows no queue position or wait. Keep waiting, or Leave the queue; a match meanwhile is claimed by itself instead.                                                                                                                                                                                                                         |
+| C, still finding | a page load picks up a queued booking kept from before                                  | "Still finding a PC", the game, and "In the queue": the place is held while the page stays open, and kept 2 minutes after it closes. No time is shown, since the page knows no queue position or wait. Keep waiting, or Leave the queue; a match meanwhile is claimed by itself instead.                                                                                                                                                                                                                              |
 
 Reconnecting ends when the same connection comes back by itself, or when a new one has
 a frame and a fresh `game-started`, as any new connection must (a new connection's
@@ -957,13 +957,13 @@ press:
    moment it is matched, as any queued booking is.
 
 Meanwhile screen D (`MachineLost` in `web/src/swiff/Reconnect.tsx`, in the same layout
-as A to C) says what happened: "Machine lost, Glasshouse went offline" (or "Taken back,
-Glasshouse's owner took it back"), "Finding another machine" or "Waiting for a machine"
+as A to C) says what happened: "PC lost, Glasshouse went offline" (or "Taken back,
+Glasshouse's owner took it back"), "Finding another PC" or "Waiting for a PC"
 with the time since, and Stop for now, which ends the booking carrying it on. It says
 nothing about saves, which are not built. When nothing can carry it on (the session had
 under a minute left, the game is no longer the renter's to play, or the next machine's
 claim was refused), it says so and hands the
-choice back: Choose a machine, or Stop for now. A page loaded after the machine was lost
+choice back: Choose a PC, or Stop for now. A page loaded after the machine was lost
 does not carry the session on by itself; the renter starts again from the game.
 
 ### Watching a crewmate play
