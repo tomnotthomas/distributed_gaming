@@ -94,9 +94,9 @@ describe("moveUserData", () => {
     expect(read(where.dir, "error-reports.json")).toBe("new");
   });
 
-  it("with no Swiff Host before it, starts afresh", () => {
-    expect(moveUserData(where)).toBe(true);
-    expect(fs.readdirSync(where.dir)).toEqual(["moved-from-swiff-host"]);
+  it("with no old folder, does nothing", () => {
+    expect(moveUserData(where)).toBe(false);
+    expect(has(where.dir, "")).toBe(false);
     expect(has(where.old, "")).toBe(false);
   });
 });

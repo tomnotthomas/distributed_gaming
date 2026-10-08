@@ -56,9 +56,13 @@ function copyInto(src, dest, link, files) {
   }
 }
 
-/** Copy what the app keeps from `old` into `dir`, once: false when it had already run. Anything unreadable stays behind. */
+/**
+ * Copy what the app keeps from `old` into `dir`, once: false when it had
+ * already run, or there is no old folder (nothing is written then). Anything
+ * unreadable stays behind.
+ */
 function moveUserData({ dir, old }, files = fs) {
-  if (files.existsSync(path.join(dir, MOVED))) return false;
+  if (files.existsSync(path.join(dir, MOVED)) || !files.existsSync(old)) return false;
   files.mkdirSync(dir, { recursive: true });
   for (const name of KEPT) {
     try {
