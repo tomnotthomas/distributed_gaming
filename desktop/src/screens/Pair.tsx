@@ -31,7 +31,7 @@ function statement(pairing: Pairing): { title: string; line: string } {
       return {
         title: "This PC is paired",
         line: pairing.owner
-          ? `It's paired with the Steam account ${pairing.owner}. If that isn't yours, pair again. Its key stays encrypted on this PC.`
+          ? `It's paired with the Steam account ${pairing.owner}. If that isn't yours, pair again with a new key. Its key stays encrypted on this PC.`
           : "It's yours on Lanterel, with the Steam account you signed in with. Its key stays encrypted on this PC.",
       };
   }
@@ -71,7 +71,7 @@ export function PairSetup({ view, actions, go }: ScreenProps) {
           ) : null}
           {pairing.kind === "unpaired" || pairing.kind === "failed" ? (
             <div className="acts">
-              <Pill icon={pairing.kind === "failed" ? "refresh" : "arrow"} onClick={actions.pair}>
+              <Pill icon={pairing.kind === "failed" ? "refresh" : "arrow"} onClick={() => actions.pair()}>
                 {pairing.kind === "failed" ? "Pair again" : "Pair with Steam"}
               </Pill>
             </div>
@@ -114,14 +114,16 @@ export function PairSetup({ view, actions, go }: ScreenProps) {
           title="This PC"
           action={
             paired ? (
-              <button type="button" className="lnk" onClick={actions.pair}>
+              <button type="button" className="lnk" onClick={() => actions.pair({ fresh: true })}>
                 Pair again
               </button>
             ) : undefined
           }
         >
           <Kv label="Paired">{paired ? "Yes" : pairing.kind === "checking" ? "Checking" : "No"}</Kv>
-          <Kv label="Steam account">{paired ? (pairing.owner ?? "Checking") : "None yet"}</Kv>
+          <Kv label="Steam account">
+            {paired ? (pairing.owner === undefined ? "Checking" : (pairing.owner ?? "Unknown")) : "None yet"}
+          </Kv>
           <Kv label="Machine ID">{paired ? pairing.machineId : "Given when paired"}</Kv>
         </Zone>
         <Zone title="Next">

@@ -510,6 +510,7 @@ describe("going live", () => {
     expect(screen.getByText("It stopped.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Pair again" }));
     expect(acts.pair).toHaveBeenCalledOnce();
+    expect(acts.pair).toHaveBeenCalledWith();
     cleanup();
 
     renderReal("live", off, ready);
@@ -528,9 +529,35 @@ describe("going live", () => {
     expect(screen.getByText("Lena")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "It's paired with the Steam account Lena. If that isn't yours, pair again. Its key stays encrypted on this PC.",
+        "It's paired with the Steam account Lena. If that isn't yours, pair again with a new key. Its key stays encrypted on this PC.",
       ),
     ).toBeInTheDocument();
+    // Not their account: Pair again makes a new key, a claim the owner can win.
+    fireEvent.click(screen.getByRole("button", { name: "Pair again" }));
+    expect(host.actions.pair).toHaveBeenCalledWith({ fresh: true });
+    cleanup();
+    // Asking whose it is, and the server naming nobody.
+    for (const [owner, row] of [
+      [undefined, "Checking"],
+      [null, "Unknown"],
+    ] as const) {
+      render(
+        <Shell
+          host={{
+            view: realView(off, { pairing: { kind: "paired", machineId: "pc-1", owner } }),
+            actions: actions(),
+          }}
+          step="pair"
+          onStep={go}
+          setupDone
+          finishSetup={vi.fn()}
+          paid
+        />,
+      );
+      expect(screen.getByText(row)).toBeInTheDocument();
+      cleanup();
+    }
+    render(<Shell host={host} step="pair" onStep={go} setupDone finishSetup={vi.fn()} paid />);
     fireEvent.click(screen.getByRole("button", { name: "Choose games" }));
     expect(go).toHaveBeenCalledWith("games");
     cleanup();

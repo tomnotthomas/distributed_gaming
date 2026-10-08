@@ -110,7 +110,7 @@ describe("usePairing", () => {
   const POLL = 5;
   const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
-  it("reads as checking until the saved key is read, then paired or not", () => {
+  it("reads as checking until the saved key is read, then paired or not", async () => {
     const keep = vi.fn(async () => true);
     const { result, rerender } = renderHook((saved) => usePairing({ serverUrl: SERVER, saved, keep }), {
       initialProps: { ...unpaired, loaded: false },
@@ -119,7 +119,11 @@ describe("usePairing", () => {
     rerender(unpaired);
     expect(result.current.pairing).toEqual({ kind: "unpaired" });
     rerender({ machineId: "pc-1", machineKey: "k", loaded: true });
-    expect(result.current.pairing).toEqual({ kind: "paired", machineId: "pc-1", owner: null });
+    expect(result.current.pairing).toEqual({ kind: "paired", machineId: "pc-1", owner: undefined });
+    // A key the server pairs with no machine: nobody to show, and no more asking.
+    await waitFor(() =>
+      expect(result.current.pairing).toEqual({ kind: "paired", machineId: "pc-1", owner: null }),
+    );
   });
 
   it("asks once whose a paired PC is, with its saved key, and shows it", async () => {
@@ -133,6 +137,20 @@ describe("usePairing", () => {
     expect(new Headers(fetchMock.mock.calls[0]![1]?.headers).get("authorization")).toBe("Bearer k");
   });
 
+  it("asks again whose a paired PC is while the server doesn't answer", async () => {
+    fetchMock.mockImplementation(async () => {
+      throw new Error("offline");
+    });
+    const saved = { machineId: "pc-1", machineKey: "k", loaded: true };
+    const { result } = renderHook(() =>
+      usePairing({ serverUrl: SERVER, saved, keep: async () => true, pollMs: POLL }),
+    );
+    await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2));
+    expect(result.current.pairing).toMatchObject({ kind: "paired", owner: undefined });
+    fetchMock.mockImplementation(async () => json(200, { machineId: "pc-1", owner: "Lena" }));
+    await waitFor(() => expect(result.current.pairing).toMatchObject({ kind: "paired", owner: "Lena" }));
+  });
+
   it("pairs again with the key it keeps, never a new one", async () => {
     const keep = vi.fn(async () => true);
     const open = vi.fn();
@@ -143,6 +161,22 @@ describe("usePairing", () => {
     expect(open).toHaveBeenCalledWith(`https://lanterel.example/pair?k=${sha256("the-kept-key")}`);
     fetchMock.mockImplementation(async () => json(200, { machineId: "pc-1", owner: "Lena" }));
     await waitFor(() => expect(keep).toHaveBeenCalledWith("pc-1", "the-kept-key"));
+  });
+
+  it("pairs a paired PC with a new key when asked for a fresh one, a new claim for the owner", async () => {
+    const keep = vi.fn(async () => true);
+    const open = vi.fn();
+    const saved = { machineId: "pc-1", machineKey: "the-kept-key", loaded: true };
+    const { result } = renderHook(() => usePairing({ serverUrl: SERVER, saved, keep, open, pollMs: POLL }));
+    act(() => result.current.pair({ fresh: true }));
+    await waitFor(() => expect(result.current.pairing.kind).toBe("waiting"));
+    const link = open.mock.calls[0]![0] as string;
+    const hash = /\?k=([0-9a-f]{64})$/.exec(link)![1]!;
+    expect(hash).not.toBe(sha256("the-kept-key"));
+    fetchMock.mockImplementation(async () => json(200, { machineId: "pc-2", owner: "Lena" }));
+    await waitFor(() => expect(keep).toHaveBeenCalledOnce());
+    const [id, key] = keep.mock.calls[0] as unknown as [string, string];
+    expect([id, sha256(key)]).toEqual(["pc-2", hash]);
   });
 
   it("opens the page with the key's hash, asks until the owner has added the PC, then keeps its id and key", async () => {

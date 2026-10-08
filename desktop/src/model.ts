@@ -309,14 +309,15 @@ export type Connection = {
  * still being read, not paired, waiting for the owner on the page the app
  * opened (`code` to compare with it, `link` to open it again, `unanswered`
  * while the server does not answer), stopped (`why`, in one sentence), or
- * paired as `machineId`.
+ * paired as `machineId` with `owner`, the Steam account the server says it is
+ * paired with (undefined while asking, null when it names none).
  */
 export type Pairing =
   | { kind: "checking" }
   | { kind: "unpaired" }
   | { kind: "waiting"; code: string; link: string; unanswered: boolean }
   | { kind: "failed"; why: string }
-  | { kind: "paired"; machineId: string; owner: string | null };
+  | { kind: "paired"; machineId: string; owner: string | null | undefined };
 
 /** Whether the connection has everything signing in needs. */
 export const connectionReady = (c: Pick<Connection, "url" | "machineId" | "machineKey">): boolean =>
@@ -372,8 +373,12 @@ export type HostActions = {
   /** Offer an installed game, or stop offering it; null until the games are read. */
   toggleOffer: ((appid: number) => void) | null;
   saveConnection(c: Pick<Connection, "url" | "machineId" | "machineKey" | "name">): Promise<void>;
-  /** Pair this PC with the owner's Steam account: a new key, and the page to add the PC opened in the browser. */
-  pair(): void;
+  /**
+   * Pair this PC with the owner's Steam account: the page to add the PC opened
+   * in the browser, with the key the app keeps, or a new one when it keeps none
+   * or `fresh` asks for one (a paired PC whose shown owner isn't theirs).
+   */
+  pair(options?: { fresh?: boolean }): void;
   /** Stop waiting for the owner to add the PC. */
   cancelPairing(): void;
   savePayout(): void;
