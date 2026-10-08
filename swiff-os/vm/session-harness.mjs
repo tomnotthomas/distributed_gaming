@@ -338,7 +338,13 @@ function prepare() {
     if (!offset) throw new Error("the provision step named no offset for its record");
     execFileSync(
       "qemu-io",
-      ["-f", "qcow2", join(RUN, "disk.qcow2"), "-c", `write -s ${recordFile} ${offset} ${statSync(recordFile).size}`],
+      [
+        "-f",
+        "qcow2",
+        join(RUN, "disk.qcow2"),
+        "-c",
+        `write -s ${recordFile} ${offset} ${statSync(recordFile).size}`,
+      ],
       { stdio: ["ignore", "ignore", "inherit"] },
     );
   } finally {
@@ -357,14 +363,11 @@ function prepare() {
 function keepInTheClear() {
   const { offset, bytes } = keepPartition();
   const file = join(RUN, "keep.read");
-  execFileSync(
-    "qemu-img",
-    [
-      ...["dd", "-U", "-f", "qcow2", "-O", "raw", "bs=512"],
-      ...[`skip=${offset / 512}`, `count=${bytes / 512}`, `if=${join(RUN, "disk.qcow2")}`, `of=${file}`],
-    ],
-    { stdio: ["ignore", "ignore", "inherit"] },
-  );
+  // The keep's range of the overlay as a raw disk of its own (qemu-img dd's skip shortens its output).
+  const range = `driver=raw,offset=${offset},size=${bytes},file.driver=qcow2,file.file.filename=${join(RUN, "disk.qcow2")}`;
+  execFileSync("qemu-img", ["convert", "-U", "--image-opts", range, "-O", "raw", file], {
+    stdio: ["ignore", "ignore", "inherit"],
+  });
   let keep;
   try {
     keep = readFileSync(file);
@@ -372,7 +375,10 @@ function keepInTheClear() {
     writeFileSync(file, Buffer.alloc(bytes));
     rmSync(file);
   }
-  const clear = { record: keep.subarray(0, 8).toString("latin1") === "SWIFFPRV", key: keep.includes(MACHINE_KEY) };
+  const clear = {
+    record: keep.subarray(0, 8).toString("latin1") === "SWIFFPRV",
+    key: keep.includes(MACHINE_KEY),
+  };
   keep.fill(0);
   return clear;
 }

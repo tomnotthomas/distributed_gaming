@@ -400,7 +400,10 @@ else if (cmd === "download") {
   });
 } else if (cmd === "provision") {
   // What the app writes before each restart into Swiff OS, alone: the session test's disk is the image's own.
-  run({ steps: switchPlan("start").steps.filter((s) => s.id === "provision") }, { file: args[0], record: args[1] });
+  run(
+    { steps: switchPlan("start").steps.filter((s) => s.id === "provision") },
+    { file: args[0], record: args[1] },
+  );
 } else if (cmd === "mok") {
   const [vars, cert, code] = args;
   // The request alone: this VM boots its ESP as the firmware's own disk entry, with no Swiff OS entry for BootNext.

@@ -563,6 +563,7 @@ describe("the elevated worker", () => {
     expect(once).toMatchObject({ status: "done", done: ["ek", "provision", "once", "restart"] });
     expect(once.results.filter((r) => r.step !== "provision")).toMatchObject([
       { step: "ek", op: "ek", ek: { certificate: EK.ek, intermediates: [EK.intermediate] } },
+      { step: "once" },
     ]);
     expect(provisioned().equals(provisionRecord(MACHINE))).toBe(true);
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootNext")))).toEqual([1]);

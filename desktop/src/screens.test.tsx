@@ -1198,7 +1198,7 @@ describe("rental mode", () => {
     expect(pills()).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: /^Install/ }));
     expect(acts.runRental).toHaveBeenCalledOnce();
-    fireEvent.click(screen.getByRole("button", { name: "What the install does, 10 steps" }));
+    fireEvent.click(screen.getByRole("button", { name: "What the install does, 9 steps" }));
     expect(screen.getByText("Copy Lanterel OS onto them")).toBeInTheDocument();
   });
 
@@ -1217,7 +1217,7 @@ describe("rental mode", () => {
 
   it("shows the write's bytes, how long is left, and a sign of life, with nothing to press", () => {
     const plan = installPlan(read());
-    const steps = Object.fromEntries(plan.steps.slice(0, 5).map((s) => [s.id, "done" as const]));
+    const steps = Object.fromEntries(plan.steps.slice(0, 4).map((s) => [s.id, "done" as const]));
     const now = Date.now();
     const total = 9.8e9;
     renderReal(
@@ -1249,7 +1249,7 @@ describe("rental mode", () => {
     );
     expect(h1()).toHaveTextContent("Writing Lanterel OS");
     expect(screen.getByText(/About 3 minutes left\. Keep the PC on\./)).toBeInTheDocument();
-    expect(screen.getByText(/Step 6 of 10, running for 2:1\d/)).toBeInTheDocument();
+    expect(screen.getByText(/Step 5 of 9, running for 2:1\d/)).toBeInTheDocument();
     expect(document.querySelector(".plate")).toHaveTextContent("Root");
     expect(document.querySelector(".plate")).toHaveTextContent("2.1 of 8.6 GB copied");
     expect(document.querySelector(".plate")).toHaveTextContent("41 percent");
