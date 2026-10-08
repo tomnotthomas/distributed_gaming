@@ -274,7 +274,9 @@ describe("the TPM's EK certificate", () => {
     const orders = (list: string[]): string[][] =>
       list.length <= 1
         ? [list]
-        : list.flatMap((c, i) => orders([...list.slice(0, i), ...list.slice(i + 1)]).map((rest) => [c, ...rest]));
+        : list.flatMap((c, i) =>
+            orders([...list.slice(0, i), ...list.slice(i + 1)]).map((rest) => [c, ...rest]),
+          );
     for (const order of orders(certs))
       expect(ekOf(lines(...order)), order.join(",")).toEqual({
         certificate: EK.ek,
