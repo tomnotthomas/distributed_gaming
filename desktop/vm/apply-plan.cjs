@@ -12,6 +12,8 @@
 //                     the VM's firmware variables, through boot-vars.py
 //   check, image-check, fast-startup-off, installed, restart
 //                     nothing: they need Windows, or the next boot is the restart
+//   ek                nothing: the TPM's EK certificate is Windows' to read, and
+//                     windows-install-test.sh's ek-register.cjs reads it there
 //
 // The real installer, on real Windows, is vm/windows-install-test.sh's.
 //
@@ -246,6 +248,7 @@ function apply(op, ctx) {
   const say = (line) => console.log(`  ${op.op}: ${line}`);
   switch (op.op) {
     case "check":
+    case "ek":
     case "image-check":
     case "fast-startup-off":
     case "installed":
