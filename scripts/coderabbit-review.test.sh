@@ -16,13 +16,19 @@ if [ "$1" = auth ]; then echo "$AUTH"; else printf '%s\n' "$REVIEW"; exit "${REV
 EOF
 chmod +x "$bin/coderabbit"
 
+# A throwaway repo with a main branch, so the base lookup never depends on
+# the checkout the test runs in.
+repo="$bin/repo"
+git init -q -b main "$repo"
+git -C "$repo" -c user.name=test -c user.email=test@example.com commit -q --allow-empty -m base
+
 signed_in='{"type":"status","phase":"auth","authenticated":true}'
 signed_out='{"type":"status","phase":"auth","authenticated":false}'
 
 check() { # name, expected exit, expected output fragment, then env for the fake CLI
   local name=$1 want=$2 fragment=$3 out got
   shift 3
-  out=$(env "$@" bash "$script" 2>&1)
+  out=$(cd "$repo" && env "$@" bash "$script" 2>&1)
   got=$?
   if [ "$got" = "$want" ] && [[ $out == *"$fragment"* ]]; then
     echo "ok   $name"
