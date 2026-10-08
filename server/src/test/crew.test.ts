@@ -334,6 +334,17 @@ describe("crews", () => {
       // Saving either one's name unchanged still works.
       const kept = await platform.renameCrew(first.id, ALEX, "Zockerbande");
       assert.ok(kept && kept !== "forbidden" && !("taken" in kept));
+      // So does a new spelling of its own name, the other one of that name notwithstanding.
+      const recased = await platform.renameCrew(first.id, ALEX, "ZOCKERBANDE");
+      assert.ok(recased && recased !== "forbidden" && !("taken" in recased));
+      assert.equal(recased.crewName, "ZOCKERBANDE");
+      const widened = await platform.renameCrew(first.id, ALEX, "Ｚｏｃｋｅｒｂａｎｄｅ");
+      assert.ok(widened && widened !== "forbidden" && !("taken" in widened), "NFKC: the same name");
+      assert.equal(widened.crewName, "Ｚｏｃｋｅｒｂａｎｄｅ");
+      // A name other than its own is still refused for the other one.
+      const other = await found(ALEX, "Alex", "Couch Koop");
+      const clash = await platform.renameCrew(other.id, ALEX, "ZockerBande");
+      assert.ok(clash && clash !== "forbidden" && "taken" in clash);
     });
 
     it("keeps a name to what can be shown: no control characters, emoji counted as one", () => {

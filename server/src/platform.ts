@@ -1608,7 +1608,9 @@ export class Platform {
    * Give the crew a name of its own, as its admin; an empty one names it after
    * its admin again. Null unless `userId` is in it; "forbidden" for a member who
    * is not its admin; another crew of theirs by that name refuses it, saying
-   * which (CrewNameTaken), unless the name is the one it has.
+   * which (CrewNameTaken), unless the name is the one it has, in any case: a
+   * new spelling of its own name is saved, whatever crews of that name they
+   * have besides.
    */
   renameCrew(
     crewId: string,
@@ -1621,7 +1623,9 @@ export class Platform {
       if (!detail.own) return "forbidden";
       const crewName = crewNameOf(name);
       if (crewName === detail.crewName) return detail;
-      const taken = await this.#nameTaken(userId, crewName, crewId);
+      const respelt =
+        crewName !== null && detail.crewName !== null && sameCrewName(crewName, detail.crewName);
+      const taken = respelt ? null : await this.#nameTaken(userId, crewName, crewId);
       if (taken) return taken;
       await this.#run("UPDATE crews SET name = $1 WHERE id = $2", crewName, crewId);
       return (await this.#crewDetail(crewId, userId))!;
