@@ -105,6 +105,7 @@ function realView(live: Live, more: Partial<HostView> = {}): HostView {
       notice: null,
       preview: null,
     },
+    pairing: { kind: "paired", machineId: "gaming-pc-1" },
     payoutSaved: false,
     crew: null,
     ...more,
@@ -126,6 +127,8 @@ function actions(): HostActions {
     retry: vi.fn(),
     toggleOffer: vi.fn(),
     saveConnection: vi.fn(async () => {}),
+    pair: vi.fn(),
+    cancelPairing: vi.fn(),
     savePayout: vi.fn(),
     installSteam: vi.fn(),
     askInstall: vi.fn(),
@@ -247,6 +250,7 @@ describe("demo", () => {
   const HEADINGS: Record<Exclude<DemoScreen, "tray">, string> = {
     pc: "Your PC",
     steam: "Steam is ready",
+    pair: "Pair this PC with Steam",
     games: "Choose the games you offer",
     "rental-checking": "Checking this PC",
     "rental-unread": "Check didn't finish",
@@ -442,6 +446,93 @@ describe("going live", () => {
     cleanup();
     renderReal("live", off, ready);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ready to go live");
+  });
+
+  it("opens pairing, never Settings, while the PC isn't paired, and Go live once it is", () => {
+    const go = vi.fn();
+    let acts = actions();
+    const pairing = (p: HostView["pairing"]) => ({
+      view: realView(off, { ...ready, pairing: p }),
+      actions: acts,
+    });
+    render(
+      <Shell
+        host={pairing({ kind: "unpaired" })}
+        step="live"
+        onStep={go}
+        setupDone
+        finishSetup={vi.fn()}
+        paid
+      />,
+    );
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Pair this PC with Steam");
+    expect(screen.queryByText(/Settings,|in Settings/)).not.toBeInTheDocument();
+    const rail = screen.getByRole("navigation", { name: "Steps" });
+    expect(within(rail).getAllByText("After pairing")).toHaveLength(2);
+    expect(within(rail).getByRole("button", { name: /Account/ })).toHaveAttribute("aria-current", "step");
+    fireEvent.click(screen.getByRole("button", { name: "Pair with Steam" }));
+    expect(acts.pair).toHaveBeenCalledOnce();
+    cleanup();
+
+    // Waiting for the owner in the browser: the code to compare, the page to open again, and Cancel.
+    acts = actions();
+    const link = `https://lanterel.example/pair?k=${"3f9a2c".padEnd(64, "0")}`;
+    render(
+      <Shell
+        host={pairing({ kind: "waiting", code: "3F9-A2C", link, unanswered: true })}
+        step="live"
+        onStep={go}
+        setupDone
+        finishSetup={vi.fn()}
+        paid
+      />,
+    );
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Add this PC in your browser");
+    expect(screen.getByText("3F9-A2C")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open the page again" })).toHaveAttribute("href", link);
+    expect(screen.getByText(/server isn't answering right now/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(acts.cancelPairing).toHaveBeenCalledOnce();
+    cleanup();
+
+    // A pairing that stopped: one sentence, and Pair again.
+    acts = actions();
+    render(
+      <Shell
+        host={pairing({ kind: "failed", why: "It stopped." })}
+        step="live"
+        onStep={go}
+        setupDone
+        finishSetup={vi.fn()}
+        paid
+      />,
+    );
+    expect(screen.getByText("It stopped.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Pair again" }));
+    expect(acts.pair).toHaveBeenCalledOnce();
+    cleanup();
+
+    renderReal("live", off, ready);
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ready to go live");
+  });
+
+  it("shows a paired PC's machine id on its Account step, and goes on to the games", () => {
+    const go = vi.fn();
+    const host = {
+      view: realView(off, { pairing: { kind: "paired", machineId: "pc-0123456789ab" } }),
+      actions: actions(),
+    };
+    render(<Shell host={host} step="pair" onStep={go} setupDone finishSetup={vi.fn()} paid />);
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("This PC is paired");
+    expect(screen.getByText("pc-0123456789ab")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Choose games" }));
+    expect(go).toHaveBeenCalledWith("games");
+    cleanup();
+    // From Steam, an unpaired PC is paired next.
+    const steam = { view: realView(off, { pairing: { kind: "unpaired" } }), actions: actions() };
+    render(<Shell host={steam} step="steam" onStep={go} setupDone={false} finishSetup={vi.fn()} paid />);
+    fireEvent.click(screen.getByRole("button", { name: "Pair this PC" }));
+    expect(go).toHaveBeenCalledWith("pair");
   });
 
   it("goes live in rental mode once the press has been held all the way", () => {
@@ -1354,14 +1445,16 @@ describe("rental mode", () => {
 
     // At the TPM's EK, before anything restarts: what to do, in one sentence, and its one button.
     acts = renderReal("live", off, failedAt("ek", "bad-key"));
-    expect(h1()).toHaveTextContent("The server didn't accept the machine key");
+    expect(h1()).toHaveTextContent("The server didn't accept this PC's key");
     expect(
       screen.getByText(
-        "The server refused this PC's machine key: check the machine id and key in Settings, then go live again.",
+        "The server refused the key this PC signs in with: pair the PC with your Steam account again, then go live again.",
       ),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Try again/ }));
-    expect(acts.retryRental).toHaveBeenCalledOnce();
+    // Its one button pairs the PC again, on the Account step.
+    fireEvent.click(screen.getByRole("button", { name: /Pair again/ }));
+    expect(acts.pair).toHaveBeenCalledOnce();
+    expect(acts.retryRental).not.toHaveBeenCalled();
     cleanup();
 
     // Only a server that didn't answer asks after the internet connection.

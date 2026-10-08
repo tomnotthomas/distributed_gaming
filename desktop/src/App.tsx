@@ -6,6 +6,8 @@ import { clock } from "./format";
 import { glanceOf, type Host, type Step, type TrayAction } from "./model";
 import { GetPaid } from "./screens/GetPaid";
 import { GoLive } from "./screens/GoLive";
+import { PairSetup } from "./screens/Pair";
+import { pairLocked } from "./pairing";
 import { Ending, InUse, Offline, Paused, Streaming, Waiting } from "./screens/Live";
 import { Settings } from "./screens/Settings";
 import { stepLocked } from "./rental";
@@ -97,8 +99,12 @@ export function Shell({
   const view = paid ? host.view : unpaid(host.view);
   useTray({ ...host, view });
   const props: ScreenProps = { view, actions: host.actions, go: onStep };
-  // A step that is still locked shows rental mode, the step it waits for, and opens by itself once it is ready.
-  const locked = stepLocked(step, view, WINDOWS_SHARE) ? "rental" : step;
+  // A step that is still locked shows rental mode or pairing, the step it waits for, and opens by itself once it is ready.
+  const locked = stepLocked(step, view, WINDOWS_SHARE)
+    ? "rental"
+    : pairLocked(step, view, WINDOWS_SHARE)
+      ? "pair"
+      : step;
   const shown = locked === "paid" && !paid ? "live" : locked;
   const screen = (() => {
     switch (shown) {
@@ -106,6 +112,8 @@ export function Shell({
         return <ReadPc {...props} setupDone={setupDone} />;
       case "steam":
         return <SteamSetup {...props} />;
+      case "pair":
+        return <PairSetup {...props} />;
       case "games":
         return <Games {...props} finishSetup={finishSetup} />;
       case "rental":

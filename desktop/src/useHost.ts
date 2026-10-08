@@ -35,6 +35,7 @@ import {
   saveUrl,
   toSocketUrl,
 } from "./settings";
+import { usePairing } from "./usePairing";
 import { useRental } from "./useRental";
 import { useScreenShare } from "./useScreenShare";
 import { useSteam } from "./useSteam";
@@ -79,10 +80,27 @@ export function useHost(): Host {
   const [machineId, setMachineId] = useState(loadMachineId);
   const [name, setName] = useState(loadName);
   const [machineKey, setMachineKey] = useState("");
+  const [keyLoaded, setKeyLoaded] = useState(false);
   const [keyNote, setKeyNote] = useState<string | null>(null);
   useEffect(() => {
-    void loadMachineKey().then((saved) => setMachineKey((typed) => typed || saved));
+    void loadMachineKey().then((saved) => {
+      setMachineKey((typed) => typed || saved);
+      setKeyLoaded(true);
+    });
   }, []);
+  // Pairing with the owner's Steam account gives this PC its machine id and key (pairing.ts).
+  const pairing = usePairing({
+    serverUrl: toSocketUrl(url),
+    saved: { machineId, machineKey, loaded: keyLoaded },
+    keep: async (id, key) => {
+      if (!(await saveMachineKey(key))) return false;
+      saveMachineId(id);
+      setMachineId(id);
+      setMachineKey(key);
+      setKeyNote(null);
+      return true;
+    },
+  });
 
   // --- what the app reads about this PC, read again when Steam installs something
   const [pc, setPc] = useState<PcRead | null>(null);
@@ -343,6 +361,7 @@ export function useHost(): Host {
     plan,
     sessionsToday,
     connection: { url, machineId, machineKey, name, notice: keyNote ?? share.error, preview: share.stream },
+    pairing: pairing.pairing,
     payoutSaved: false,
     crew,
     crewNote,
@@ -483,6 +502,8 @@ export function useHost(): Host {
         setKeyNote(kept ? null : "This PC can't encrypt the key, so it wasn't saved.");
         if (connectionReady(next)) await begin(next, live.kind === "off" ? plan : until);
       },
+      pair: pairing.pair,
+      cancelPairing: pairing.cancel,
       // Payouts are not open: details typed into the form are never sent or kept.
       savePayout: () => {},
       installSteam: steam.installSteam,

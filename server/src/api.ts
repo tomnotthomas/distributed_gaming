@@ -27,6 +27,8 @@
 //   GET  /api/seats/:token   (signed out)  GET  /api/machines/:id/seats         control
 //   POST /api/seats/:token/take            POST /api/machines/:id/seats         control
 //                                          DELETE /api/machines/:id/seats?seat= control
+//   POST /api/pairings                     GET  /api/pairings/mine              control
+//                                          (pairing a PC with its owner: pairing.ts)
 //   GET  /api/crew-live                    (watching a crewmate play: watch.ts)
 //   POST /api/crew-live/:sessionId/watch
 //   GET  /api/crew-live/:sessionId/switch  (asking to play next: switches.ts)
@@ -142,6 +144,7 @@ import {
 import { parseHostReport, ReportError, type HostReport } from "./profile.js";
 import type { QosReport } from "./stability.js";
 import { bearer, discardBody, HttpError, readJson } from "./http.js";
+import { KEY_HASH, MAX_PAIRED, type Pairings } from "./pairing.js";
 import { createStateKeys, memoryStateKeyStore, type StateKeys } from "./state-key.js";
 import { newWatchId, type AskRefusal, type Watches } from "./watch.js";
 import { Switches, type SwitchesOptions } from "./switches.js";
@@ -235,6 +238,8 @@ export type ApiOptions = {
   onCrewLeft?: () => void;
   /** Before an ask: drop the crew picked for the session when it may watch it no more (index.ts currentCrews). */
   checkCrew?: (sessionId: string) => Promise<unknown>;
+  /** The PCs paired with their owners' Steam accounts (pairing.ts). Without it the pairing routes are not served. */
+  pairings?: Pairings;
   /** The PostHog project the host app and Lanterel OS report errors to (error-tracking.ts); null: none. */
   errorTracking?: ErrorTracking | null;
 };
@@ -570,6 +575,7 @@ export function createApi({
   checkCrew,
   errorTracking = null,
   gameMedia,
+  pairings,
 }: ApiOptions) {
   const playable = (appid: number) => playability.playable(appid);
   /**
@@ -724,7 +730,8 @@ export function createApi({
     // can read why a call was refused.
     const hostRoute =
       (resource === "machines" && id && HOST_ACTIONS.has(action ?? "")) ||
-      (resource === "sessions" && id && (action === "start" || action === "end"));
+      (resource === "sessions" && id && (action === "start" || action === "end")) ||
+      (resource === "pairings" && id === "mine" && !action);
     if (hostRoute) {
       for (const [name, value] of Object.entries(HOST_CORS)) res.setHeader(name, value);
       if (method === "OPTIONS") {
@@ -1044,6 +1051,37 @@ export function createApi({
       if (!(await platform.leaveCrew(id, steamId))) throw new HttpError(404, "no such crew member");
       onCrewLeft?.();
       reply(res, 200, { removed: true });
+      return true;
+    }
+
+    // --- Pairing a PC with its owner (pairing.ts) -------------------------------
+
+    // The owner, signed in on the page the host app opened, adds the PC whose key hashes to keyHash.
+    if (pairings && resource === "pairings" && !id && method === "POST") {
+      const steamId = requireRenter(req, sessionSecret);
+      const keyHash = (await readJson(req)).keyHash;
+      if (typeof keyHash !== "string" || !KEY_HASH.test(keyHash))
+        throw new HttpError(400, "keyHash must be a key's SHA-256, in lowercase hex");
+      const paired = await pairings.pair(steamId, keyHash);
+      if (!paired.ok) {
+        const error = {
+          "paired-elsewhere": "this PC is paired with another Steam account",
+          "too-many": `you have paired ${MAX_PAIRED} PCs already`,
+        }[paired.reason];
+        reply(res, 409, { error, code: paired.reason });
+        return true;
+      }
+      reply(res, paired.created ? 201 : 200, { machineId: paired.machineId });
+      return true;
+    }
+
+    // The host app asks with the key it made: which machine it is, once its owner has added it.
+    if (pairings && resource === "pairings" && id === "mine" && !action && method === "GET") {
+      const key = bearer(req);
+      if (!key) throw new HttpError(401, "bad machine key");
+      const machineId = await pairings.pairedWith(key);
+      if (!machineId) throw new HttpError(404, "not-paired");
+      reply(res, 200, { machineId });
       return true;
     }
 

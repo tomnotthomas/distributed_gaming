@@ -19,7 +19,28 @@ import {
 import { useDemoRental } from "./demoRental";
 import { playingFor, type Crew } from "./report";
 import { demoSeatClient } from "./seats";
-import { buildRate, GRACE_MS, untilChoices, type Host, type HostView, type Live, type Step } from "./model";
+import {
+  buildRate,
+  GRACE_MS,
+  untilChoices,
+  type Host,
+  type HostView,
+  type Live,
+  type Pairing,
+  type Step,
+} from "./model";
+
+/** The demo's pairing: paired, as Nova-01 is, except on the pairing screen itself. */
+const DEMO_PAIRED: Pairing = { kind: "paired", machineId: "pc-3f9a2c41d07e" };
+/** What the owner compares in the demo, and the page it would open. */
+const DEMO_WAITING: Pairing = {
+  kind: "waiting",
+  code: "3F9-A2C",
+  link: "https://lanterel.example/pair",
+  unanswered: false,
+};
+/** How long the demo's owner takes to add the PC in their browser. */
+const DEMO_PAIR_MS = 4_000;
 
 /**
  * The demo's view-model: Nova-01's data, and actions that move between the
@@ -40,6 +61,13 @@ export function useDemoHost(screen: DemoScreen): Host & {
   const [asked, setAsked] = useState<number[]>([]);
   const [crew, setCrew] = useState<Crew>({ only: true, crews: DEMO_CREWS });
   const [shown, setShown] = useState<DemoScreen>(screen);
+  const [pairing, setPairing] = useState<Pairing>(screen === "pair" ? { kind: "unpaired" } : DEMO_PAIRED);
+  // The owner adds the PC in the demo's pretend browser a few seconds after Pair with Steam.
+  useEffect(() => {
+    if (pairing.kind !== "waiting") return;
+    const id = window.setTimeout(() => setPairing(DEMO_PAIRED), DEMO_PAIR_MS);
+    return () => window.clearTimeout(id);
+  }, [pairing.kind]);
 
   useEffect(() => {
     const id = window.setInterval(() => setTick(Date.now()), 1000);
@@ -90,6 +118,7 @@ export function useDemoHost(screen: DemoScreen): Host & {
       notice: null,
       preview: null,
     },
+    pairing,
     payoutSaved: state.payoutSaved,
     crew,
   };
@@ -144,6 +173,9 @@ export function useDemoHost(screen: DemoScreen): Host & {
       setOffered((list) => (list.includes(appid) ? list.filter((id) => id !== appid) : [...list, appid])),
     saveConnection: async () => setLive(waiting(plan)),
     savePayout: () => setState((s) => ({ ...s, payoutSaved: true })),
+    // Nothing opens in the demo: the pretend owner adds the PC by themselves.
+    pair: () => setPairing(DEMO_WAITING),
+    cancelPairing: () => setPairing((p) => (p.kind === "waiting" ? { kind: "unpaired" } : p)),
     // Steam is installed in the demo, and nothing is sent to it.
     installSteam: () => {},
     askInstall: (appid: number) => setAsked((list) => (list.includes(appid) ? list : [...list, appid])),
@@ -161,6 +193,7 @@ export function useDemoHost(screen: DemoScreen): Host & {
     jump: (next) => {
       setShown(next);
       setState(demoState(next));
+      setPairing(next === "pair" ? { kind: "unpaired" } : DEMO_PAIRED);
       const at = Date.now();
       setMountedAt(at);
       setTick(at);

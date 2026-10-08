@@ -392,3 +392,26 @@
     gap: 96px;
   }
 }
+
+/* Pairing a PC (/pair, PairPc.tsx): the same page, its lit screen showing the code
+   Lanterel on the PC shows, set as the app sets it, for the owner to compare. */
+.pair-lobby .pr-face {
+  place-content: center;
+  justify-items: center;
+  gap: 14px;
+  padding: 48px 24px 28px;
+  text-align: center;
+}
+.pair-lobby .pr-code {
+  font: 500 clamp(40px, 7vw, 76px) / 1 var(--mono);
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+  color: var(--paper);
+}
+.pair-lobby .pr-check {
+  max-width: 34ch;
+  font-size: 14.5px;
+  line-height: 1.45;
+  color: rgb(232 233 232 / 0.72);
+  text-wrap: balance;
+}

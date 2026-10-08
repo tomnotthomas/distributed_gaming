@@ -95,6 +95,7 @@ import { cachedProfiles, publicOriginFromEnv, readProfile, WALL_APPIDS } from ".
 import { createSteamAuth, renterOf, sessionSecretFromEnv } from "./signin.js";
 import { MAX_MINUTES, Platform, watchCrew, type ClaimedSession } from "./platform.js";
 import { createApi } from "./api.js";
+import { openPairings } from "./pairing.js";
 import { createRenterEvents } from "./events.js";
 import { openDatabase } from "./db.js";
 import { everyGamePlayable, Playability, withAccounts } from "./playable.js";
@@ -199,6 +200,10 @@ const platform = await Platform.open({
   );
   process.exit(1);
 });
+// PCs paired with their owners' Steam accounts (pairing.ts): machines beside
+// MACHINE_KEYS', each owned by whoever added it, loaded before the server listens.
+const pairings = await openPairings(database, access);
+
 // Open renter streams are capped server-wide and per signed-in renter (events.ts).
 const renterEvents = createRenterEvents(platform, {
   maxStreams: Number(process.env.MAX_EVENT_STREAMS) || undefined,
@@ -237,6 +242,7 @@ const serveApi = createApi({
   onCrewLeft: () => void checkWatches(),
   checkCrew: (sessionId) => currentCrews(sessionId),
   errorTracking: errorTrackingFromEnv(process.env),
+  pairings,
 });
 
 // The public marketing site (marketing.ts), only with MARKETING_PAGES=on and
@@ -1655,7 +1661,8 @@ server.listen(PORT, () => {
   if (!process.env.DATABASE_URL)
     console.warn("[swiff] DATABASE_URL not set — the platform's data is kept in memory and lost on restart");
   if (!access.secret) console.warn("[swiff] ROOM_SECRET missing or too short — no renter can join");
-  if (!access.machines.size) console.warn("[swiff] MACHINE_KEYS empty — no gaming PC can register");
+  if (!access.machines.size)
+    console.warn("[swiff] MACHINE_KEYS empty and no PC paired yet — no gaming PC can register until one is");
   for (const warning of attestationConfig.warnings) console.warn(`[swiff] ${warning}`);
   for (const warning of turn.warnings) console.warn(`[swiff] ${warning}`);
   // Only where a machine can attest is a missing state key secret news.

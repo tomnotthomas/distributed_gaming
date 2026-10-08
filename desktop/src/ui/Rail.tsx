@@ -3,6 +3,7 @@ import { clock, count, euros, shortGpu } from "../format";
 import { claimEnd, levelProgress, steamReady, type HostView, type Standing, type Step } from "../model";
 import { WINDOWS_SHARE } from "../devShare";
 import { rentalLine, rentalReady, rentalStepAt, stepLocked } from "../rental";
+import { pairLine, pairLocked } from "../pairing";
 import { DemoTag } from "./parts";
 
 type RailStep = { id: Exclude<Step, "settings">; title: string };
@@ -10,6 +11,7 @@ type RailStep = { id: Exclude<Step, "settings">; title: string };
 const STEPS: RailStep[] = [
   { id: "pc", title: "This PC" },
   { id: "steam", title: "Steam" },
+  { id: "pair", title: "Account" },
   { id: "games", title: "Games" },
   { id: "rental", title: "Rental mode" },
   { id: "live", title: "Go live" },
@@ -68,6 +70,7 @@ function RentalSteps({ view }: { view: HostView }) {
 function checking(id: RailStep["id"], view: HostView): boolean {
   if (id === "pc" || id === "games") return view.pc.reading;
   if (id === "steam") return view.steam.status === null;
+  if (id === "pair") return view.pairing.kind === "checking";
   return false;
 }
 
@@ -77,6 +80,8 @@ function stepLine(id: RailStep["id"], view: HostView, setupDone: boolean): strin
   switch (id) {
     case "steam":
       return steamLine(view);
+    case "pair":
+      return pairLine(view.pairing);
     case "rental":
       return rentalLine(view.rental);
     case "pc": {
@@ -144,7 +149,7 @@ export function StandingCard({ standing }: { standing: Standing }) {
 }
 
 /**
- * The rail: the six PC steps with where each stands, the owner's standing at
+ * The rail: the seven PC steps with where each stands, the owner's standing at
  * its foot from the second step on, and Settings.
  */
 export function Rail({
@@ -180,18 +185,28 @@ export function Rail({
       ) : null}
       <ol>
         {steps.map((s, i) => {
-          // Rental mode is how a PC hosts: it is done once it is ready, not by being passed.
-          const passed = s.id === "rental" ? rentalReady(view.rental) : i < at || (setupDone && i < live);
+          // Rental mode and pairing are how a PC hosts: each is done once it is ready, not by being passed.
+          const passed =
+            s.id === "rental"
+              ? rentalReady(view.rental)
+              : s.id === "pair"
+                ? view.pairing.kind === "paired"
+                : i < at || (setupDone && i < live);
           const state = i === at ? "now" : passed ? "done" : "next";
-          // Locked until rental mode is ready: not a button, and it says what it waits for.
-          if (stepLocked(s.id, view, WINDOWS_SHARE))
+          // Locked until rental mode is ready, then until the PC is paired: not a button, and it says what it waits for.
+          const waitsFor = stepLocked(s.id, view, WINDOWS_SHARE)
+            ? "After rental mode"
+            : pairLocked(s.id, view, WINDOWS_SHARE)
+              ? "After pairing"
+              : null;
+          if (waitsFor)
             return (
               <li key={s.id} className="pt next locked">
                 <div className="ptlock">
                   <span className="pd" />
                   <span className="ptx">
                     <b>{s.title}</b>
-                    <span>After rental mode</span>
+                    <span>{waitsFor}</span>
                   </span>
                 </div>
               </li>

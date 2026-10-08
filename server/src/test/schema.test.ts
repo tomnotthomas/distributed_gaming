@@ -62,6 +62,7 @@ describe("migrations", () => {
         "marketing_confirm_sends",
         "marketing_outbox",
         "marketing_signups",
+        "paired_machines",
         "reservations",
         "schema_migrations",
         "seats",

@@ -304,6 +304,20 @@ export type Connection = {
   preview: MediaStream | null;
 };
 
+/**
+ * This PC's pairing with its owner's Steam account (pairing.ts): the saved key
+ * still being read, not paired, waiting for the owner on the page the app
+ * opened (`code` to compare with it, `link` to open it again, `unanswered`
+ * while the server does not answer), stopped (`why`, in one sentence), or
+ * paired as `machineId`.
+ */
+export type Pairing =
+  | { kind: "checking" }
+  | { kind: "unpaired" }
+  | { kind: "waiting"; code: string; link: string; unanswered: boolean }
+  | { kind: "failed"; why: string }
+  | { kind: "paired"; machineId: string };
+
 /** Whether the connection has everything signing in needs. */
 export const connectionReady = (c: Pick<Connection, "url" | "machineId" | "machineKey">): boolean =>
   Boolean(c.url.trim() && c.machineId.trim() && c.machineKey.trim());
@@ -331,6 +345,7 @@ export type HostView = {
   plan: number | null;
   sessionsToday: number;
   connection: Connection;
+  pairing: Pairing;
   /** Payout details were saved, in the demo. The app never keeps them. */
   payoutSaved: boolean;
   /** Who may play on this PC, as the platform last said; null until it has. */
@@ -357,6 +372,10 @@ export type HostActions = {
   /** Offer an installed game, or stop offering it; null until the games are read. */
   toggleOffer: ((appid: number) => void) | null;
   saveConnection(c: Pick<Connection, "url" | "machineId" | "machineKey" | "name">): Promise<void>;
+  /** Pair this PC with the owner's Steam account: a new key, and the page to add the PC opened in the browser. */
+  pair(): void;
+  /** Stop waiting for the owner to add the PC. */
+  cancelPairing(): void;
   savePayout(): void;
   /** Download Valve's installer and open it for the owner. */
   installSteam(): void;
@@ -448,7 +467,7 @@ export function untilSentence(machine: string, until: number | null): string {
 
 // --- screens --------------------------------------------------------------------
 
-export type Step = "pc" | "steam" | "games" | "rental" | "live" | "paid" | "settings";
+export type Step = "pc" | "steam" | "pair" | "games" | "rental" | "live" | "paid" | "settings";
 
 /** Which of the Go live step's screens a live state shows. */
 export type LiveScreen = "golive" | "waiting" | "streaming" | "inuse" | "ending" | "paused" | "offline";

@@ -1735,6 +1735,20 @@ button.inst {
   color: var(--t1);
   user-select: all;
 }
+/* The pairing code the owner matches with the page in their browser (screens/Pair.tsx). */
+.hx .paircode {
+  margin: 0;
+  font: 400 60px/1 var(--mono);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  color: var(--t1);
+}
+.hx .pairstate {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--t2);
+}
 .hx .mplatescreen {
   width: 100%;
   max-width: 320px;
