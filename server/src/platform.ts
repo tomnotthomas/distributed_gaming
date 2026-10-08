@@ -1485,7 +1485,7 @@ export class Platform {
    * Steam persona when it could be read, and `name` its own name, if they gave
    * one. It has its link at once. Every PC they own plays for it from now on.
    * Founding is idempotent by `key`, when the page sends one: the same key
-   * again is the crew it founded, as it is then. A crew of theirs by that name
+   * again is the crew it founded, as it is then, while they are its admin. A crew of theirs by that name
    * already (one with no name of its own they are the admin of, for none)
    * refuses it, saying which (CrewNameTaken). "too-many" when they are in
    * MAX_CREWS crews already.
@@ -2001,7 +2001,7 @@ export class Platform {
       );
       if (next) {
         await this.#run(
-          "UPDATE crews SET owner_id = $1, owner_name = $2 WHERE id = $3",
+          "UPDATE crews SET owner_id = $1, owner_name = $2, found_key = NULL WHERE id = $3",
           next.user_id,
           next.name,
           member.crew_id,

@@ -550,7 +550,7 @@ like joining, since that person did not pick the name; where a person ends up wi
 one name, the clash names the one they joined first (then by membership id), and a seat
 goes into their crew with no name of its own founded first (then by crew id). Founding is
 idempotent: the page sends a key with each founding, and the same key again is the crew it
-founded rather than a second one.
+founded rather than a second one, while its founder is its admin.
 
 A crew has one link, `/invite/<token>`, which anyone in it may share: whoever opens it and
 joins is in that crew, attributed to the invite. The token is the invite's random id

@@ -296,6 +296,15 @@ describe("crews", () => {
       assert.notEqual(anew.id, crew.id);
     });
 
+    it("lets a key go with its crew's admin: the new admin's own founding by it stays theirs", async () => {
+      const alexs = await found(ALEX, "Alex", "Freitagsrunde", "key-1");
+      const jos = await found(JO, "Jo", "Montagsrunde", "key-1");
+      assert.ok((await platform.joinCrew(alexs.inviteId!, JO, "Jo")).ok);
+      assert.equal(await platform.leaveCrew(alexs.memberId, ALEX), true);
+      assert.equal((await platform.crew(alexs.id, JO))?.own, true);
+      assert.equal((await found(JO, "Jo", "Montagsrunde", "key-1")).id, jos.id);
+    });
+
     it("refuses a new name the admin has another crew by, and keeps the one it has", async () => {
       const night = await found(ALEX, "Alex", "Night Owls");
       const other = await found(ALEX, "Alex", "Couch Koop");
