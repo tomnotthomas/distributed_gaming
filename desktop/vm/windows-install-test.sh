@@ -167,6 +167,10 @@ vm_wait_off() { # seconds
 		[ "$SECONDS" -lt "$end" ] || { screenshot "timeout-$SECONDS"; return 1; }
 		sleep 5
 	done
+	# Off, but how: vm-run.py's status (127: already collected by vm_kill).
+	local rc=0
+	wait "$vm_pid" 2> /dev/null || rc=$?
+	[ "$rc" = 0 ] || [ "$rc" = 127 ] || die "the VM stopped with vm-run.py status $rc: $(cat "$run/qemu.log")"
 }
 # Stops this test's VM only, by its vm-run.py's PID: vm-run.py stops its QEMU (SIGTERM,
 # SIGKILL 10 s later) and exits. Never by a pattern: other tests' VMs run on this PC too.

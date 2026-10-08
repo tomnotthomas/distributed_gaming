@@ -226,7 +226,7 @@ drive_keys() { # serial-log
 # Boots the VM once with swtpm and waits for the self-test to finish;
 # dies if it does not.
 boot_vm() { # boot number
-	local n=$1 serial=$run/serial-$1.log
+	local n=$1 serial=$run/serial-$1.log rc=0
 	log "Boot $n"
 	swtpm socket --tpm2 --terminate \
 		--tpmstate dir="$run/tpm" \
@@ -264,13 +264,15 @@ boot_vm() { # boot number
 		-netdev "user,id=n0,ipv6-prefix=2001:db8:1::,ipv6-prefixlen=64,guestfwd=tcp:10.0.2.100:80-cmd:echo swiff-lan-reachable" \
 		-device virtio-net-pci,netdev=n0 \
 		-display none -vga none -monitor "pipe:$run/monitor" \
-		-serial "file:$serial" || true
+		-serial "file:$serial" || rc=$?
 	kill "$swtpm_pid" "$keys_pid" "$monitor_pid" 2> /dev/null || true
 	wait "$swtpm_pid" "$keys_pid" "$monitor_pid" 2> /dev/null || true
 	grep -q 'SWIFF-SELFTEST DONE' "$serial" || {
 		tail -n 40 "$serial" >&2
 		die "boot $n did not finish the self-test (serial log: $serial)"
 	}
+	# The self-test powers the VM off: anything else (a timeout, the watchdog, QEMU failing) fails the boot.
+	[ "$rc" = 0 ] || die "boot $n: the VM did not power off cleanly (vm-run.py status $rc; serial log: $serial)"
 }
 
 # Writes the first $1 bytes of the scratch partition, as the VM left it, to
