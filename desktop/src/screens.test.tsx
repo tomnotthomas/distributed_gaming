@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DemoApp, Shell } from "./App";
+import { DemoApp, firstStep, Shell } from "./App";
 import { fetchPaidGaming, unpaid } from "./features";
 import { DEMO_SCREENS, demoArt, evening, type DemoScreen } from "./demo";
 import {
@@ -604,6 +604,34 @@ describe("going live", () => {
     render(<Shell host={steam} step="steam" onStep={go} setupDone={false} finishSetup={vi.fn()} paid />);
     fireEvent.click(screen.getByRole("button", { name: "Pair this PC" }));
     expect(go).toHaveBeenCalledWith("pair");
+  });
+
+  it("opens after the app's own restart straight at the step after it, also before setup is done", () => {
+    expect(firstStep(false, false)).toBe("pc");
+    expect(firstStep(false, true)).toBe("live");
+    expect(firstStep(true, true)).toBe("live");
+    expect(firstStep(true, false)).toBe("live");
+    const at = (view: HostView) => {
+      const host: Host = { view, actions: actions() };
+      render(
+        <Shell
+          host={host}
+          step={firstStep(true, false)}
+          onStep={vi.fn()}
+          setupDone={false}
+          finishSetup={vi.fn()}
+          paid
+        />,
+      );
+      return screen.getByRole("heading", { level: 1 });
+    };
+    // Back from the key's blue screen: its question, with no click on the way.
+    expect(at(realView(off, installed({ state: "ask", code: null })))).toHaveTextContent(
+      "Did the blue screen take your code?",
+    );
+    cleanup();
+    // The boot log showed the key working: Go live.
+    expect(at(realView(off, ready))).toHaveTextContent("Ready to go live");
   });
 
   it("goes live in rental mode once the press has been held all the way", () => {
@@ -1427,6 +1455,7 @@ describe("rental mode", () => {
     expect(document.querySelector(".mwarn")).toHaveTextContent(
       "On the blue screen, choose Enroll MOK. Never Continue boot.",
     );
+    expect(screen.getByText(/Back in Windows, Lanterel opens by itself\./)).toBeInTheDocument();
     expect(document.querySelector(".plate .mplatecode")).toHaveTextContent("4821 7730");
     // Why never Continue boot, in the owner's terms.
     expect(
@@ -1642,7 +1671,7 @@ describe("rental mode", () => {
     expect(h1()).toHaveTextContent("Write down this code");
     expect(screen.getByText("Rental mode, removing")).toBeInTheDocument();
     expect(
-      screen.getByText(/open Lanterel: it takes Lanterel OS off the disk by itself/),
+      screen.getByText(/Lanterel opens by itself and takes Lanterel OS off the disk/),
     ).toBeInTheDocument();
     expect(screen.getByText("Choose Delete MOK")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Remove the key/ }));
@@ -1711,6 +1740,9 @@ describe("rental mode", () => {
     const restart = renderReal("rental", off, rental({ read: gone }));
     expect(h1()).toHaveTextContent("Restart to check Windows");
     expect(screen.queryByText("Choose Delete MOK")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Lanterel opens by itself and checks Windows started as usual/),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Restart now/ }));
     expect(restart.restartRental).toHaveBeenCalledOnce();
     cleanup();

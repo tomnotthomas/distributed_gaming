@@ -43,6 +43,7 @@ const { runPlan, startWorker } = require("./rental-exec.cjs");
 const { BITLOCKER_PANEL, drivesOff, recoveryOf, recoveryStore } = require("./recovery-key.cjs");
 const { bootTrail, canAnswer, keyOf, keyStep, keyStore } = require("./rental-key.cjs");
 const { expectOf, removalOf, removalStep, removalStore } = require("./rental-removal.cjs");
+const { AFTER_RESTART, relaunchAtStart, relaunchCommand, relaunchStore } = require("./relaunch.cjs");
 const {
   BOOT_CHANGES,
   bitlockerDrives,
@@ -122,6 +123,8 @@ const DEMO = process.argv.includes("--demo");
 
 /** A build packaged by `npm run pack:test` (build-kind.cjs). */
 const TEST_BUILD = testBuild();
+/** Windows opened the app after a restart it asked for (relaunch.cjs): the window starts at the step after it. */
+const AFTER_RESTART_START = process.argv.includes(AFTER_RESTART);
 /** The app page's query string: `extra`, plus demo=1 in demo mode and build=test in a test build. */
 const query = (extra = {}) => ({
   ...extra,
@@ -270,6 +273,38 @@ const provisions = () => provisionStore(app.getPath("userData"));
 const recoveries = () => recoveryStore(app.getPath("userData"));
 /** When this PC last started: a key request queued before it has met its blue screen. */
 const bootAt = () => Date.now() - os.uptime() * 1000;
+/** The app opened again after its restart (relaunch.cjs), through this user's own RunOnce. */
+const relaunches = () =>
+  relaunchStore(app.getPath("userData"), (file, args) =>
+    promisify(execFile)(file, args, { windowsHide: true }),
+  );
+/**
+ * Before a restart: Windows opens the app once at the owner's next sign-in, at the step after it.
+ * Should Windows not take it, the restart goes ahead all the same.
+ */
+async function armRelaunch() {
+  if (process.platform !== "win32") return;
+  // A test build keeps its remote debugging, so the VM test drives the app Windows opened.
+  const port = TEST_BUILD ? app.commandLine.getSwitchValue("remote-debugging-port") : "";
+  try {
+    await relaunches().arm(
+      relaunchCommand({
+        // The portable exe the owner started (electron-builder names it), not its copy in Temp.
+        exe: process.env.PORTABLE_EXECUTABLE_FILE || process.execPath,
+        appPath: process.defaultApp ? app.getAppPath() : null,
+        carry: port ? [`--remote-debugging-port=${port}`] : [],
+      }),
+      Date.now(),
+    );
+  } catch (cause) {
+    console.warn("[swiff] no relaunch after the restart:", cause instanceof Error ? cause.message : cause);
+  }
+}
+/** At start: a relaunch whose restart is behind now is cleared; one still ahead stays. */
+async function settleRelaunch() {
+  if (process.platform !== "win32") return;
+  if (relaunchAtStart(relaunches().read(), bootAt()) === "clear") await relaunches().clear();
+}
 
 const RUNNABLE = new Set(["install", "uninstall", "mok", "unkey", "remove", "once"]);
 /** A step that restarts the PC: never run by itself, only on the owner's Restart now. */
@@ -476,6 +511,8 @@ ipcMain.handle("rental:run", async (event) => {
     if (record && leftRecord(outcome)) await wipeRecord(worker.apply, provisions());
     else if (record && outcome.status === "done") provisions().finished();
     restartReady = outcome.status === "done" && plan.steps.some(restarts);
+    // The restart is the owner's now, from Restart now or Windows' own menu: either way the app opens after it.
+    if (restartReady) await armRelaunch();
     return outcome;
   } finally {
     worker.close();
@@ -516,6 +553,8 @@ ipcMain.handle("rental:restart", async (event) => {
     keyOf(keys().read(), bootAt())?.state === "queued" ||
     ["queued", "restart"].includes(removalOf(removals().read(), bootAt())?.state);
   if (!restartReady && !waiting) return false;
+  // Armed again: a request waiting since an earlier start may come from a version that armed none.
+  await armRelaunch();
   try {
     await promisify(execFile)("shutdown.exe", ["/r", "/t", "5"], { windowsHide: true });
     return true;
@@ -636,8 +675,8 @@ function guardNavigation(contents) {
 let win = null;
 let quitting = false;
 
-/** Open the app window; closing it hides it to the tray. */
-function createWindow() {
+/** Open the app window, at the step after the restart when `afterRestart`; closing it hides it to the tray. */
+function createWindow(afterRestart = false) {
   win = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -648,7 +687,7 @@ function createWindow() {
     webPreferences: { preload: PRELOAD },
   });
   guardNavigation(win.webContents);
-  win.loadFile(INDEX, { query: query() });
+  win.loadFile(INDEX, { query: query(afterRestart ? { after: "restart" } : {}) });
   // Closing the window keeps Swiff in the tray: a player's session must not end
   // because the owner closed a window. Quit is in the tray's menu.
   win.on("close", (event) => {
@@ -813,9 +852,10 @@ app.whenReady().then(() => {
       { useSystemPicker: false },
     );
 
-  createWindow();
+  createWindow(AFTER_RESTART_START);
   void watchGames();
   void wipeLeftRecord();
+  void settleRelaunch();
   try {
     createTray();
   } catch (cause) {

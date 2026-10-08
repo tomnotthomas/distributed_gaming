@@ -40,7 +40,9 @@
 #                  refused, the BitLocker recovery key saved on the owner's word,
 #                  the administrator prompt declined and Ask again, the key's
 #                  restart to MokManager, Go live, and Remove Swiff OS to the end from
-#                  its one click (after the key's restart the app goes on by itself). Needs the
+#                  its one click (after the key's restart the app goes on by itself). After
+#                  each of the app's restarts Windows opens the app by itself, at the next
+#                  step, with no click (relaunch.cjs). Needs the
 #                  signed image set in $SWIFF_SIGNED_SET (the one the TEST build
 #                  trusts) and Playwright from the repository's node_modules
 #             Windows must come back after each restart without asking for its
@@ -706,6 +708,20 @@ test_run() {
 			for _ in $(seq 40); do curl -fs http://127.0.0.1:9222/json/version > /dev/null && break; sleep 5; done
 			sleep 10
 		}
+		# After the app's own restart: Windows opened it by itself at the sign-in (relaunch.cjs), with
+		# --after-restart and the test build's remote debugging, and used up its RunOnce entry.
+		relaunched() { # name
+			for _ in $(seq 36); do
+				on_vm "Get-CimInstance Win32_Process | Where-Object { (\$_.ExecutablePath -like '*SwiffHost*' -or \$_.ExecutablePath -like '*Lanterel Host*') -and \$_.CommandLine -notmatch '--type=' } | ForEach-Object { \$_.CommandLine }" | tr -d '\r' > "$run/relaunch-$1.txt" || true
+				grep -q -- '--after-restart' "$run/relaunch-$1.txt" && break
+				sleep 5
+			done
+			on_vm "(Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce' -ErrorAction SilentlyContinue).LanterelHost" | tr -d '\r' > "$run/relaunch-$1-runonce.txt" || true
+			expect "$1" "Windows opened the app by itself after the restart, and its RunOnce entry is used up: $(tr '\n' ';' < "$run/relaunch-$1.txt")" \
+				bash -c "grep -q -- '--after-restart' '$run/relaunch-$1.txt' && ! grep -q . '$run/relaunch-$1-runonce.txt'"
+			tunnel
+			for _ in $(seq 40); do curl -fs http://127.0.0.1:9222/json/version > /dev/null && break; sleep 5; done
+		}
 		uac() { # 0: elevate without a prompt; 2: Windows' consent prompt on its secure desktop
 			on_vm "Set-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' -Name ConsentPromptBehaviorAdmin -Value $1" || true
 		}
@@ -782,8 +798,9 @@ test_run() {
 			"$python" "$here/mok-drive.py" "$run/ui-mok-1.log" confirm "$code" --loose --socket "$run/serial.sock"
 		windows_back ui-windows-after-key
 		expect ui-pcr7 "PCR 7 is a clean start's after the app's key restart" test "$(pcr7 ui-key)" = "$base"
-		app
-		step ui-yes "the app asks; Yes, it did" bash -c "$ui click '^Rental mode' > /dev/null; $ui wait-h1 'did the blue screen take your code' 120 > /dev/null; $ui click 'Yes, it did' > /dev/null; $ui wait-h1 'rental mode is ready' 60"
+		relaunched ui-relaunch-key
+		step ui-relaunch-ask "the app Windows opened is straight at the blue screen's question, with no click" $ui wait-h1 'did the blue screen take your code' 180
+		step ui-yes "Yes, it did" bash -c "$ui click 'Yes, it did' > /dev/null; $ui wait-h1 'rental mode is ready' 60"
 		step ui-go-live "Go live opens now, ready to hold" bash -c "$ui click '^Go live' > /dev/null; $ui wait-h1 'ready to go live' 60"
 		# Remove Swiff OS through the app from its one click: the key's code, its restart to MokManager,
 		# the rest by itself, the restart that shows Windows, and the app's check of that start.
@@ -794,13 +811,13 @@ test_run() {
 		expect ui-remove-mok "the app's restart reached MokManager, and the key's removal went through with the app's code" \
 			"$python" "$here/mok-drive.py" "$run/ui-mok-remove.log" remove "$code" --loose --socket "$run/serial.sock"
 		windows_back ui-windows-after-unkey
-		app
-		step ui-remove-ran "back in Windows, the app went on by itself through its elevation, up to the restart that checks Windows" bash -c "$ui click '^Rental mode' > /dev/null; $ui wait-h1 'restart to check windows' 600"
+		relaunched ui-relaunch-unkey
+		step ui-remove-ran "back in Windows, the app opened and went on by itself through its elevation, up to the restart that checks Windows" $ui wait-h1 'restart to check windows' 600
 		$ui click 'Restart now' > "$run/ui-check-restart-click.json" 2>&1 || true
 		sleep 30
 		windows_back ui-windows-after-remove
-		app
-		step ui-removed "the app checked the start: Lanterel OS is off, Windows started as usual" bash -c "$ui click '^Rental mode' > /dev/null; $ui wait-h1 'lanterel os is off this pc' 120"
+		relaunched ui-relaunch-remove
+		step ui-removed "the app opened by itself and checked the start: Lanterel OS is off, Windows started as usual" $ui wait-h1 'lanterel os is off this pc' 180
 		step ui-done "Done, and rental mode starts over" bash -c "$ui click '^Done' > /dev/null; $ui wait-h1 'turn on iommu' 120"
 		read_as ui-after-remove
 		expect ui-forgotten "the install record is gone" test "$(json "$run/read-ui-after-remove.json" read '.read.facts.install')" = null

@@ -137,13 +137,22 @@ export function Shell({
 
 /** A build packaged by `npm run pack:test` (build-kind.cjs): main opens the window with build=test. */
 const TEST_BUILD = new URLSearchParams(location.search).get("build") === "test";
+/** Windows opened the app after a restart it asked for (relaunch.cjs): main opens the window with after=restart. */
+const AFTER_RESTART = new URLSearchParams(location.search).get("after") === "restart";
 
-/** The app on this PC's own data. The first run starts at reading the PC; later ones at Go live. */
+/**
+ * The step the window opens at: after the app's own restart, Go live, which shows rental mode's
+ * next step until it is ready; otherwise reading the PC on the first run, Go live on later ones.
+ */
+export const firstStep = (afterRestart: boolean, setupDone: boolean): Step =>
+  afterRestart || setupDone ? "live" : "pc";
+
+/** The app on this PC's own data. */
 export function RealApp() {
   const host = useHost();
   const paid = usePaidGaming(host.view.connection.url);
   const [setupDone, setSetupDone] = useState(loadSetupDone);
-  const [step, setStep] = useState<Step>(() => (loadSetupDone() ? "live" : "pc"));
+  const [step, setStep] = useState<Step>(() => firstStep(AFTER_RESTART, loadSetupDone()));
   return (
     <Shell
       host={host}

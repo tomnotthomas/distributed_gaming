@@ -935,7 +935,7 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
             {plan.kind === "install"
               ? "Then Lanterel runs every step by itself. Windows asks once for permission."
               : plan.kind === "remove"
-                ? "Windows asks once for permission. Back in Windows, open Lanterel: it takes Lanterel OS off the disk by itself."
+                ? "Windows asks once for permission. Back in Windows, Lanterel opens by itself and takes Lanterel OS off the disk."
                 : "Windows asks once for permission. Then Lanterel gets the restart ready."}
           </p>
         );
@@ -1043,10 +1043,10 @@ export function RentalSetupScreen({ view, actions, go }: ScreenProps) {
             ? "Restart to remove the key"
             : "Restart to confirm the key";
       line = once
-        ? "Lanterel OS starts on the next restart only. Then Windows again."
+        ? "Lanterel OS starts on the next restart only. Then Windows again, and Lanterel opens by itself."
         : check
-          ? "Lanterel OS is off this PC. Restart once, then open Lanterel: it checks Windows started as usual."
-          : "Have your code at hand. The PC restarts to a blue screen, and this app closes.";
+          ? "Lanterel OS is off this PC. Restart once. Back in Windows, Lanterel opens by itself and checks Windows started as usual."
+          : "Have your code at hand. The PC restarts to a blue screen. Back in Windows, Lanterel opens by itself.";
       if (!once && !check)
         extra = (
           <p className="mwarn">
