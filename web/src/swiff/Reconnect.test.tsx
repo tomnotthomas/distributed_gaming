@@ -178,7 +178,7 @@ describe("C: a place in the queue kept", () => {
     const swiff = swiffWith({ booking: booking({ status: "queued" }), queueBack: true });
     render(<QueueBackDialog swiff={swiff} />);
 
-    const dialog = screen.getByRole("dialog", { name: "Still finding a machine" });
+    const dialog = screen.getByRole("dialog", { name: "Still finding a PC" });
     expect(dialog).toHaveTextContent("In the queue");
     expect(dialog).toHaveTextContent("held while Lanterel stays open");
     expect(dialog).toHaveTextContent("kept for 2 minutes if you close it");
@@ -214,12 +214,12 @@ describe("D: a machine lost mid-session", () => {
     render(<MachineLost swiff={swiff} />);
 
     const dialog = screen.getByRole("dialog", {
-      name: "Glasshouse went offline. Moving you to another machine",
+      name: "Glasshouse went offline. Moving you to another PC",
     });
-    expect(dialog).toHaveTextContent("Machine lost");
+    expect(dialog).toHaveTextContent("PC lost");
     expect(dialog).toHaveTextContent("Counter-Strike 2");
     expect(dialog).toHaveTextContent("Glasshouse went offline");
-    expect(dialog).toHaveTextContent("Finding another machine");
+    expect(dialog).toHaveTextContent("Finding another PC");
     expect(dialog).not.toHaveTextContent(/save/i);
     expect(screen.getByTestId("machine-lost-time")).toHaveTextContent("0:00");
     act(() => vi.advanceTimersByTime(3_000));
@@ -238,7 +238,7 @@ describe("D: a machine lost mid-session", () => {
     const dialog = screen.getByRole("dialog");
     expect(dialog).toHaveTextContent("Taken back");
     expect(dialog).toHaveTextContent("Glasshouse’s owner took it back");
-    expect(dialog).toHaveTextContent("Waiting for a machine");
+    expect(dialog).toHaveTextContent("Waiting for a PC");
     expect(dialog).toHaveTextContent("starts by itself the moment one is free");
   });
 
@@ -247,15 +247,15 @@ describe("D: a machine lost mid-session", () => {
     render(<MachineLost swiff={swiff} />);
     expect(screen.getByRole("dialog")).toHaveTextContent("Couldn't move you");
     expect(screen.queryByTestId("machine-lost-time")).toBeNull();
-    expect(screen.getByRole("button", { name: "Choose a machine" })).toHaveFocus();
-    fireEvent.click(screen.getByRole("button", { name: "Choose a machine" }));
+    expect(screen.getByRole("button", { name: "Choose a PC" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Choose a PC" }));
     expect(swiff.chooseMachine).toHaveBeenCalledTimes(1);
   });
 
   it("hands it back too when the next machine's claim was refused", () => {
     const next = booking({ bookingId: "b-2", status: "matched" });
     render(<MachineLost swiff={swiffWith({ lost: lostOn({ next }), bookingFailed: true })} />);
-    expect(screen.getByRole("button", { name: "Choose a machine" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Choose a PC" })).toBeInTheDocument();
   });
 
   it("is not there without a lost machine", () => {

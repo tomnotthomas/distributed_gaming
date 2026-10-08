@@ -84,15 +84,21 @@ function useRotation(count: number, motion: boolean) {
   return { index: at, last: (at + count - 1) % count, hold };
 }
 
-/** "4 h 30" or "All night": the time a machine stays free from `now` (Unix ms), as the band prints it. */
+/** "4 h 30" or "12 h+": the time a machine stays free from `now` (Unix ms), as the band prints it. */
 const leftLabel = (t: ScreenText, machine: Machine, now: number) => {
   const left = fmtLeft(leftAt(machine, now));
-  return left === "all night" ? t("wall.allNight") : left;
+  return left === "12 h+" ? t("wall.openEnd") : left;
 };
 
-/** "free until 00:30", or "free all night" for a machine its owner leaves on. */
+/** "4 h 30 free" under Resume, or just "12 h+". */
+const heroLeft = (t: ScreenText, machine: Machine, now: number) => {
+  const left = leftLabel(t, machine, now);
+  return left === t("wall.openEnd") ? left : t("hero.left", { left });
+};
+
+/** "free until 00:30", or "free for 12 h+" for a machine free that long or with no end set. */
 const untilLabel = (t: ScreenText, machine: Machine) =>
-  machine.until === "late" ? t("wall.freeAllNight") : t("wall.freeUntil", { at: machine.until });
+  machine.until === "late" ? t("wall.freeOpenEnd") : t("wall.freeUntil", { at: machine.until });
 
 /** Why a game cannot start now: who comes back and when, or why nothing will. */
 function waitLabel(t: ScreenText, spot: Spot | undefined): string {
@@ -388,8 +394,8 @@ function WallHero({ t, games, swiff }: { t: ScreenText; games: Game[]; swiff: Sw
                 <dd>{best.gpu}</dd>
                 <dt>{t("hero.response")}</dt>
                 <dd>{best.ping} ms</dd>
-                <dt>{t("hero.freeUntil")}</dt>
-                <dd>{best.until === "late" ? t("wall.allNight") : best.until}</dd>
+                <dt>{best.until === "late" ? t("hero.freeFor") : t("hero.freeUntil")}</dt>
+                <dd>{best.until === "late" ? t("wall.openEnd") : best.until}</dd>
               </dl>
             ) : null}
           </div>
@@ -406,7 +412,7 @@ function WallHero({ t, games, swiff }: { t: ScreenText; games: Game[]; swiff: Sw
                 {game.owned ? t("hero.resume") : t("hero.play")}
                 {best ? (
                   <small id="hero-left" aria-hidden="true">
-                    {t("hero.left", { left: leftLabel(t, best, clock) })}
+                    {heroLeft(t, best, clock)}
                   </small>
                 ) : null}
               </span>

@@ -4,6 +4,7 @@ import { DEFAULT_PREFS, demoNow, seedSpots, wallOrder } from "./derive";
 import { GAMES, MACHINES, type Game, type SeedMachine, type Spot } from "./data";
 import { applySteam, type CatalogGame, type SteamProfile } from "./steam";
 import type { Swiff } from "./useSwiff";
+import { ScreenLang } from "./screenCopy";
 import { Wall } from "./Wall";
 import { setPaidGaming } from "../test/features";
 
@@ -179,7 +180,7 @@ describe("Wall", () => {
       const profile = { ...privateLibrary, lib: true, owned: [[1245620, 12]] as [number, number][] };
       emptyWall(profile, applySteam(profile, pool));
       expect(screen.queryByText("Nothing is ready right now")).toBeNull();
-      expect(screen.queryByText(/No shared PC is free|Every shared machine is in use/)).toBeNull();
+      expect(screen.queryByText(/No PC is free|Every PC on Lanterel is in use/)).toBeNull();
       expect(screen.queryByRole("button", { name: "Notify me" })).toBeNull();
       expect(screen.getByTestId("hero")).toBeInTheDocument();
     });
@@ -191,7 +192,7 @@ describe("Wall", () => {
       expect(screen.queryByRole("link", { name: /sign in/i })).toBeNull();
       expect(
         screen.getByText(
-          "Every shared machine is in use. Moss is back at 21:30. We'll tell you the moment something frees up.",
+          "Every PC on Lanterel is in use. Moss is back at 21:30. We'll tell you the moment something frees up.",
         ),
       ).toBeTruthy();
     });
@@ -321,20 +322,18 @@ describe("Wall", () => {
     it("shows a signed-out visitor no availability anywhere", () => {
       render(<Wall swiff={swiffWith(GAMES, null, noop, true, { spots: new Map() })} />);
       expect(screen.queryByText("Nothing is ready right now")).toBeNull();
-      expect(screen.queryAllByText(/free near you|Back at|In use|free until|All night|Finding/)).toHaveLength(
-        0,
-      );
+      expect(screen.queryAllByText(/free near you|Back at|In use|free until|12 h\+|Finding/)).toHaveLength(0);
       // A free game can be started once signed in; a paid one if you own it.
       expect(screen.getAllByText("Sign in to play").length).toBeGreaterThan(0);
       expect(screen.getAllByText("Sign in to play if you own it").length).toBeGreaterThan(0);
-      expect(within(screen.getByTestId("hero")).getByText(/shared PC/)).toBeInTheDocument();
+      expect(within(screen.getByTestId("hero")).getByText(/player's PC/)).toBeInTheDocument();
     });
 
     it("tells a signed-in renter machines are being found until the server answers", () => {
       render(<Wall swiff={swiffWith(applySteam(owner, []), owner, noop, true, { spots: new Map() })} />);
       expect(screen.queryByText("Nothing is ready right now")).toBeNull();
-      expect(within(screen.getByTestId("hero")).getByText("Finding you a machine…")).toBeInTheDocument();
-      expect(screen.getAllByText("Finding a machine…").length).toBeGreaterThan(0);
+      expect(within(screen.getByTestId("hero")).getByText("Finding you a PC…")).toBeInTheDocument();
+      expect(screen.getAllByText("Finding a PC…").length).toBeGreaterThan(0);
     });
 
     it("offers the host the server ranked first, with its time left by the real clock", () => {
@@ -358,7 +357,7 @@ describe("Wall", () => {
       render(<Wall swiff={swiffWith(games, owner, noop, true, { spots: nothingReady(games, back) })} />);
       expect(
         screen.getByText(
-          "Every shared machine is in use. Basement rig is back at 23:10. We'll tell you the moment something frees up.",
+          "Every PC on Lanterel is in use. Basement rig is back at 23:10. We'll tell you the moment something frees up.",
         ),
       ).toBeInTheDocument();
     });
@@ -372,7 +371,7 @@ describe("Wall", () => {
       );
       render(<Wall swiff={swiffWith(games, owner, noop, true, { spots })} />);
       expect(
-        screen.getByText(/Every shared machine is in use\. Basement rig is back at 21:15\./),
+        screen.getByText(/Every PC on Lanterel is in use\. Basement rig is back at 21:15\./),
       ).toBeInTheDocument();
     });
 
@@ -394,7 +393,34 @@ describe("Wall", () => {
       expect(tabs.some((t) => t.startsWith("Back at 23:00"))).toBe(false);
     });
 
-    it("leaves a host whose offer has passed since it was read no time, not all night", () => {
+    it("pairs a clock end with Free until and an open end with Free for, in either language", () => {
+      const games = applySteam(owner, []);
+      const facts = () => screen.getByTestId("hero").querySelector(".hero-kv")!;
+      const at = (until: string) => new Map([[games[0]!.id, ready({ ...rig, until })]]);
+      const clock = new Date(2026, 9, 3, 22, 0).getTime();
+      const { rerender } = render(
+        <Wall swiff={swiffWith(games, owner, noop, true, { spots: at("23:30"), clock })} />,
+      );
+      expect(facts()).toHaveTextContent("Free until23:30");
+      rerender(<Wall swiff={swiffWith(games, owner, noop, true, { spots: at("late"), clock })} />);
+      expect(facts()).toHaveTextContent("Free for12 h+");
+      expect(facts()).not.toHaveTextContent("Free until");
+      rerender(
+        <ScreenLang.Provider value="de">
+          <Wall swiff={swiffWith(games, owner, noop, true, { spots: at("late"), clock })} />
+        </ScreenLang.Provider>,
+      );
+      expect(facts()).toHaveTextContent("Frei für12+ Std.");
+      expect(facts()).not.toHaveTextContent("Frei bis");
+      rerender(
+        <ScreenLang.Provider value="de">
+          <Wall swiff={swiffWith(games, owner, noop, true, { spots: at("23:30"), clock })} />
+        </ScreenLang.Provider>,
+      );
+      expect(facts()).toHaveTextContent("Frei bis23:30");
+    });
+
+    it("leaves a host whose offer has passed since it was read no time, not 12 h+", () => {
       const games = applySteam(owner, []);
       const until = new Date(2026, 9, 3, 21, 30, 40).getTime();
       const spots = new Map([[games[0]!.id, ready({ ...rig, until: "21:30", untilAt: until })]]);
@@ -408,7 +434,7 @@ describe("Wall", () => {
       );
       const hero = within(screen.getByTestId("hero"));
       expect(hero.getByText("0 min free")).toBeInTheDocument();
-      expect(hero.queryByText(/All night/)).toBeNull();
+      expect(hero.queryByText(/12 h\+/)).toBeNull();
     });
 
     it("says what is free does not last the session, rather than that nothing is free", () => {
@@ -419,7 +445,7 @@ describe("Wall", () => {
         />,
       );
       expect(
-        screen.getByText(/No free machine lasts your whole play time\. Try a shorter play time/),
+        screen.getByText(/No free PC lasts your whole play time\. Try a shorter play time/),
       ).toBeInTheDocument();
     });
 
@@ -439,17 +465,15 @@ describe("Wall", () => {
           .find((el) => el.closest(".band-tile"))!
           .closest(".band-tile")!;
       expect(meta(busy!)).toHaveTextContent("In use");
-      expect(meta(short!)).toHaveTextContent("Free, not all session");
-      expect(meta(none!)).toHaveTextContent("On no machine yet");
+      expect(meta(short!)).toHaveTextContent("Free, not long enough");
+      expect(meta(none!)).toHaveTextContent("Not on a PC yet");
     });
 
     it("invents no machine coming back when none is on offer", () => {
       const games = applySteam(owner, []);
       render(<Wall swiff={swiffWith(games, owner, noop, true, { spots: nothingReady(games, null) })} />);
       expect(
-        screen.getByText(
-          "No shared machine is free right now. We'll tell you the moment something frees up.",
-        ),
+        screen.getByText("No PC is free right now. We'll tell you the moment something frees up."),
       ).toBeInTheDocument();
       expect(screen.queryAllByText(/Moss/)).toHaveLength(0);
     });

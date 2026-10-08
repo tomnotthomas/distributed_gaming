@@ -66,7 +66,7 @@ describe("Reticle", () => {
 
   it("does nothing without a machine to launch on", () => {
     const fire = vi.fn();
-    render(<Reticle onFire={fire} disabled label="Pick a machine to launch" />);
+    render(<Reticle onFire={fire} disabled label="Pick a PC to launch" />);
     const button = screen.getByRole("button");
 
     fireEvent.pointerDown(button, { button: 0 });

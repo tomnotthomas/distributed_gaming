@@ -107,7 +107,7 @@ export function Reticle({
 
   const shown: Phase = launching ? "done" : phase;
   const fill = launching ? 1 : progress;
-  const [line1, line2] = disabled ? ["Pick a", "machine"] : LABEL[shown];
+  const [line1, line2] = disabled ? ["Pick a", "PC"] : LABEL[shown];
   const arc = (100 - fill * 100).toFixed(2);
 
   return (

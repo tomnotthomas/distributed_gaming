@@ -41,7 +41,7 @@ describe("Ignition", () => {
     expect(screen.getByText("Glasshouse")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
     expect(screen.getAllByRole("listitem").map((row) => row.children[1]!.textContent)).toEqual([
-      "Reserving a machine",
+      "Reserving a PC",
       "Waking Glasshouse",
       "Negotiating stream",
       "Launching Elden Ring",
@@ -89,7 +89,7 @@ describe("Ignition", () => {
     expect(document.querySelector('[aria-live="polite"]')).toHaveTextContent(
       "Waking Glasshouse: taking longer than usual",
     );
-    fireEvent.click(screen.getByRole("button", { name: "Try another machine" }));
+    fireEvent.click(screen.getByRole("button", { name: "Try another PC" }));
     expect(tryAnother).toHaveBeenCalledTimes(1);
   });
 
@@ -237,7 +237,7 @@ describe("Ignition", () => {
     expect(panel.textContent).not.toMatch(/\u2014/);
     expect(document.querySelector('[aria-live="polite"]')).toHaveTextContent("Your game didn't start");
     expect(screen.queryByTestId("ignition-slow")).toBeNull();
-    const another = within(panel).getByRole("button", { name: "Try another machine" });
+    const another = within(panel).getByRole("button", { name: "Try another PC" });
     expect(another).toHaveFocus();
     expect(within(panel).getAllByRole("button")).toHaveLength(1);
 

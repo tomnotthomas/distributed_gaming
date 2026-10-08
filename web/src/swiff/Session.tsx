@@ -112,7 +112,7 @@ export function Session({ swiff }: { swiff: Swiff }) {
   if (demo && !game) return null;
   const title = game?.title ?? "Your game";
   // A session come back to may be on a machine the open game's list no longer shows.
-  const host = picked?.name ?? swiff.booking?.machine?.name ?? "your machine";
+  const host = picked?.name ?? swiff.booking?.machine?.name ?? "your PC";
   // The demo has no connection to read, so it shows what its machine would.
   const readings = real
     ? hudReadings(play?.stats ?? null)

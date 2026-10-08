@@ -178,7 +178,7 @@ describe("spotOf", () => {
     });
   });
 
-  it("reads a host offered until taken back, or twelve hours or more, as all night", () => {
+  it("reads a host offered until taken back, or twelve hours or more, as free for 12 h+", () => {
     expect(spotOf(game({ ready: 1, best: { ...best, availableUntil: null } }), now).best?.until).toBe("late");
     const tomorrow = now + 13 * 3_600_000;
     expect(spotOf(game({ ready: 1, best: { ...best, availableUntil: tomorrow } }), now).best?.until).toBe(

@@ -596,14 +596,14 @@ describe("crewmates watching", () => {
 describe("Ignition's steps", () => {
   it("names the host and the game, with fallbacks", () => {
     expect(ignitionLabels(screenText("en"), "Basement rig", "Counter-Strike 2")).toEqual([
-      "Reserving a machine",
+      "Reserving a PC",
       "Waking Basement rig",
       "Negotiating stream",
       "Launching Counter-Strike 2",
     ]);
     expect(ignitionLabels(screenText("en"), null, undefined)).toEqual([
-      "Reserving a machine",
-      "Waking the machine",
+      "Reserving a PC",
+      "Waking the PC",
       "Negotiating stream",
       "Launching your game",
     ]);

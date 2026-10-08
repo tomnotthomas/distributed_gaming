@@ -200,7 +200,7 @@ test.describe("live wall on the real hosts", () => {
 
     await page.locator("button.band-tile").first().click();
     await expect(page.locator(".ledger-row")).toHaveCount(0);
-    await expect(page.getByText(/Sign in to see which machines can play it/)).toBeVisible();
+    await expect(page.getByText(/Sign in to see which PCs can play it/)).toBeVisible();
   });
 
   test("tells a signed-in renter nothing is ready when no host is on offer", async ({
@@ -212,7 +212,7 @@ test.describe("live wall on the real hosts", () => {
     await page.goto("/");
 
     await expect(page.getByText("Nothing is ready right now")).toBeVisible();
-    await expect(page.getByText(/No shared machine is free right now/)).toBeVisible();
+    await expect(page.getByText(/No PC is free right now/)).toBeVisible();
     await expect(page.getByText(/Moss|Glasshouse|Tide|Ember/)).toHaveCount(0);
   });
 
@@ -226,10 +226,10 @@ test.describe("live wall on the real hosts", () => {
     await signIn(context, baseURL!);
     await page.goto("/");
 
-    // The game the host can run leads the wall, on that host, free all night.
+    // The game the host can run leads the wall, on that host, free for 12 h+.
     const hero = page.getByTestId("hero");
     await expect(hero.locator(".hero-strip-line")).toContainText("E2E rig");
-    await expect(hero.locator(".hero-strip-line")).toContainText("free all night");
+    await expect(hero.locator(".hero-strip-line")).toContainText("free for 12 h+");
     await expect(page.locator(".bar-live")).toContainText(/ready now/);
 
     await hero.locator("button.resume").click();

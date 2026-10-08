@@ -15,11 +15,17 @@ function feelShort(machine: Machine, picture: number): string {
   return `${look}, ${response}`;
 }
 
-const untilShort = (machine: Machine) => (machine.until === "late" ? "All night" : machine.until);
+const untilShort = (machine: Machine) => (machine.until === "late" ? "12 h+" : machine.until);
 
-/** "1 machine from 1 player": who is behind the machines listed, where that is known (the demo). */
+/** "3 h 20 left", or "12 h+" for a machine free that long or with no end set. */
+function leftShort(mins: number): string {
+  const left = fmtLeft(mins);
+  return left === "12 h+" ? left : `${left} left`;
+}
+
+/** "1 PC from 1 player": who is behind the machines listed, where that is known (the demo). */
 function ledgerCount(live: Machine[]): string {
-  const machines = `${live.length} ${live.length === 1 ? "machine" : "machines"}`;
+  const machines = `${live.length} ${live.length === 1 ? "PC" : "PCs"}`;
   // Players behind the machines listed below, not the busy ones left out of it.
   // The server never says who owns a real host, so it counts machines alone.
   const owners = new Set(live.map((m) => m.owner).filter(Boolean)).size;
@@ -55,8 +61,8 @@ function BookingNote({ swiff, free }: { swiff: Swiff; free: number }) {
       <div className="ledger-note" role="status">
         <p>
           {booking.status === "matched"
-            ? "A machine is free for you. Starting…"
-            : "You're in the queue. Keep this page open: we start the moment a machine is free."}
+            ? "A PC is free for you. Starting…"
+            : "You're in the queue. Keep this page open: we start the moment a PC is free."}
         </p>
         <Button onClick={swiff.leaveQueue}>Leave the queue</Button>
       </div>
@@ -68,8 +74,8 @@ function BookingNote({ swiff, free }: { swiff: Swiff; free: number }) {
       <div className="ledger-note" role="status">
         <p>
           {next
-            ? `That machine was just taken. Next best: ${next.name ?? next.gpu}, ${Math.round(next.latency.rttMs)} ms away.`
-            : "That machine was just taken, and no other is free. Queue, and we start the moment one is."}
+            ? `That PC was just taken. Next best: ${next.name ?? next.gpu}, ${Math.round(next.latency.rttMs)} ms away.`
+            : "That PC was just taken, and no other is free. Queue, and we start the moment one is."}
         </p>
         {next ? (
           <Button onClick={swiff.launchNextBest}>Play on {next.name ?? next.gpu}</Button>
@@ -91,7 +97,7 @@ function BookingNote({ swiff, free }: { swiff: Swiff; free: number }) {
   if (!free && over && phase === "idle" && !swiff.machinesLoading && !swiff.demo) {
     return (
       <div className="ledger-note">
-        <p>Nothing free right now. Queue, and we start the moment a machine is.</p>
+        <p>Nothing free right now. Queue, and we start the moment a PC is.</p>
         <Button onClick={swiff.joinQueue}>Join the queue</Button>
       </div>
     );
@@ -147,7 +153,7 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
               <dd>{picked.ping} ms</dd>
             </div>
             <div>
-              <dt>Free until</dt>
+              <dt>{picked.until === "late" ? "Free for" : "Free until"}</dt>
               <dd>{untilShort(picked)}</dd>
             </div>
             <div>
@@ -158,23 +164,19 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
         ) : null}
       </div>
 
-      <aside className="ledger-panel" aria-label="Machines">
+      <aside className="ledger-panel" aria-label="PCs">
         <div className="ledger-head mono">
           <span>
-            {!swiff.seesAvailability
-              ? "Machines"
-              : swiff.machinesLoading
-                ? "Finding machines…"
-                : ledgerCount(live)}
+            {!swiff.seesAvailability ? "PCs" : swiff.machinesLoading ? "Finding PCs…" : ledgerCount(live)}
           </span>
           <span>Ranked</span>
         </div>
 
         <div className="ledger">
           {!swiff.seesAvailability ? (
-            <p className="ledger-busy mono">Sign in to see which machines can play it, and how well.</p>
+            <p className="ledger-busy mono">Sign in to see which PCs can play it, and how well.</p>
           ) : !swiff.machinesLoading && !machines.length ? (
-            <p className="ledger-busy mono">No machine can play it right now.</p>
+            <p className="ledger-busy mono">No PC can play it right now.</p>
           ) : null}
           {live.map((machine, index) => {
             const chosen = picked?.id === machine.id;
@@ -194,13 +196,13 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
                 <span className="ledger-body">
                   <b>{machine.name}</b>
                   <span className="ledger-who">
-                    {[machine.self ? "your machine" : (machine.owner ?? machine.cpu), machine.gpu]
+                    {[machine.self ? "your PC" : (machine.owner ?? machine.cpu), machine.gpu]
                       .filter(Boolean)
                       .join(", ")}
                   </span>
                   <span className="ledger-meta">
                     <span className={index === 0 && why ? "ledger-tag best" : "ledger-tag"}>{tag}</span>
-                    <span>{fmtLeft(leftAt(machine, clock))} left</span>
+                    <span>{leftShort(leftAt(machine, clock))}</span>
                   </span>
                 </span>
               </button>
@@ -219,7 +221,7 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
               onFire={swiff.launch}
               disabled={!picked}
               launching={swiff.phase !== "idle"}
-              label={picked ? `Hold to launch on ${picked.name}` : "Pick a machine to launch"}
+              label={picked ? `Hold to launch on ${picked.name}` : "Pick a PC to launch"}
             />
             <BookingNote swiff={swiff} free={live.length} />
           </div>
@@ -234,8 +236,8 @@ export function GameMenu({ swiff }: { swiff: Swiff }) {
 
         <p className="ledger-foot mono" hidden={!live.length}>
           {picked
-            ? `${picked.name}, ${picked.until === "late" ? "free all night" : `free until ${picked.until}`}`
-            : "Pick a machine above"}
+            ? `${picked.name}, ${picked.until === "late" ? "free for 12 h+" : `free until ${picked.until}`}`
+            : "Pick a PC above"}
           <br />
           Use ← → to move
         </p>
