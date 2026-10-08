@@ -8,8 +8,7 @@
 //                  Fast Startup, and what an install has done so far.
 //   installPlan    the exact steps that install Swiff OS next to Windows:
 //                  suspend BitLocker, shrink a drive (or use free space), add
-//                  Swiff OS's partitions, hand it this PC's machine key
-//                  (provision.cjs), write it (and the project Lanterel Host
+//                  Swiff OS's partitions, write it (and the project Lanterel Host
 //                  reports errors to, onto its ESP), add its UEFI boot entry,
 //                  name the games drive, then queue Swiff's key for the owner
 //                  to confirm once at the PC (MOK) and restart into that
@@ -914,8 +913,6 @@ function installPlan(
         `Disk ${disk}'s partition table gets Lanterel OS's ${parts.length} partitions, in the ${gb(SWIFF_OS_BYTES)} ${shrink ? `${target.letter}: gave` : "that was free"}.`,
       ),
     );
-  // Before the long write: a PC without its machine key in the app stops here, with nothing to write again.
-  steps.push(provisionStep());
   steps.push(
     step(
       "write",

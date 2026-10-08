@@ -428,7 +428,6 @@ describe("the install plan", () => {
       "fast-startup",
       "room",
       "partitions",
-      "provision",
       "write",
       "boot-entry",
       "games",
@@ -449,7 +448,6 @@ describe("the install plan", () => {
       "bitlocker",
       "room",
       "partitions",
-      "provision",
       "write",
       "boot-entry",
       "mok-restart",
@@ -472,7 +470,6 @@ describe("the install plan", () => {
       "Turn off Fast Startup so Lanterel OS can read your drives",
       "Shrink C: by 24 GB",
       "Create 8 partitions for Lanterel OS on disk 0",
-      "Give Lanterel OS this PC's machine key",
       "Copy Lanterel OS onto them",
       "Add Lanterel OS to the boot menu, after Windows",
       "Label C: SWIFFGAMES so Lanterel OS finds your games",
@@ -542,7 +539,6 @@ describe("the install plan", () => {
     const again = installPlan(pc((raw) => ({ ...raw, fastStartup: 0, install: record })));
     expect(again.steps.map((s) => s.id)).toEqual([
       "check",
-      "provision",
       "write",
       "boot-entry",
       "games",
@@ -640,7 +636,6 @@ describe("the install plan", () => {
       "check",
       "room",
       "partitions",
-      "provision",
       "write",
       "boot-entry",
       "mok",
@@ -1516,7 +1511,7 @@ describe("when a step stops", () => {
       changed: "Nothing after that step ran. Windows and your files are untouched.",
       action: "send",
       label: "Send details to Lanterel",
-      far: "at step 2 of 10",
+      far: "at step 2 of 9",
     });
     const { f: sent } = failed("fast-startup", "reg failed: exit code 1", { reportedAt: 1 });
     expect(sent).toMatchObject({ action: "again", label: "Try again" });

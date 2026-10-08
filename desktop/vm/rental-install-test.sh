@@ -17,16 +17,15 @@
 #      and a recovery partition at the end, and firmware variables with
 #      Secure Boot on and Windows in BootOrder
 #   2. the install plan for it: C: shrunk by Swiff OS's 24,192 MiB, Swiff OS's
-#      eight partitions added with the image's ids, names and attributes, this
-#      PC's provisioning (server, machine id, machine key) written at the start
-#      of its keep partition, its ESP (with the shim, swiff-os/image-set.sh)
-#      and slot A written, its boot entry for the shim added after Windows, C:
-#      named SWIFFGAMES, Swiff's key queued for MokManager (MokNew, MokAuth)
-#      and BootNext set
+#      eight partitions added with the image's ids, names and attributes, its
+#      ESP (with the shim, swiff-os/image-set.sh) and slot A written, its boot
+#      entry for the shim added after Windows, C: named SWIFFGAMES, Swiff's key
+#      queued for MokManager (MokNew, MokAuth) and BootNext set
 #   3. boot 0: shim shows MokManager, and the owner confirms Swiff's key with
 #      the install's code (mok-drive.py)
-#   4. start sharing (the provisioning again, Swiff OS first in BootOrder,
-#      BootNext), then boot 1: shim must start Swiff's systemd-boot and Swiff
+#   4. start sharing (this PC's provisioning, its server, machine id and
+#      machine key, written at the start of the keep; Swiff OS first in
+#      BootOrder, BootNext), then boot 1: shim must start Swiff's systemd-boot and Swiff
 #      OS, which seals the provisioning to the TPM, zeroes the record and keeps
 #      it on its keep (swiff-provision), and runs its self-test
 #   5. stop sharing (Windows first), then boot 2: the firmware must start

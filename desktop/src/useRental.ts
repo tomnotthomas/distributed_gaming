@@ -10,11 +10,11 @@ import { loadMachineId, loadUrl, toSocketUrl } from "./settings";
 
 /**
  * This PC's server and machine id as Settings keeps them, for the plans that
- * hand Swiff OS this PC's machine key (their provision step): the install and
- * each start of Swiff OS.
+ * hand Swiff OS this PC's machine key (their provision step): each start of
+ * Swiff OS.
  */
 const machineFor = (kind: RentalPlan["kind"]) =>
-  kind === "install" || kind === "once" || kind === "start"
+  kind === "once" || kind === "start"
     ? { machine: { serverUrl: toSocketUrl(loadUrl()), machineId: loadMachineId().trim() } }
     : {};
 

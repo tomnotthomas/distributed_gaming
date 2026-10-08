@@ -1,8 +1,8 @@
 // What this app hands Lanterel OS so its agent (swiff-hostd) can offer the PC:
 // the platform's address, the machine id and the machine key. The installer's
 // elevated worker writes it as one record, raw, at the start of Lanterel OS's
-// keep partition, when it installs Lanterel OS and each time it restarts the PC
-// into it (the plans' `provision` op). Lanterel OS reads it at its next start,
+// keep partition, each time it restarts the PC into Lanterel OS (Go live and
+// Start once, the plans' `provision` op). Lanterel OS reads it at its next start,
 // seals it to this PC's TPM so only a signed Lanterel OS boot of this PC can
 // open it, and zeroes the record (swiff-os/hostd/src/provision.ts, which reads
 // the same format):
@@ -23,9 +23,8 @@
 // plain-text file, for that window only and with this wipe. So it is zeroed
 // (the plans' `unprovision` op) whenever it is left behind: a run that wrote
 // it and then failed, an uninstall, and, at this app's next start, a record no
-// Lanterel OS boot took in (fateOf). The app notes when and by which plan it
-// wrote one (provisionStore), never what, to know that without administrator
-// rights.
+// Lanterel OS boot took in (fateOf). The app notes when it wrote one
+// (provisionStore), never what, to know that without administrator rights.
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -99,13 +98,10 @@ function provisionRecord({ serverUrl, machineId, machineKey }) {
 const holdsRecord = (block) =>
   block.length >= RECORD_MAGIC.length && block.subarray(0, RECORD_MAGIC.length).equals(RECORD_MAGIC);
 
-/** The plans whose restart starts Lanterel OS itself, which takes their record in: the install's goes to MokManager. */
-const BOOTS = new Set(["once", "start"]);
-
 /**
  * The app's note, in `dir` (its user data), of the last record it wrote that
- * may still be on the disk: when, by which plan kind, and whether that run
- * finished up to its restart. Never the record, nor the key.
+ * may still be on the disk: when, and whether that run finished up to its
+ * restart. Never the record, nor the key.
  */
 function provisionStore(dir, files = fs) {
   const file = path.join(dir, "rental-provision.json");
@@ -116,15 +112,15 @@ function provisionStore(dir, files = fs) {
   /** The note, or null when none is left. */
   const read = () => {
     try {
-      const { at, kind, done } = JSON.parse(files.readFileSync(file, "utf8"));
-      return Number.isFinite(at) && typeof kind === "string" ? { at, kind, done: done === true } : null;
+      const { at, done } = JSON.parse(files.readFileSync(file, "utf8"));
+      return Number.isFinite(at) ? { at, done: done === true } : null;
     } catch {
       return null;
     }
   };
   return {
     read,
-    written: (at, kind) => write({ at, kind, done: false }),
+    written: (at) => write({ at, done: false }),
     /** The run that wrote it finished up to its restart. */
     finished: () => {
       const note = read();
@@ -135,13 +131,12 @@ function provisionStore(dir, files = fs) {
 }
 
 /**
- * What a run of `plan` tells the note (provisionStore `store`) at its step
- * `event`: a record is written as the provision step starts, and gone once an
- * unprovision step is done.
+ * What a run's step event tells the note (provisionStore `store`): a record is
+ * written as the provision step starts, and gone once an unprovision step is done.
  */
-function provisionEvent(store, plan, event, at) {
+function provisionEvent(store, event, at) {
   if (event.type !== "step") return;
-  if (event.id === "provision" && event.state === "running") store.written(at, plan.kind);
+  if (event.id === "provision" && event.state === "running") store.written(at);
   else if (event.id === "unprovision" && event.state === "done") store.forget();
 }
 
@@ -154,16 +149,14 @@ const leftRecord = (outcome) =>
  * at this app's start, from when this PC last started (`bootAt`, ms) and this
  * start's boot trail (rental-key.cjs bootTrail):
  *
- *   wipe  left behind: the install's (its restart goes to MokManager, then
- *         Windows; Go live and Start once write their own), a run that did
- *         not finish, or a restart since that went to shim and back to
- *         Windows without Lanterel OS's boot loader
+ *   wipe  left behind: a run that did not finish, or a restart since that
+ *         went to shim and back to Windows without Lanterel OS's boot loader
  *   wait  Start once or Go live finished and the PC has not restarted since:
  *         BootNext starts Lanterel OS, which takes it in
  *   gone  a restart since started Lanterel OS, which took it in
  */
 function fateOf(note, bootAt, trail = null) {
-  if (!BOOTS.has(note.kind) || !note.done) return "wipe";
+  if (!note.done) return "wipe";
   if (note.at > bootAt) return "wait";
   const back = trail && trail.at >= note.at && trail.shim && trail.windowsAfterShim && !trail.loader;
   return back ? "wipe" : "gone";

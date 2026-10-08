@@ -24,8 +24,3 @@ export function provisioned(
 ): (
   apply: (op: PlanOp, progress?: unknown) => Promise<unknown>,
 ) => (op: PlanOp, progress?: unknown) => Promise<unknown>;
-/** Whether a console run of `plan` zeroes its provisioning record as it ends. */
-export function wipesAfter(
-  plan: { kind: string },
-  outcome: { status: string; done: string[]; failed?: { step: string } },
-): boolean;

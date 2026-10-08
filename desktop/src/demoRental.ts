@@ -47,7 +47,6 @@ const INSTALL: RentalPlan = {
     step("fast-startup", "Turn off Fast Startup so Lanterel OS can read your drives"),
     step("room", "Shrink C: by 24 GB"),
     step("partitions", "Create 8 partitions for Lanterel OS on disk 0"),
-    step("provision", "Give Lanterel OS this PC's machine key", [{ op: "provision" }]),
     step("write", "Copy Lanterel OS onto them", [
       { op: "write", disk: 0, offset: AT, bytes: 1 * GiB, source: "esp" },
       { op: "write", disk: 0, offset: AT + GiB, bytes: 8 * GiB, source: "root-x86-64" },

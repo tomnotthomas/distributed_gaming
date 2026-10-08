@@ -63,13 +63,12 @@ drive BitLocker protects later asks again. The install:
 3. turns off Fast Startup, shrinks C: by 24 GB (`Resize-Partition`), or uses free space
 4. adds Swiff OS's eight partitions with the image's ids, names and attributes (`gpt.cjs`
    on `\\.\GLOBALROOT\Device\HarddiskN\Partition0`, then `Update-Disk`)
-5. hands Swiff OS this PC's server, machine id and machine key (below, **Provisioning**)
-6. writes the ESP and slot A, hashing as it writes and reading back, then, when the host app
+5. writes the ESP and slot A, hashing as it writes and reading back, then, when the host app
    has an error-reports project, `LANTEREL.ENV` onto the ESP ("Error reports" below)
-7. adds a `Boot####` entry for `\EFI\swiff\shimx64.efi` on Swiff OS's ESP, last in BootOrder
+6. adds a `Boot####` entry for `\EFI\swiff\shimx64.efi` on Swiff OS's ESP, last in BootOrder
    (`desktop/efi.cjs`, through `SetFirmwareEnvironmentVariableEx`: bcdedit cannot name a
    second ESP without a drive letter)
-8. names the games drive `SWIFFGAMES`, queues Swiff's key as a MOK (MokNew, MokAuth) with a
+7. names the games drive `SWIFFGAMES`, queues Swiff's key as a MOK (MokNew, MokAuth) with a
    one-time code and `MokTimeout` -1, and sets BootNext; on Restart now the PC restarts into
    MokManager's blue screen, whose menu then waits for the owner instead of counting down
 
@@ -96,12 +95,12 @@ BitLocker is on again where it was, and the install record is gone. The screen s
 marked where one is not as it was. Should the owner miss the blue screen, the removal goes
 on without the key (shim, the only thing that would trust it, is gone with the partitions), or
 they ask for the key's removal again. Once installed, going live reads the TPM's EK
-certificate as administrator, hands Swiff OS this PC's machine key again and sets only BootNext
-for now, all only once the server has that EK registered: the read stops before anything else
-when the TPM has another than the one registered, and the app registers it and goes live again,
-stopping without one (see Attestation in `docs/system-design/session-keys.md`); the restart
-after that is Windows again, and Swiff OS first in BootOrder waits until Swiff OS can hand the
-PC back. Without `MokTimeout`, MokManager waits only 10 seconds, then drops
+certificate as administrator, hands Swiff OS this PC's machine key (below, **Provisioning**)
+and sets only BootNext for now, all only once the server has that EK registered: the read stops
+before anything else when the TPM has another than the one registered, and the app registers it
+and goes live again, stopping without one (see Attestation in
+`docs/system-design/session-keys.md`); the restart after that is Windows again, and Swiff OS
+first in BootOrder waits until Swiff OS can hand the PC back. Without `MokTimeout`, MokManager waits only 10 seconds, then drops
 the request; shim then fails to verify the next stage and falls through into Windows in the
 same power-on, which changes PCR 7 (Windows Hello then asks for a new PIN, and BitLocker for its
 recovery key), as Continue boot does at MokManager's menu. So every request and every Swiff OS
@@ -115,28 +114,27 @@ restart, whether the key is enrolled cannot be read from Windows (shim publishes
 to what it starts), so the app asks the owner.
 
 **Provisioning.** Swiff OS's agent needs the platform's address, this machine's id and its
-machine key, and the image carries none of them. Before each restart into Swiff OS (the
-install, Go live, starting it once) the app hands them over (`desktop/provision.cjs`): main
-reads the machine key from its encrypted store as the step runs, never putting it in a plan,
-and the elevated worker writes one record (`SWIFFPRV`, a version, the length and SHA-256 of a
-JSON payload `{ serverUrl, machineId, machineKey }`, padded to 4 KiB) at the start of the keep
-partition the install added, and reads it back. At its next start Swiff OS seals the record to
-the PC's TPM and zeroes it (below, **Provisioning** under "What runs"), so the plaintext key is
-on the disk only from the Windows run that writes it to that start: the owner's accepted
-exception to the review rule against secrets in plain-text files, for that window only and with
-the app's wipe. Should that start not come, the app zeroes the record itself (the worker's
-`unprovision`, only while the keep still holds a record): when the run that wrote it is
-cancelled or fails, as the uninstall's first disk step, and at the app's next start when no
-Swiff OS boot took it in: always the install's (its restart goes to MokManager, then Windows;
-Go live and Start once write their own), a run that did not finish, or a finished Go live or
-Start once whose restart went to shim and back to Windows without Swiff's boot loader. A
-finished Go live or Start once with no restart since keeps its record: BootNext still starts
-Swiff OS, from the app's Restart now or Windows' own. The app notes only when it wrote one, by
-which plan and whether that run finished (`rental-provision.json` in its data), so that start
-asks for administrator rights only then; the console installer zeroes an install's record as
-the install ends. A machine id and server the app's Settings do not hold, or a machine key it
-does not keep, stop that step, before the image is written. The console installer takes
-`--server`, `--machine-id` and the key from `--machine-key-file`.
+machine key, and the image carries none of them. Before each restart into Swiff OS (Go live,
+starting it once) the app hands them over (`desktop/provision.cjs`): main reads the machine key
+from its encrypted store as the step runs, never putting it in a plan, and the elevated worker
+writes one record (`SWIFFPRV`, a version, the length and SHA-256 of a JSON payload `{
+serverUrl, machineId, machineKey }`, padded to 4 KiB) at the start of the keep partition the
+install added, and reads it back. At its next start Swiff OS seals the record to the PC's TPM
+and zeroes it (below, **Provisioning** under "What runs"), so the plaintext key is on the disk
+only from the Windows run that writes it to that start: the owner's accepted exception to the
+review rule against secrets in plain-text files, for that window only and with the app's wipe.
+Should that start not come, the app zeroes the record itself (the worker's `unprovision`, only
+while the keep still holds a record): when the run that wrote it is cancelled or fails, as the
+uninstall's first disk step, and at the app's next start when no Swiff OS boot took it in: a
+run that did not finish, or a finished Go live or Start once whose restart went to shim and
+back to Windows without Swiff's boot loader. A finished Go live or Start once with no restart
+since keeps its record: BootNext still starts Swiff OS, from the app's Restart now or Windows'
+own. The app notes only when it wrote one and whether that run finished
+(`rental-provision.json` in its data), so that start asks for administrator rights only then.
+The install writes none: its restart goes to MokManager, never Swiff OS. A machine id and
+server the app's Settings do not hold, or a machine key it does not keep, stop a run before it
+changes anything. The console installer takes `--server`, `--machine-id` and the key from
+`--machine-key-file`.
 
 **The image set** (`swiff-os/image-set.sh`, read by `desktop/image-set.cjs`) is what the
 installer writes: the build's ESP files on a FAT32 with 512-byte sectors (Windows' chkdsk
@@ -688,7 +686,7 @@ server starts).
 
 1. The owner offers the PC with the machine key, registers its TPM's EK certificate
    (`PUT /api/machines/:id/ek`), and provisions it as their app does before the PC restarts
-   into rental mode: the installer's own provision step (`apply-plan.cjs provision` in
+   into rental mode: Go live's own provision step (`apply-plan.cjs provision` in
    `desktop/vm/`) writes the server, the machine id and the machine key at the start of the
    image's keep partition. Nothing else gives the VM a config or a key.
 2. `swiff-provision` seals the record to the TPM and zeroes it: neither it nor the machine key is

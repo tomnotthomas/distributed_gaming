@@ -290,7 +290,7 @@ test_run() {
 	[ -x "$electron_dir/electron.exe" ] || die "no Electron for Windows in \$SWIFF_WIN_ELECTRON"
 	# The app's runtime: Electron as Node, which the worker it starts inherits. Electron is a
 	# windowed program: PowerShell waits for it and hands on its output only through a pipe.
-	# What the install and each start of Lanterel OS hand it (provision.cjs), as the app's Settings and
+	# What each start of Lanterel OS hands it (provision.cjs), as the app's Settings and
 	# its encrypted key would: given on every command, used only by a plan's provision step.
 	local cli='function swiff-cli { $env:ELECTRON_RUN_AS_NODE = 1; & C:\swiff\electron\electron.exe C:\swiff\desktop\rental-cli.cjs @args --server wss://lanterel.test --machine-id lanterel-windows-vm --machine-key-file C:\swiff\machine-key | Write-Output }; swiff-cli'
 	local img='C:\swiff\image'

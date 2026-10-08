@@ -19,6 +19,7 @@ import { copyChecked, MANIFEST, SIGNATURE, readImageSet, trustOf } from "../imag
 import { channelOf, clientOf, dryRun, handshake, runPlan, startWorker } from "../rental-exec.cjs";
 import {
   fateOf,
+  holdsRecord,
   leftRecord,
   provisionEvent,
   provisionRecord,
@@ -510,11 +511,11 @@ describe("the elevated worker", () => {
     expect(pc.cSize()).toBeLessThan(before);
     const added = pc.gpt().entries.filter((e) => e.index > 3);
     expect(added.map((e) => [e.id, e.name])).toEqual(layout.map((p) => [p.id, p.name]));
-    // This PC's provisioning at the start of the keep, for Lanterel OS to seal at its first start;
+    // No provisioning on the keep: the install's restart goes to MokManager, never Lanterel OS;
     // the machine key nowhere in what the install recorded.
     const keep = added.find((e) => e.name === "swiff-keep")!;
     const provisioned = () => pc.disk.read(keep.first * 512, RECORD_BYTES);
-    expect(provisioned().equals(provisionRecord(MACHINE))).toBe(true);
+    expect(holdsRecord(provisioned())).toBe(false);
     expect(fs.readFileSync(path.join(dir, "state", "rental-install.json"), "utf8")).not.toContain(
       MACHINE.machineKey,
     );
@@ -555,9 +556,8 @@ describe("the elevated worker", () => {
     expect(JSON.stringify(worker.state())).not.toMatch(/"bootEntry":\d/);
     expect(rentalOf(pc.facts()).installed).toBe(true);
 
-    // Once: the TPM's EK certificate read again, the one the app registered, the provisioning again
-    // (Lanterel OS seals it anew after Windows ran), then BootNext alone.
-    pc.disk.write([{ offset: keep.first * 512, bytes: Buffer.alloc(RECORD_BYTES) }]);
+    // Once: the TPM's EK certificate read again, the one the app registered, then this PC's provisioning
+    // at the start of the keep, for Lanterel OS to seal at its start, then BootNext alone.
     pc.vars.delete(pc.key(efi.GLOBAL, "BootNext"));
     const once = await runPlan(switchPlan("once", { registered: EK.ek }), { apply: skipping(worker.apply) });
     expect(once).toMatchObject({ status: "done", done: ["ek", "provision", "once", "restart"] });
@@ -1032,16 +1032,14 @@ describe("the elevated worker", () => {
 });
 
 describe("a provisioning record left on the disk", () => {
-  /** Lanterel OS installed, its keep holding this PC's record, and the app's note of when it wrote it. */
+  /** Lanterel OS installed and started once, its keep holding this PC's record, and the app's note of when it wrote it. */
   async function provisioned() {
     const { pc, worker, layout } = await setup();
     const store = provisionStore(path.join(dir, "app"));
-    let plan: RentalPlan | null = null;
     const onEvent = (e: { type: string; id?: string; state?: string }) =>
-      provisionEvent(store, plan!, e, Date.now());
+      provisionEvent(store, e, Date.now());
     /** Run `next` as main does: noted as it goes, and finished when it ends up to its restart. */
     const run = async (next: RentalPlan, apply: (op: PlanOp) => Promise<unknown>) => {
-      plan = next;
       const outcome = await runPlan(next, {
         apply,
         onEvent,
@@ -1057,6 +1055,10 @@ describe("a provisioning record left on the disk", () => {
     expect(await run(install, skipping(worker.apply))).toMatchObject({ status: "done" });
     const keep = pc.gpt().entries.find((e) => e.name === "swiff-keep")!;
     const head = () => pc.disk.read(keep.first * 512, RECORD_BYTES);
+    // The install writes none: its restart goes to MokManager, never Lanterel OS.
+    expect(holdsRecord(head())).toBe(false);
+    expect(store.read()).toBeNull();
+    expect(await run(switchPlan("once"), skipping(worker.apply))).toMatchObject({ status: "done" });
     expect(head().equals(provisionRecord(MACHINE))).toBe(true);
     expect(store.read()).not.toBeNull();
     return { pc, worker, store, onEvent, run, head, keep };
@@ -1108,28 +1110,12 @@ describe("a provisioning record left on the disk", () => {
   const SHIM_BACK = { shim: true, loader: false, windowsAfterShim: true };
   const LANTEREL = { shim: true, loader: true, windowsAfterShim: false };
 
-  it("is zeroed at the app's next start after the install, whatever the PC did since", async () => {
-    const { worker, store, head } = await provisioned();
-    const note = store.read()!;
-    expect(note).toMatchObject({ kind: "install", done: true });
-    // The install's restart goes to MokManager, then Windows: no Lanterel OS boot ever takes its record in.
-    expect(fateOf(note, note.at - 60_000, null)).toBe("wipe");
-    expect(fateOf(note, note.at + 60_000, null)).toBe("wipe");
-    expect(fateOf(note, note.at + 60_000, { at: note.at + 90_000, ...SHIM_BACK })).toBe("wipe");
-    // A wipe that fails, the UAC prompt declined, keeps the note for the next start.
-    expect(await wipeRecord(async () => Promise.reject(new Error("declined")), store)).toBe(false);
-    expect(store.read()).toEqual(note);
-    expect(await wipeRecord(worker.apply, store)).toBe(true);
-    expect(zeroed(head())).toBe(true);
-    expect(store.read()).toBeNull();
-  });
-
   it("stays for a finished Go live or Start once until its restart, and is zeroed when that restart did not take it in", async () => {
     const { worker, store, run, head } = await provisioned();
     for (const kind of ["once", "start"] as const) {
       expect(await run(switchPlan(kind), skipping(worker.apply))).toMatchObject({ status: "done" });
       const note = store.read()!;
-      expect(note).toMatchObject({ kind, done: true });
+      expect(note).toMatchObject({ done: true });
       expect(head().equals(provisionRecord(MACHINE))).toBe(true);
       // The app quit before the restart: BootNext still starts Lanterel OS, which takes the record in.
       expect(fateOf(note, note.at - 60_000, null)).toBe("wait");
@@ -1142,7 +1128,7 @@ describe("a provisioning record left on the disk", () => {
   });
 
   it("is zeroed at the app's next start after a Go live or Start once that never finished", async () => {
-    const { worker, store, run } = await provisioned();
+    const { worker, store, run, head } = await provisioned();
     // The app quit mid-run: the note says the provision step started, never that the run finished.
     const stopped = await run(switchPlan("start"), async (op) => {
       if (op.op === "boot-next") throw new Error("The app quit.");
@@ -1150,9 +1136,15 @@ describe("a provisioning record left on the disk", () => {
     });
     expect(stopped).toMatchObject({ status: "failed" });
     const note = store.read()!;
-    expect(note).toMatchObject({ kind: "start", done: false });
+    expect(note).toMatchObject({ done: false });
     expect(fateOf(note, note.at - 60_000, null)).toBe("wipe");
     expect(fateOf(note, note.at + 60_000, null)).toBe("wipe");
+    // A wipe that fails, the UAC prompt declined, keeps the note for the next start.
+    expect(await wipeRecord(async () => Promise.reject(new Error("declined")), store)).toBe(false);
+    expect(store.read()).toEqual(note);
+    expect(await wipeRecord(worker.apply, store)).toBe(true);
+    expect(zeroed(head())).toBe(true);
+    expect(store.read()).toBeNull();
   });
 });
 

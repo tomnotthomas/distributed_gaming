@@ -456,7 +456,7 @@ ipcMain.handle("rental:run", async (event) => {
           // Remove Swiff OS: its key's restart, then the start that shows Windows after it.
           removalStep(removals(), plan, e.id, Date.now(), expect);
         }
-        provisionEvent(provisions(), plan, e, Date.now());
+        provisionEvent(provisions(), e, Date.now());
         tell(e);
       },
     });

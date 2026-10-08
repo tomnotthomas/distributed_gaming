@@ -389,8 +389,8 @@ The machine key comes from `npm run machine-key -- <machine-id> <owner-steam-id>
 also records the owner, so the owner is never matched to their own PC. The host app keeps it
 encrypted with Electron `safeStorage` (Windows DPAPI), and the renderer can only reach it
 through two calls in `desktop/preload.cjs`. The server stores only its hash. See "Room
-access" in [`renter.md`](renter.md). When the app installs Swiff OS and each time it restarts
-the PC into it, main reads the key from that store and hands it, with the server and the
+access" in [`renter.md`](renter.md). Each time the app restarts the PC into Swiff OS (Go live,
+Start once), main reads the key from that store and hands it, with the server and the
 machine id, to its elevated installer, which writes them at the start of Swiff OS's keep
 partition; Swiff OS seals them to the PC's TPM at its next start and zeroes the record
 (`desktop/provision.cjs`, and "Provisioning" in [`swiff-os/README.md`](../../swiff-os/README.md)).

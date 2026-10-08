@@ -32,7 +32,7 @@
 // plan that needs one is refused without it (a dry run still goes). Answers
 // and a dry run's operations show it as (hidden).
 //
-// The install and each start of Swiff OS hand it this PC's server, machine id
+// Each start of Swiff OS hands it this PC's server, machine id
 // and machine key (provision.cjs): --server, --machine-id, and the key read
 // from --machine-key-file, never from the command line, which every user can
 // read. Without them that step fails; nothing here shows the key.
@@ -168,14 +168,6 @@ function provisioned(opts, steps, files = fs) {
     apply(op.op === "provision" && record ? { ...op, record } : op, progress);
 }
 
-/**
- * Whether a console run of `plan` zeroes its record as it ends (outcome): one it left by stopping short,
- * and an install's, whose restart goes to MokManager, never Lanterel OS, with no next start of the app to
- * zero it at.
- */
-const wipesAfter = (plan, outcome) =>
-  leftRecord(outcome) || (plan.kind === "install" && outcome.status === "done");
-
 /** The lines appended to `file`, as they come: the file is read again every half second. */
 async function* follow(file) {
   let at = 0;
@@ -226,7 +218,8 @@ async function main([cmd, ...rest]) {
           say({ event });
         },
       });
-      if (!opts["dry-run"] && wipesAfter(p, outcome))
+      // A run that stopped short leaves no machine key on the disk.
+      if (!opts["dry-run"] && leftRecord(outcome))
         await w
           .apply({ op: "unprovision" })
           .catch((error) => say({ error: `The provisioning record is still on the disk: ${error.message}` }));
@@ -289,7 +282,7 @@ async function main([cmd, ...rest]) {
   process.exitCode = 2;
 }
 
-module.exports = { codeOf, provisioned, provisioningOf, shown, unkeyed, wipesAfter };
+module.exports = { codeOf, provisioned, provisioningOf, shown, unkeyed };
 
 if (require.main === module)
   main(process.argv.slice(2)).catch((error) => {

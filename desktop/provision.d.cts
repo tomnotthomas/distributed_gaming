@@ -10,17 +10,16 @@ export function machineKeyProblem(machineKey: unknown): string | null;
 export function provisionRecord(provisioning: Provisioning): Buffer;
 export function holdsRecord(block: Buffer): boolean;
 
-export type ProvisionNote = { at: number; kind: string; done: boolean };
+export type ProvisionNote = { at: number; done: boolean };
 export type ProvisionStore = {
   read(): ProvisionNote | null;
-  written(at: number, kind: string): void;
+  written(at: number): void;
   finished(): void;
   forget(): void;
 };
 export function provisionStore(dir: string, files?: typeof import("node:fs")): ProvisionStore;
 export function provisionEvent(
   store: ProvisionStore,
-  plan: { kind: string },
   event: { type: string; id?: string; state?: string },
   at: number,
 ): void;
