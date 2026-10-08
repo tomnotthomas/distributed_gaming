@@ -599,7 +599,7 @@ POST /crews { name?, key? }
   → 201 { crew }
   Found a crew; its PCs are the founder's. `crew` is a crew in full, as below. `key` (up
   to 64 letters, digits, `-` or `_`) names this founding: sent again by the same player, it
-  answers with the crew it founded, as it is now.
+  answers with the crew it founded, as it is now, while they are still in it.
   → 409 { error, code: "name-taken", crew: { id, name, crewName, own } } when the player is
   in a crew by that name already (for no name, one with no name of its own they are the
   admin of): which one, to go to it or pick another name.
