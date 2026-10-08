@@ -1036,9 +1036,11 @@ async function tamperedBoot() {
  * and is never offered.
  */
 async function withoutIommu() {
-  const ready = await until(() => seen(/SWIFF-SESSIONTEST INFO ready-phase /, 1), "the ready phase", 300_000).catch(
-    () => null,
-  );
+  const ready = await until(
+    () => seen(/SWIFF-SESSIONTEST INFO ready-phase /, 1),
+    "the ready phase",
+    300_000,
+  ).catch(() => null);
   const phase = ready?.line.replace(/^.*ready-phase /, "");
   record(
     "the boot without an IOMMU does not reach ready",
