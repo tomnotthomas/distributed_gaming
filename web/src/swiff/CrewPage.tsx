@@ -42,6 +42,8 @@ import {
 import { crewText, type CopyKey, type Lang } from "./crewCopy";
 import { DateStep, GamesStep, WhoIsComing } from "./CrewPlan";
 import { CrewPlay, playPc } from "./CrewPlay";
+import { MemberMenu, PcCrews } from "./CrewManage";
+import { manageText } from "./manageCopy";
 import { Avatar, LobbyArt, LobbyTitle, PcIcon, Tick, useCrewText, useShare, WhatsAppGlyph } from "./crewUi";
 import { Glyph } from "./Glyph";
 import { inviteLink } from "./invite";
@@ -459,6 +461,7 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
   const admin = crew.members.find((m) => m.admin);
   const title = crewTitle(lang, crew);
   const link = crew.token ? inviteLink(crew.token) : "";
+  const afterRemoval = crew.linkAfterRemoval ? <p className="gc-fine">{t("share.afterRemoval")}</p> : null;
   const now = Date.now();
   const message = inviteMessage(lang, crew, location.origin, now);
   const firstPc = crew.machines.find((m) => m.state !== "offline") ?? crew.machines[0];
@@ -662,6 +665,7 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
                         <LinkIcon />
                         {t("g.copy")}
                       </button>
+                      {afterRemoval}
                     </div>
                     <figure className="gc-msg">
                       <figcaption>{t("g.preview")}</figcaption>
@@ -789,7 +793,14 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
           {current === "play" && crew.state === "ready" && playPc(crew) ? (
             <p className="pl-pcline">
               <PcIcon />
-              <span>{t("pl.pcLine", { pc: pcTitle(lang, playPc(crew)!) })}</span>
+              <span>
+                {t(
+                  playPc(crew)!.crewOnly === true && playPc(crew)!.crews === 1 ? "pl.pcLine" : "pl.pcLineOn",
+                  {
+                    pc: pcTitle(lang, playPc(crew)!),
+                  },
+                )}
+              </span>
             </p>
           ) : null}
 
@@ -808,6 +819,36 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
               }
             />
           ) : null}
+
+          {crew.own && crew.size > 1 ? (
+            <section className="gc-who" aria-labelledby="cm-people-h">
+              <h2 id="cm-people-h">{manageText(lang)("rm.people")}</h2>
+              <p className="cm-only">{manageText(lang)("rm.only")}</p>
+              <ul>
+                {crew.members.map((m, i) => (
+                  <li key={m.id} className={m.you ? "me" : undefined}>
+                    <Avatar name={m.name ?? (m.you ? t("cp.you") : null)} index={i} />
+                    <span className="gc-nm">
+                      <span>
+                        {m.you
+                          ? m.name
+                            ? t("g.you", { name: m.name })
+                            : t("cp.you")
+                          : (m.name ?? t("cp.anon"))}
+                      </span>
+                    </span>
+                    {m.you ? (
+                      <span />
+                    ) : (
+                      <MemberMenu crew={crew} member={m} say={say} onRemoved={() => load(true)} />
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          {me.pcs > 0 ? <PcCrews crew={crew} say={say} onChanged={setCrew} /> : null}
 
           <details className="gc-more">
             <summary>
@@ -867,6 +908,7 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
                 <LinkIcon />
                 {t("g.copy")}
               </button>
+              {afterRemoval}
               {crew.own ? (
                 <button
                   type="button"

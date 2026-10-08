@@ -576,7 +576,14 @@ owner was never in a crew is open to anyone, as before crews. A crew-only PC fro
 crews were groups plays for every crew its owner was in.
 
 A member may leave, and the admin may remove anyone; their PCs leave the crew with them,
-from then on they match none of its PCs, and a match made before goes back at the claim. A
+from then on they match none of its PCs, and a match made before goes back at the claim.
+Removing someone renews the crew's link in the same step, as making a new link does, so
+the old one opens nothing for anyone and the one removed comes back only by the new link
+their crew shares; the crew page says the link is new because someone was removed while
+that link is live (`crew_invites.after_removal`). One who left by themselves comes back by
+the same link.
+The crew page offers removing only to the admin, and always asks first; a PC's owner takes
+their PC out of one crew without leaving it (`POST /crews/:id/pc` `off`), also after asking. A
 membership is named by its own random id, never a Steam id, and a member is shown by the
 Steam persona read when they joined.
 
@@ -606,11 +613,12 @@ POST /crews { name?, key? }
   → 409 { error, code: "too-many-crews" } for a player in 50 crews already.
 
 GET  /crews/:id
-  → 200 { crew: { id, memberId, name, crewName, own, size, state, pcs, token, session,
-                  shared, busy: [{ at, owner, mine }], picks, offered,
+  → 200 { crew: { id, memberId, name, crewName, own, size, state, pcs, token,
+                  linkAfterRemoval, session, shared, busy: [{ at, owner, mine }], picks, offered,
                   members: [{ id, name, you, admin, pc, pcs, rsvp, next }],
-                  machines: [{ id, name, owner, mine, state, games, playing }] } }
-  The crew, for someone in it, with its link's token. A PC's `state` is `ready`, `busy`
+                  machines: [{ id, name, owner, mine, crewOnly?, crews?, state, games, playing }] } }
+  The crew, for someone in it, with its link's token, and whether removing someone made that
+  link (`linkAfterRemoval`). A PC's `state` is `ready`, `busy`
   or `offline`. `session` is its next Zockrunde, `{ at, yes, no }` (when it starts, Unix
   ms, and how many said yes or no), null until its admin sets one; a member's `rsvp` is
   `yes`, `no` or null while open; `shared` whether anyone in it shared the link since the
@@ -624,7 +632,9 @@ GET  /crews/:id
   which crew), which the date calendar
   marks; `picks` how many games still on one of its PCs the viewer marked to play;
   `offered` how many games its PCs have installed, so the games step counts as done when
-  there are none to pick. → 404 for anyone else, or none. → 401 signed out.
+  there are none to pick. `crewOnly` and `crews` are sent only to the PC's owner: whether
+  it plays for its crews alone or is open to anyone too, and for how many crews it plays.
+  → 404 for anyone else, or none. → 401 signed out.
 
 POST /crews/:id/name { name }   → 200 { crew }
 POST /crews/:id/link            → 200 { crew }
@@ -681,7 +691,8 @@ GET  /invites/:token
   Which crew a link joins, for anyone who opens it; signed in, whether they are in it
   already. `session` is as above, but null once the Zockrunde is over; the link's preview
   says its date the same way. `guests` is who is in it, by Steam persona, founder first,
-  with each answer to the Zockrunde (null while it has none). → 404 for a forged, unknown, replaced or archived crew's link.
+  with each answer to the Zockrunde (null while it has none). → 404 for a forged, unknown,
+  replaced or archived crew's link, the one replaced when the admin removed someone included.
 
 POST /invites/:token/join { rsvp? }
   → 200 { id, crew, joined }
@@ -693,7 +704,8 @@ POST /invites/:token/join { rsvp? }
 POST /crew-members/:id/remove
   → 200 { removed: true }
   End a membership: the signed-in player's own, leaving the crew, or anyone's in a crew
-  they are the admin of. → 404 for one that is not theirs to end, or is gone.
+  they are the admin of; removing someone gives the crew a new link. → 404 for one that is
+  not theirs to end, or is gone.
 ```
 
 The web app (`web/src/swiff/CrewPage.tsx`, `CrewInvite.tsx`, `CrewsCard.tsx`) follows the
@@ -1003,14 +1015,15 @@ A PC that plays for no crew of the player's has no crew to watch it. Sharing fix
 
 ```
 GET  /crew-live
-  → 200 { live: [{ sessionId, starting, player, gameId, machine, startedAt, sharing, watching, mine }] }
+  → 200 { live: [{ sessionId, starting, player, gameId, machine, startedAt, sharing, watching, mine, crew }] }
   The sessions the signed-in player's crewmates are playing now (claimed or playing), on
   any machine, of those whose crew they are in, never their own: whether the player is still behind Ignition (`starting`:
   the booking still `claimed`, or the game still launching, until the server has relayed the
   PC's `game-started` for the session; not yet to be asked, since no ask reaches a player
   behind Ignition), who plays (`player`, their Steam persona as their crew
   knows it), which game on which machine, whether they share with the crew (`sharing`),
-  how many watch, and this player's own watch on it (`mine`, `{ state }`, or null).
+  how many watch, this player's own watch on it (`mine`, `{ state }`, or null), and the
+  crew it is watched in (`crew`, its id), the viewer's way back to that crew's page.
   → 401 signed out.
 
 POST /crew-live/:sessionId/watch
@@ -1052,6 +1065,35 @@ The watch state (`server/src/watch.ts`) lives in the signaling process beside th
 
 Watching costs the player nothing: no booking, no machine and no minute of theirs. The
 session runs to its own deadline, and the watch ends with it.
+
+Someone watching may ask to play next ("I want to play"), with one of their games on that
+PC, and everyone in the session votes (`server/src/switches.ts`, in the signaling process
+beside the watches and gone with it):
+
+```
+GET  /crew-live/:sessionId/switch
+  → 200 { switch: { id, gameId, proposer, player, mine, playing, voters, yes, no, vote,
+          canVote, endsAt, outcome, switchAt, moreLeft, now } | null }
+  The session's vote, for its player or a crewmate who may watch it; `now` is the server's
+  clock, so a page counts down from it. → 404 for anyone else, or once the session is over.
+POST /crew-live/:sessionId/switch { gameId }
+  → 201 { switch }  Ask, as a crewmate who may watch it (never its player). → 409
+  { code: "open" } while a vote runs, { code: "switching" } once the crew said yes.
+POST /crew-live/:sessionId/vote { yes }
+  → 200 { switch }  → 403 for someone not in the session when it was asked; 409 { code:
+  "closed" } once it is decided.
+POST /crew-live/:sessionId/handover { ask: "now" | "more" }
+  → 200 { switch }  The player, once the crew said yes: saved, switch now, or two more
+  minutes to save (twice at most). → 409 when there is nothing to hand over.
+```
+
+Who votes is fixed when it is asked: the player, everyone watching then, and whoever asks,
+who counts as yes. It is yes once more than half say yes or the player does, no once half
+say no; after 60 s without that, it is no. A yes puts the one who asked first in the
+crew's line with their game and gives the player 3 minutes to save; then the server ends the
+session as the player leaving it would, and the one who asked starts their game from the
+crew page. When the one who asked cannot go first in the line (they left the crew while it
+was voted on), the yes turns to no and the session goes on.
 
 The player's page is the hub (`@swiff/rtc` `crewHub.ts`). It receives the PC's stream
 once, as always, and sends it on to each crewmate watching on a connection of its own:
@@ -1095,4 +1137,7 @@ On the wall, a band names each crewmate playing now with Ask to watch (Watch whe
 share; no button while they are still starting), read from GET /crew-live whenever the wall's event stream says something changed (a crewmate's session starting among it),
 or `event: crew` says a player shared or stopped sharing, or that a crewmate's game is on
 screen (so Ask to watch shows at once). The watch itself covers the
-page: Asked, the player's yes, the game, and plainly why it ended.
+page (`web/src/swiff/Viewer.tsx`): Asked, the player's yes, the game full screen with its
+controls floating over it (leave the stream, sound, mic, the crew menu with who is here,
+the crew page and leaving the crew, and "I want to play", the vote above), and plainly why
+it ended.

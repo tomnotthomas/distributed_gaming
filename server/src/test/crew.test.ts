@@ -152,6 +152,7 @@ describe("crews", () => {
           state: "no-pc",
           pcs: 0,
           session: null,
+          linkAfterRemoval: false,
           shared: false,
           machines: [],
           busy: [],
@@ -621,11 +622,20 @@ describe("crews", () => {
       assert.equal((await offer("pc-1")).crew.only, false);
       const closed = await offer("pc-1", { crewOnly: true });
       assert.equal(closed.crew.only, true);
+      // Only its owner reads on the crew page whether the PC is open to anyone too.
+      assert.equal((await platform.crew(crewId, HOST))?.machines[0]?.crewOnly, true);
+      assert.equal((await platform.crew(crewId, ALEX))?.machines[0]?.crewOnly, undefined);
+      assert.equal((await platform.crew(crewId, HOST))?.machines[0]?.crews, 1);
+      assert.equal((await platform.crew(crewId, ALEX))?.machines[0]?.crews, undefined);
       assert.deepEqual(
         closed.crew.crews.map((c) => [c.id, c.plays]),
         [[crewId, true]],
       );
       assert.equal(await platform.bookMachine("pc-1", 730, 30, STRANGER), null);
+      // Playing for a second crew of its owner's, it is no longer this crew's alone.
+      const own = await found(HOST, "Sam");
+      await offer("pc-1", { crews: [crewId, own.id] });
+      assert.equal((await platform.crew(crewId, HOST))?.machines[0]?.crews, 2);
     });
 
     it("refuses a claim on a PC taken from the renter's crew since the match, and queues the booking again", async () => {
@@ -678,6 +688,41 @@ describe("crews", () => {
       assert.equal(await platform.bookMachine("pc-1", 730, 30, JO), null);
       assert.deepEqual(await crewOf("pc-1"), [ALEX, HOST].sort());
       assert.equal(await platform.crew(crewId, JO), null);
+    });
+
+    it("renews the link when the admin removes someone, so only the new one opens the crew", async () => {
+      const { crewId, inviteId } = await hostJoinsAlex();
+      await platform.joinCrew(inviteId, JO, "Jo");
+      const members = (await platform.crew(crewId, ALEX))!.members;
+      assert.equal((await platform.crew(crewId, ALEX))!.linkAfterRemoval, false);
+
+      // Leaving by themselves keeps the link as it is, and the way back by it open.
+      const sam = members.find((m) => m.name === "Sam")!;
+      assert.equal(await platform.leaveCrew(sam.id, HOST), true);
+      assert.equal((await platform.crew(crewId, ALEX))!.inviteId, inviteId);
+      assert.equal((await platform.joinCrew(inviteId, HOST, "Sam")).ok, true);
+
+      // Removed by the admin: the old link opens nothing, for them or anyone else.
+      assert.equal(await platform.leaveCrew(members.find((m) => m.name === "Jo")!.id, ALEX), true);
+      assert.equal(await platform.crew(crewId, JO), null);
+      assert.equal(await platform.invite(inviteId, JO), null);
+      assert.equal(await platform.invite(inviteId), null);
+      assert.deepEqual(await platform.joinCrew(inviteId, JO, "Jo"), { ok: false, reason: "not-found" });
+      assert.deepEqual(await platform.joinCrew(inviteId, STRANGER), { ok: false, reason: "not-found" });
+
+      // Everyone left in the crew gets the new link, saying why it is new.
+      for (const who of [ALEX, HOST]) {
+        const crew = (await platform.crew(crewId, who))!;
+        assert.notEqual(crew.inviteId, inviteId);
+        assert.equal(crew.linkAfterRemoval, true);
+      }
+      const renewed = (await platform.crew(crewId, ALEX))!.inviteId!;
+      const back = await platform.joinCrew(renewed, JO, "Jo");
+      assert.equal(back.ok && back.joined, true);
+
+      // A link the admin renews by hand is just new.
+      assert.ok(await platform.renewCrewLink(crewId, ALEX));
+      assert.equal((await platform.crew(crewId, ALEX))!.linkAfterRemoval, false);
     });
 
     it("has a member's PC leave with them, and come back only when they bring it again", async () => {
@@ -1366,6 +1411,8 @@ describe("crew API", () => {
         name: "Nova-01",
         owner: "Sam",
         mine: true,
+        crewOnly: true,
+        crews: 1,
         state: "ready",
         games: [570, 730],
         playing: null,
@@ -1470,8 +1517,14 @@ describe("crew API", () => {
     assert.equal((await call("POST", `/api/crew-members/${sam.id}/remove`, ALEX)).status, 200);
     assert.equal((await call("GET", `/api/crews/${crew.id}`, ALEX)).body.crew.size, 1);
 
-    // Back in by the link, the host leaves on their own.
-    await call("POST", `/api/invites/${crew.token}/join`, HOST);
+    // Removing renewed the link: the old one opens nothing for anyone; the new one lets them in, and the host leaves on their own.
+    assert.equal((await call("GET", `/api/invites/${crew.token}`)).status, 404);
+    assert.equal((await call("GET", `/api/invites/${crew.token}`, HOST)).status, 404);
+    assert.equal((await call("POST", `/api/invites/${crew.token}/join`, HOST)).status, 404);
+    const renewed = await call("GET", `/api/crews/${crew.id}`, ALEX);
+    assert.notEqual(renewed.body.crew.token, crew.token);
+    assert.equal(renewed.body.crew.linkAfterRemoval, true);
+    assert.equal((await call("POST", `/api/invites/${renewed.body.crew.token}/join`, HOST)).status, 200);
     const theirs = await call("GET", "/api/crews", HOST);
     assert.equal(theirs.body.crews.length, 1);
     assert.equal(

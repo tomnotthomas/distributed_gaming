@@ -311,6 +311,10 @@ export type CrewPc = {
   name: string | null;
   owner: string | null;
   mine: boolean;
+  /** For the viewer's own PC: whether only its crews play on it (crew_only), or anyone too. */
+  crewOnly?: boolean;
+  /** For the viewer's own PC: how many crews it plays for. */
+  crews?: number;
   state: CrewPcState;
   games: number[];
   playing: CrewPcPlay | null;
@@ -340,6 +344,8 @@ export type InviteGuest = { name: string | null; admin: boolean; rsvp: Rsvp | nu
  */
 export type CrewDetail = MyCrew & {
   inviteId: string | null;
+  /** The live link was made because the admin removed someone (leaveCrew). */
+  linkAfterRemoval: boolean;
   members: CrewMember[];
   machines: CrewPc[];
   shared: boolean;
@@ -1764,6 +1770,32 @@ export class Platform {
   }
 
   /**
+   * The crew voted that `userId` plays `gameId` next (switches.ts): they go
+   * first in its line, ahead of anyone waiting, with that game. False unless
+   * they are in it.
+   */
+  queueFirst(crewId: string, userId: string, gameId: number): Promise<boolean> {
+    return this.#transaction(async () => {
+      const now = this.#now();
+      const first = await this.#get<{ at: number | null }>(
+        "SELECT min(next_at) AS at FROM crew_members WHERE crew_id = $1 AND user_id <> $2",
+        crewId,
+        userId,
+      );
+      const at = Math.min(now, first?.at === null || first?.at === undefined ? now : Number(first.at) - 1);
+      return (
+        (await this.#run(
+          "UPDATE crew_members SET next_game = $1, next_at = $2 WHERE crew_id = $3 AND user_id = $4",
+          gameId,
+          at,
+          crewId,
+          userId,
+        )) > 0
+      );
+    });
+  }
+
+  /**
    * Note that `userId` shared the crew's invite with its Zockrunde. Null unless
    * they are in it; "no-session" while it has none ahead or under way, since
    * the invite then carries no date to answer.
@@ -1945,8 +1977,9 @@ export class Platform {
    * leave the crew with them. An admin who leaves hands the crew to whoever
    * has been in it longest; the last one out archives it. From now on the one
    * gone matches none of the crew's PCs (gate E7), and one matched to them
-   * before goes back at the claim. False when it is not theirs to end, or is
-   * gone already.
+   * before goes back at the claim. Removing someone renews the crew's link,
+   * as renewCrewLink does, so they come back only by the new one their crew
+   * shares. False when it is not theirs to end, or is gone already.
    */
   leaveCrew(memberId: string, userId: string): Promise<boolean> {
     return this.#transaction(async () => {
@@ -1957,6 +1990,14 @@ export class Platform {
       );
       if (!member || (member.user_id !== userId && member.owner_id !== userId)) return false;
       const now = this.#now();
+      if (member.user_id !== userId) {
+        await this.#run(
+          "UPDATE crew_invites SET revoked_at = $1 WHERE crew_id = $2 AND revoked_at IS NULL",
+          now,
+          member.crew_id,
+        );
+        await this.#newInvite(member.crew_id, userId, now, true);
+      }
       await this.#removeMember(memberId, member, now);
       await this.#tick(now);
       return true;
@@ -2358,6 +2399,33 @@ export class Platform {
     });
   }
 
+  /** Session `sessionId` while it is being played, past Ignition; null otherwise. Whose it is, is the caller's to check. */
+  liveSession(sessionId: string): Promise<CrewLiveSession | null> {
+    return this.#read(
+      async () =>
+        (await this.#get<CrewLiveSession>(
+          `${LIVE_SESSIONS} WHERE s.id = $1 AND s.ended_at IS NULL AND b.status = 'playing'`,
+          sessionId,
+        )) ?? null,
+    );
+  }
+
+  /**
+   * End session `sessionId` as its player would, leaving it: the crew voted
+   * someone else plays next (switches.ts). False when it is over already.
+   */
+  async endLiveSession(sessionId: string): Promise<boolean> {
+    const row = await this.#read(() =>
+      this.#get<{ booking_id: string; renter_id: string | null }>(
+        `SELECT s.booking_id, b.renter_id FROM sessions s JOIN bookings b ON b.id = s.booking_id
+           WHERE s.id = $1 AND s.ended_at IS NULL`,
+        sessionId,
+      ),
+    );
+    if (!row) return false;
+    return (await this.endBooking(row.booking_id, row.renter_id)).ok;
+  }
+
   /**
    * Of `pairs` (a session, someone watching it, and the crew its player
    * picked), why each may not go on: its session is over (`ended`) or they
@@ -2470,15 +2538,17 @@ export class Platform {
     );
   }
 
-  /** A new live link for the crew, made by `userId`: its invite's id. */
-  async #newInvite(crewId: string, userId: string, now: number): Promise<string> {
+  /** A new live link for the crew, made by `userId`, `afterRemoval` when removing someone renewed it: its invite's id. */
+  async #newInvite(crewId: string, userId: string, now: number, afterRemoval = false): Promise<string> {
     const id = newId();
     await this.#run(
-      "INSERT INTO crew_invites (id, crew_id, inviter_id, created_at) VALUES ($1, $2, $3, $4)",
+      `INSERT INTO crew_invites (id, crew_id, inviter_id, created_at, after_removal)
+         VALUES ($1, $2, $3, $4, $5)`,
       id,
       crewId,
       userId,
       now,
+      afterRemoval,
     );
     return id;
   }
@@ -2508,8 +2578,13 @@ export class Platform {
       name: string | null;
       owner_id: string | null;
       status: MachineStatus;
+      crew_only: boolean;
+      crews: number;
     }>(
-      `SELECT q.id, q.name, q.owner_id, q.status FROM crew_machines p JOIN machines q ON q.id = p.machine_id
+      `SELECT q.id, q.name, q.owner_id, q.status, q.crew_only,
+         (SELECT count(*)::int FROM crew_machines op JOIN crews o ON o.id = op.crew_id AND o.archived_at IS NULL
+           WHERE op.machine_id = q.id) AS crews
+         FROM crew_machines p JOIN machines q ON q.id = p.machine_id
          WHERE p.crew_id = $1 ORDER BY p.added_at, q.id`,
       crewId,
     );
@@ -2532,8 +2607,8 @@ export class Platform {
       "SELECT machine_id, appid FROM machine_games WHERE machine_id = ANY ($1::text[]) ORDER BY appid",
       machines.map((q) => q.id),
     );
-    const invite = await this.#get<{ id: string }>(
-      "SELECT id FROM crew_invites WHERE crew_id = $1 AND revoked_at IS NULL",
+    const invite = await this.#get<{ id: string; after_removal: boolean }>(
+      "SELECT id, after_removal FROM crew_invites WHERE crew_id = $1 AND revoked_at IS NULL",
       crewId,
     );
     const ownerOf = (q: { id: string; owner_id: string | null }) => this.#owners.get(q.id) ?? q.owner_id;
@@ -2565,6 +2640,7 @@ export class Platform {
       memberId: me.id,
       ...crewView(crew, userId),
       inviteId: invite?.id ?? null,
+      linkAfterRemoval: invite?.after_removal ?? false,
       shared: crew.shared,
       busy: elsewhere.map(({ machine_id, at }) => {
         const machine = machines.find((q) => q.id === machine_id);
@@ -2597,6 +2673,8 @@ export class Platform {
           name: q.name,
           owner: owner === null ? null : (persona.get(owner) ?? null),
           mine: owner === userId,
+          // Only its owner learns whether it plays for its crews alone or for anyone too, and for how many crews.
+          ...(owner === userId ? { crewOnly: q.crew_only, crews: q.crews } : {}),
           state: state === "ready" && !this.#offerable(q.id) ? "offline" : state,
           games: installed.filter((g) => g.machine_id === q.id).map((g) => Number(g.appid)),
           playing: play

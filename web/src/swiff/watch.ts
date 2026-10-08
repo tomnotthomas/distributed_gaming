@@ -36,6 +36,8 @@ export type CrewLiveEntry = {
   watching: number;
   /** This player's own watch on it, if any. */
   mine: { state: "asking" | "watching" } | null;
+  /** The crew it is watched in, whose page the viewer goes back to. */
+  crew?: string | null;
 };
 
 /** Reads after a change wait at least this long after the last. */

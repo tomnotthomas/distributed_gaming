@@ -434,6 +434,11 @@ export const MIGRATIONS: readonly (readonly string[])[] = [
     `ALTER TABLE crews ADD COLUMN found_key TEXT`,
     `CREATE UNIQUE INDEX crews_found_key ON crews (owner_id, found_key) WHERE found_key IS NOT NULL`,
   ],
+  [
+    // A crew's link made because its admin removed someone (platform.ts,
+    // leaveCrew), which renews the link: the crew page says why it is new.
+    `ALTER TABLE crew_invites ADD COLUMN after_removal BOOLEAN NOT NULL DEFAULT false`,
+  ],
 ];
 
 /**

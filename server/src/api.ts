@@ -29,6 +29,10 @@
 //                                          DELETE /api/machines/:id/seats?seat= control
 //   GET  /api/crew-live                    (watching a crewmate play: watch.ts)
 //   POST /api/crew-live/:sessionId/watch
+//   GET  /api/crew-live/:sessionId/switch  (asking to play next: switches.ts)
+//   POST /api/crew-live/:sessionId/switch
+//   POST /api/crew-live/:sessionId/vote
+//   POST /api/crew-live/:sessionId/handover
 //                                          POST /api/machines/:id/state-key  attested boot
 //                                          PUT  /api/machines/:id/state-key  attested boot
 //   GET  /api/bookings/:id                 POST /api/sessions/:id/start        hosting
@@ -127,8 +131,10 @@ import {
   MAX_MINUTES,
   MAX_SEATS,
   seatNameOf,
+  watchCrew,
   type CrewDetail,
   type CrewNameTaken,
+  type CrewLiveSession,
   type HostSeat,
   type Platform,
   type Rtts,
@@ -138,6 +144,7 @@ import type { QosReport } from "./stability.js";
 import { bearer, discardBody, HttpError, readJson } from "./http.js";
 import { createStateKeys, memoryStateKeyStore, type StateKeys } from "./state-key.js";
 import { newWatchId, type AskRefusal, type Watches } from "./watch.js";
+import { Switches, type SwitchesOptions } from "./switches.js";
 import type { RelaySeat } from "./ice.js";
 import { clearedCookie, renterSessionOf } from "./signin.js";
 import {
@@ -222,6 +229,8 @@ export type ApiOptions = {
    * ask to watch. Unset: none.
    */
   watchRelay?: (seat: RelaySeat) => Promise<RTCIceServer[]>;
+  /** The crew's votes on who plays next (switches.ts), served along with watches. Defaults to crewSwitches' own. */
+  switches?: Switches;
   /** Someone left a crew or was removed from one: whoever watches across it stops. */
   onCrewLeft?: () => void;
   /** Before an ask: drop the crew picked for the session when it may watch it no more (index.ts currentCrews). */
@@ -505,6 +514,34 @@ function shownProfile(read: SteamProfile, playability: Pick<PlayableGames, "play
 }
 
 /**
+ * The crew's votes on who plays next, acting on `platform`: once the crew says
+ * yes, the one who asked goes first in its line; once the player's save time
+ * is up, their session ends. `opts` sets the clock and timers (tests).
+ */
+export function crewSwitches({
+  platform,
+  events,
+  ...opts
+}: { platform: Platform; events?: RenterEvents | undefined } & Omit<
+  SwitchesOptions,
+  "onDecided" | "onSwitch"
+>): Switches {
+  return new Switches({
+    ...opts,
+    onDecided: async (vote) => {
+      if (!vote.crewId) return false;
+      const queued = await platform.queueFirst(vote.crewId, vote.proposerId, vote.gameId);
+      if (queued) events?.crewChanged();
+      return queued;
+    },
+    onSwitch: async (vote) => {
+      await platform.endLiveSession(vote.sessionId);
+      events?.crewChanged();
+    },
+  });
+}
+
+/**
  * Serve any request under /api/ (an unknown route is a 404 JSON answer, not
  * the web app); false for every other path. Never throws: a bad request is
  * answered. Mount it after the catalog, which owns /api/games/popular and
@@ -528,12 +565,32 @@ export function createApi({
   heldUntil = () => null,
   watches,
   watchRelay,
+  switches = crewSwitches({ platform, events }),
   onCrewLeft,
   checkCrew,
   errorTracking = null,
   gameMedia,
 }: ApiOptions) {
   const playable = (appid: number) => playability.playable(appid);
+  /**
+   * Who `steamId` is to session `sessionId` while it is played: its player, or
+   * someone in its crew who may watch it; null for anyone else, or once it is over.
+   */
+  async function switchParty(
+    sessionId: string,
+    steamId: string,
+  ): Promise<{ live: CrewLiveSession; crewId: string | null; player: boolean } | null> {
+    if (!watches) return null;
+    const picked = watches.crew(sessionId);
+    const live = await platform.watchable(sessionId, steamId, picked);
+    if (typeof live !== "string") return { live, crewId: watchCrew(live.crews, picked), player: false };
+    if (live === "not-crew") {
+      const own = await platform.liveSession(sessionId);
+      if (own?.playerId === steamId) return { live: own, crewId: watchCrew(own.crews, picked), player: true };
+    }
+    if (live === "ended") switches.ended(sessionId);
+    return null;
+  }
   const bookable = games ?? (() => popularBookable(playable));
   const media =
     gameMedia ?? ((appids: number[]) => lookUpGamesMedia(appids, playable, CREW_GAMES_CANDIDATES));
@@ -1042,6 +1099,8 @@ export function createApi({
             sharing: watches.sharing(session.sessionId),
             watching: watches.list(session.sessionId).filter((watch) => watch.state === "watching").length,
             mine: mine ? { state: mine.state } : null,
+            // The crew it is watched in: the viewer's way back to its page.
+            crew: watchCrew(session.crews, watches.crew(session.sessionId)),
           };
         }),
       });
@@ -1115,6 +1174,77 @@ export function createApi({
           exp,
         }),
       });
+      return true;
+    }
+
+    // The vote on who plays next, as its player or a crewmate who may watch sees it.
+    if (watches && resource === "crew-live" && id && action === "switch" && method === "GET") {
+      const steamId = requireRenter(req, sessionSecret);
+      const party = await switchParty(id, steamId);
+      if (!party) throw new HttpError(404, "no crewmate of yours is playing that session");
+      const vote = switches.of(id);
+      reply(res, 200, { switch: vote ? switches.view(vote, steamId) : null });
+      return true;
+    }
+
+    // A crewmate who may watch asks to play `gameId` next: everyone in the session votes.
+    if (watches && resource === "crew-live" && id && action === "switch" && method === "POST") {
+      const steamId = requireRenter(req, sessionSecret);
+      const body = await readJson(req);
+      const gameId = positiveInt(body.gameId, "gameId", MAX_APPID);
+      const party = await switchParty(id, steamId);
+      if (!party || party.player) throw new HttpError(404, "no crewmate of yours is playing that session");
+      const read = await profile(steamId).catch(() => null);
+      const asked = switches.propose({
+        sessionId: id,
+        crewId: party.crewId,
+        player: { id: party.live.playerId, name: party.live.playerName },
+        proposer: { id: steamId, name: read?.persona || null },
+        gameId,
+        watching: watches
+          .list(id)
+          .filter((watch) => watch.state === "watching")
+          .map((watch) => watch.viewerId),
+      });
+      if (!asked.ok) {
+        reply(res, 409, { error: "the crew is already deciding who plays next", code: asked.reason });
+        return true;
+      }
+      reply(res, 201, { switch: switches.view(asked.vote, steamId) });
+      return true;
+    }
+
+    // Someone in the session votes on who plays next: yes or no.
+    if (watches && resource === "crew-live" && id && action === "vote" && method === "POST") {
+      const steamId = requireRenter(req, sessionSecret);
+      const body = await readJson(req);
+      if (typeof body.yes !== "boolean") throw new HttpError(400, "yes must be true or false");
+      if (!(await switchParty(id, steamId)))
+        throw new HttpError(404, "no crewmate of yours is playing that session");
+      const vote = switches.vote(id, steamId, body.yes);
+      if (vote === "none") throw new HttpError(404, "nobody asked to play next");
+      if (vote === "not-voter") throw new HttpError(403, "you were not in the session when it was asked");
+      if (vote === "closed") {
+        reply(res, 409, { error: "the crew has decided already", code: "closed" });
+        return true;
+      }
+      reply(res, 200, { switch: switches.view(vote, steamId) });
+      return true;
+    }
+
+    // The player, once the crew said yes: saved, switch now, or two more minutes to save.
+    if (watches && resource === "crew-live" && id && action === "handover" && method === "POST") {
+      const steamId = requireRenter(req, sessionSecret);
+      const body = await readJson(req);
+      if (body.ask !== "now" && body.ask !== "more") throw new HttpError(400, "ask must be now or more");
+      const party = await switchParty(id, steamId);
+      if (!party?.player) throw new HttpError(404, "that is not your session");
+      const vote = switches.handOver(id, steamId, body.ask);
+      if (!vote) {
+        reply(res, 409, { error: "there is nothing to hand over now", code: "closed" });
+        return true;
+      }
+      reply(res, 200, { switch: switches.view(vote, steamId) });
       return true;
     }
 

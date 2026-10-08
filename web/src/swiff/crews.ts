@@ -62,12 +62,17 @@ export type CrewPcPlay = {
   starting: boolean;
 };
 
-/** A PC playing for a crew: `id` names the machine a game starts on, `games` the appids on it, `playing` who plays on it now. */
+/**
+ * A PC playing for a crew: `id` names the machine a game starts on, `games` the appids on it, `playing` who plays on it now;
+ * `crewOnly`, for the viewer's own PC, whether only its crews play on it, and `crews` for how many crews it plays.
+ */
 export type CrewPc = {
   id: string;
   name: string | null;
   owner: string | null;
   mine: boolean;
+  crewOnly?: boolean;
+  crews?: number;
   state: "ready" | "busy" | "offline";
   games: number[];
   playing: CrewPcPlay | null;
@@ -75,10 +80,12 @@ export type CrewPc = {
 
 /**
  * A crew in full, as its page shows it: `token` is its link's, null when it
- * has none; `shared` whether someone shared the invite since its Zockrunde was set.
+ * has none, and `linkAfterRemoval` whether the admin removing someone made it;
+ * `shared` whether someone shared the invite since its Zockrunde was set.
  */
 export type CrewDetail = MyCrew & {
   token: string | null;
+  linkAfterRemoval: boolean;
   members: CrewMember[];
   machines: CrewPc[];
   shared: boolean;

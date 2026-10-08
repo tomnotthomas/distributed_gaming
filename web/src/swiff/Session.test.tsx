@@ -44,6 +44,8 @@ const swiffWith = (more: Partial<Swiff> = {}) =>
     play: playing(),
     attachVideo: vi.fn(),
     endSession: vi.fn(),
+    games: [],
+    lang: "en",
     ...more,
   }) as unknown as Swiff;
 

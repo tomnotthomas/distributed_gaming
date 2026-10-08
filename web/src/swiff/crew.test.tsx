@@ -110,6 +110,7 @@ function crewOf(over: Partial<CrewDetail> = {}): CrewDetail {
     pcs: 0,
     session: null,
     token: TOKEN,
+    linkAfterRemoval: false,
     members: [LENA],
     machines: [],
     shared: false,
@@ -887,10 +888,50 @@ describe("CrewPage: the guided crew page", () => {
     expect(
       screen.getByText("You scan a QR code once with the Steam app. Max doesn't have to do anything."),
     ).toBeInTheDocument();
-    expect(screen.getByText("Max's PC is on. It plays for this crew only.")).toBeInTheDocument();
+    // Only the PC's owner learns whether it is crew-only, so nobody else is promised that.
+    expect(screen.getByText("Max's PC is on.")).toBeInTheDocument();
+    expect(screen.queryByText(/plays for this crew only/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: ER.title }));
     fireEvent.click(screen.getByRole("button", { name: `Start ${ER.title}` }));
     expect(swiff.playOn).toHaveBeenCalledWith(ER, "q-max");
+  });
+
+  it("promises the PC plays for this crew only when it is crew-only, in English and German", async () => {
+    const crewOnly = readyCrew({ session: dated, shared: true, picks: 1 });
+    crewOnly.machines = [{ ...crewOnly.machines[0]!, crewOnly: true, crews: 1 }];
+    fetchFrom({ "GET /api/crews/c1": [200, { crew: crewOnly }] });
+    const { unmount } = render(<CrewPage swiff={atCrew("c1", library)} />);
+    expect(await screen.findByText("Max's PC is on. It plays for this crew only.")).toBeInTheDocument();
+    unmount();
+
+    render(
+      <ScreenLang.Provider value="de">
+        <CrewPage swiff={atCrew("c1", library)} />
+      </ScreenLang.Provider>,
+    );
+    expect(await screen.findByText("Max' PC ist an. Er spielt nur für diese Crew.")).toBeInTheDocument();
+  });
+
+  it("does not promise crew-only in German when the PC is open to others", async () => {
+    const open = readyCrew({ session: dated, shared: true, picks: 1 });
+    open.machines = [{ ...open.machines[0]!, crewOnly: false }];
+    fetchFrom({ "GET /api/crews/c1": [200, { crew: open }] });
+    render(
+      <ScreenLang.Provider value="de">
+        <CrewPage swiff={atCrew("c1", library)} />
+      </ScreenLang.Provider>,
+    );
+    expect(await screen.findByText("Max' PC ist an.")).toBeInTheDocument();
+    expect(screen.queryByText(/nur für diese Crew/)).toBeNull();
+  });
+
+  it("does not promise this crew alone when the crew-only PC plays for other crews too", async () => {
+    const shared = readyCrew({ session: dated, shared: true, picks: 1 });
+    shared.machines = [{ ...shared.machines[0]!, crewOnly: true, crews: 2 }];
+    fetchFrom({ "GET /api/crews/c1": [200, { crew: shared }] });
+    render(<CrewPage swiff={atCrew("c1", library)} />);
+    expect(await screen.findByText("Max's PC is on.")).toBeInTheDocument();
+    expect(screen.queryByText(/plays for this crew only/)).toBeNull();
   });
 
   it("says when someone was quicker to start", async () => {
@@ -1113,6 +1154,30 @@ describe("CrewPage: the guided crew page", () => {
     fireEvent.click(screen.getByRole("button", { name: "Make a new link" }));
     expect(await screen.findByText("New link made. The old one doesn't work any more.")).toBeInTheDocument();
     expect(calls).toContainEqual(["POST", "/api/crews/c1/link"]);
+  });
+
+  it("says the crew's link is new because someone was removed, in English and German", async () => {
+    fetchFrom({ "GET /api/crews/c1": [200, { crew: crewOf({ linkAfterRemoval: true }) }] });
+    const { unmount } = render(<CrewPage swiff={atCrew("c1")} />);
+    expect(
+      (await screen.findAllByText("New invite link because someone was removed")).length,
+    ).toBeGreaterThan(0);
+    unmount();
+    render(
+      <ScreenLang.Provider value="de">
+        <CrewPage swiff={atCrew("c1")} />
+      </ScreenLang.Provider>,
+    );
+    expect(
+      (await screen.findAllByText("Neuer Einladungslink, weil jemand entfernt wurde")).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("does not say the link is new after a removal when it is not", async () => {
+    fetchFrom({ "GET /api/crews/c1": [200, { crew: crewOf() }] });
+    render(<CrewPage swiff={atCrew("c1")} />);
+    expect(await screen.findByText("More about the crew")).toBeInTheDocument();
+    expect(screen.queryByText("New invite link because someone was removed")).toBeNull();
   });
 
   it("renames to no name the admin has another crew by: goes to that crew, or picks another name", async () => {
@@ -1557,6 +1622,22 @@ describe("CrewInvite", () => {
     expect(screen.getByText("On Friday, open the crew page")).toBeInTheDocument();
   });
 
+  it("says in German that a link that opens nothing any more is not valid, with no crew details", async () => {
+    at(`/invite/${TOKEN}`);
+    fetchFrom({ [`/api/invites/${TOKEN}`]: [404, { error: "this crew link is not valid any more" }] });
+    render(
+      <ScreenLang.Provider value="de">
+        <CrewInvite swiff={fakeSwiff()} />
+      </ScreenLang.Provider>,
+    );
+    expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent(
+      "Dieser Link gilt nicht mehr.",
+    );
+    expect(screen.getByText("Frag deine Crew nach dem neuen.")).toBeInTheDocument();
+    expect(screen.queryByRole("list")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Crew beitreten|Bin dabei/ })).toBeNull();
+  });
+
   it("joins and says yes with the one button, or joins and says no", async () => {
     at(`/invite/${TOKEN}`);
     const calls = fetchFrom({
@@ -1683,9 +1764,7 @@ describe("CrewInvite", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Joining didn't work. Try again.");
     join = [404, { error: "gone" }];
     fireEvent.click(screen.getAllByRole("button", { name: /^Join/ })[0]!);
-    expect(
-      await screen.findByRole("heading", { name: "This crew link doesn't work any more." }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "This link no longer works." })).toBeInTheDocument();
     expect(swiff.openCrew).not.toHaveBeenCalled();
   });
 
@@ -1750,10 +1829,8 @@ describe("CrewInvite", () => {
     fetchFrom({});
     const swiff = fakeSwiff({ signedIn: false });
     render(<CrewInvite swiff={swiff} />);
-    expect(
-      await screen.findByRole("heading", { name: "This crew link doesn't work any more." }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Ask your group for the new link.")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "This link no longer works." })).toBeInTheDocument();
+    expect(screen.getByText("Ask your crew for the new one.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back to the start" }));
     expect(swiff.goStart).toHaveBeenCalled();
   });
@@ -1762,9 +1839,7 @@ describe("CrewInvite", () => {
     at("/invite");
     const calls = fetchFrom({});
     render(<CrewInvite swiff={fakeSwiff()} />);
-    expect(
-      screen.getByRole("heading", { name: "This crew link doesn't work any more." }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "This link no longer works." })).toBeInTheDocument();
     expect(calls).toEqual([]);
   });
 
