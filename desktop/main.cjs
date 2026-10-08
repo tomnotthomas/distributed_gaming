@@ -57,6 +57,21 @@ const {
 const { openSteamInstaller, readSteam } = require("./steam.cjs");
 const { TRAY_ICON_SIZE, trayIconPixels } = require("./tray-icon.cjs");
 const { windowsShareAllowed } = require("./share-gate.cjs");
+const { moveUserData, userDataOf } = require("./user-data.cjs");
+
+// Lanterel Host's own user data, and with it its own single-instance lock: an
+// old Swiff Host still running never takes its launch (user-data.cjs). One
+// Lanterel Host at a time: two would each run their own installer, and the
+// second one's administrator helper would wait behind the first for ever. A
+// second launch hands over to the first, which comes to the front. The first
+// one to start copies over what Swiff Host kept, once.
+const userData = userDataOf(app.getPath("appData"));
+app.setPath("userData", userData.dir);
+if (!app.requestSingleInstanceLock()) app.exit(0);
+else {
+  moveUserData(userData);
+  app.on("second-instance", () => showWindow());
+}
 
 /** The signed-in user's name, never sent in an error report; "" where the OS will not say. */
 function userName() {
@@ -104,11 +119,6 @@ const TRAY_PRELOAD = path.join(__dirname, "tray-preload.cjs");
 // `--demo` (npm run demo) opens the app on its labelled demo data instead of
 // this PC's: the screens the platform cannot fill yet, walkable end to end.
 const DEMO = process.argv.includes("--demo");
-// One Swiff Host at a time. Two would each run their own installer, and the
-// second one's administrator helper would wait behind the first for ever. A
-// second launch hands over to the first, which comes to the front.
-if (!app.requestSingleInstanceLock()) app.exit(0);
-else app.on("second-instance", () => showWindow());
 
 /** A build packaged by `npm run pack:test` (build-kind.cjs). */
 const TEST_BUILD = testBuild();
