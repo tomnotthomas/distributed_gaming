@@ -38,13 +38,14 @@ const userDataOf = (appData) => ({
 /**
  * Copy `src` to `dest`, keeping what `dest` has. The image set's files are
  * linked, not copied: they are gigabytes, and the download only ever renames a
- * finished file into place. Its manifest and signature, which the download
- * writes in place, are copied. Its unfinished parts, which it appends to, and
- * Local Storage's LOCK, which a running Swiff Host holds, stay behind.
+ * finished file into place. Its manifest and signature, small and rewritten by
+ * every download, are copied. Its unfinished parts and files (.download and
+ * *.part), which the download writes to, and Local Storage's LOCK, which a
+ * running Swiff Host holds, stay behind.
  */
 function copyInto(src, dest, link, files) {
   const name = path.basename(src);
-  if (name === ".download" || name === "LOCK") return;
+  if (name === ".download" || name === "LOCK" || (link && name.endsWith(".part"))) return;
   if (files.statSync(src).isDirectory()) {
     files.mkdirSync(dest, { recursive: true });
     for (const n of files.readdirSync(src)) copyInto(path.join(src, n), path.join(dest, n), link, files);
