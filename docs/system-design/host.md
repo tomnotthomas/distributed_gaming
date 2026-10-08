@@ -394,7 +394,8 @@ machine id it gave the PC and its owner (Steam persona, else Steam id), which th
 step shows. Only the hash ever leaves the PC, and whoever added the PC is its owner, so the
 page treats the hash as a secret: it stays out of analytics and the Steam sign-in round
 trip. Pairing again reuses the key the app keeps, which the server answers with the same
-machine id. A key can also be minted by hand, `npm run machine-key -- <machine-id>
+machine id, except "Pair again" on the paired Account step, which makes a fresh key: a new
+claim for a PC paired with the wrong account. A key can also be minted by hand, `npm run machine-key -- <machine-id>
 <owner-steam-id>` into `MACHINE_KEYS`, which records the owner the same way: either way the
 owner is never matched to their own PC. The host app keeps it
 encrypted with Electron `safeStorage` (Windows DPAPI), and the renderer can only reach it

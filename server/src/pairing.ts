@@ -15,7 +15,8 @@
 // their Steam persona, else their Steam id), so a wrong owner is plain to see.
 // The page and the app both show a few characters of the hash (pairingCode),
 // so the owner can see the PC they add is the one in front of them. The app
-// pairs again with the key it keeps, which answers the same machine id.
+// pairs again with the key it keeps, which answers the same machine id, except
+// when a paired PC's owner disputes it: then it makes a fresh key, a new claim.
 //
 // A paired PC is an entry in access.machines and access.owners like any from
 // MACHINE_KEYS: loaded when the server starts, added when it is paired, and
