@@ -1040,7 +1040,7 @@ describe("a provisioning record left on the disk", () => {
     const onEvent = (e: { type: string; id?: string; state?: string }) =>
       provisionEvent(store, e, Date.now());
     /** Run `next` as main does: noted as it goes, and finished when it ends up to its restart. */
-    const run = async (next: RentalPlan, apply: (op: PlanOp) => Promise<unknown>) => {
+    const run = async (next: RentalPlan, apply: (op: PlanOp) => Promise<Record<string, unknown>>) => {
       const outcome = await runPlan(next, {
         apply,
         onEvent,
@@ -1076,7 +1076,7 @@ describe("a provisioning record left on the disk", () => {
     expect(outcome).toMatchObject({ status: "failed", failed: { step: "boot-order" } });
     expect(head().equals(provisionRecord(MACHINE))).toBe(true);
     expect(leftRecord(outcome)).toBe(true);
-    expect(await wipeRecord(worker.apply, store)).toBe(true);
+    expect(await wipeRecord((op) => worker.apply(op as PlanOp), store)).toBe(true);
     expect(zeroed(head())).toBe(true);
     expect(store.read()).toBeNull();
   });
@@ -1143,7 +1143,7 @@ describe("a provisioning record left on the disk", () => {
     // A wipe that fails, the UAC prompt declined, keeps the note for the next start.
     expect(await wipeRecord(async () => Promise.reject(new Error("declined")), store)).toBe(false);
     expect(store.read()).toEqual(note);
-    expect(await wipeRecord(worker.apply, store)).toBe(true);
+    expect(await wipeRecord((op) => worker.apply(op as PlanOp), store)).toBe(true);
     expect(zeroed(head())).toBe(true);
     expect(store.read()).toBeNull();
   });
