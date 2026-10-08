@@ -28,16 +28,19 @@ function statement(pairing: Pairing): { title: string; line: string } {
     case "failed":
       return { title: "This PC isn't paired yet", line: pairing.why };
     case "paired":
-      if (pairing.owner === null)
+      if (pairing.unconfirmed)
         return {
           title: "This PC isn't confirmed",
           line: "Lanterel couldn't confirm your Steam account. Please pair this PC again.",
         };
       return {
         title: "This PC is paired",
-        line: pairing.owner
-          ? `It's paired with the Steam account ${pairing.owner}. If that isn't yours, pair again with a new key. Its key stays encrypted on this PC.`
-          : "Lanterel is checking which Steam account it's paired with. Its key stays encrypted on this PC.",
+        line:
+          pairing.owner === null
+            ? "This PC uses a Lanterel machine key with no Steam account linked. Its key stays encrypted on this PC."
+            : pairing.owner
+              ? `It's paired with the Steam account ${pairing.owner}. If that isn't yours, pair again with a new key. Its key stays encrypted on this PC.`
+              : "Lanterel is checking which Steam account it's paired with. Its key stays encrypted on this PC.",
       };
   }
 }
@@ -55,7 +58,7 @@ const STANDING: Record<Pairing["kind"], string> = {
 export function PairSetup({ view, actions, go }: ScreenProps) {
   const { pairing } = view;
   const { title, line } = statement(pairing);
-  const unconfirmed = pairing.kind === "paired" && pairing.owner === null;
+  const unconfirmed = pairing.kind === "paired" && Boolean(pairing.unconfirmed);
   const paired = pairing.kind === "paired" && !unconfirmed;
 
   return (
@@ -125,7 +128,7 @@ export function PairSetup({ view, actions, go }: ScreenProps) {
         <Zone
           title="This PC"
           action={
-            paired ? (
+            paired && pairing.owner ? (
               <button type="button" className="lnk" onClick={() => actions.pair({ fresh: true })}>
                 Pair again
               </button>
@@ -136,7 +139,9 @@ export function PairSetup({ view, actions, go }: ScreenProps) {
             {paired ? "Yes" : pairing.kind === "checking" ? "Checking" : unconfirmed ? "Not confirmed" : "No"}
           </Kv>
           {unconfirmed ? null : (
-            <Kv label="Steam account">{paired ? (pairing.owner ?? "Checking") : "None yet"}</Kv>
+            <Kv label="Steam account">
+              {paired ? (pairing.owner === null ? "None linked" : (pairing.owner ?? "Checking")) : "None yet"}
+            </Kv>
           )}
           <Kv label="Machine ID">{pairing.kind === "paired" ? pairing.machineId : "Given when paired"}</Kv>
         </Zone>

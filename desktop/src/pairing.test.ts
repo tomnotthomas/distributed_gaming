@@ -120,10 +120,25 @@ describe("usePairing", () => {
     expect(result.current.pairing).toEqual({ kind: "unpaired" });
     rerender({ machineId: "pc-1", machineKey: "k", loaded: true });
     expect(result.current.pairing).toEqual({ kind: "paired", machineId: "pc-1", owner: undefined });
-    // A key the server pairs with no machine: nobody to show, and no more asking.
+    // A key the server pairs with no machine: unconfirmed, nobody to show, and no more asking.
+    await waitFor(() =>
+      expect(result.current.pairing).toEqual({
+        kind: "paired",
+        machineId: "pc-1",
+        owner: null,
+        unconfirmed: true,
+      }),
+    );
+  });
+
+  it("tells a key the server knows with no Steam account from one it doesn't know", async () => {
+    fetchMock.mockImplementation(async () => json(200, { machineId: "pc-1", owner: null }));
+    const saved = { machineId: "pc-1", machineKey: "k", loaded: true };
+    const { result } = renderHook(() => usePairing({ serverUrl: SERVER, saved, keep: async () => true }));
     await waitFor(() =>
       expect(result.current.pairing).toEqual({ kind: "paired", machineId: "pc-1", owner: null }),
     );
+    expect(pairLocked("live", { pairing: result.current.pairing, live: { kind: "off" } })).toBe(false);
   });
 
   it("asks once whose a paired PC is, with its saved key, and shows it", async () => {

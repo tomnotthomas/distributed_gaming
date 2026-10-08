@@ -34,7 +34,9 @@ export function usePairing({
   const [pending, setPending] = useState<Pending | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   // Whose the PC is, as the server last said, for the machine id it said it for.
-  const [owner, setOwner] = useState<{ machineId: string; owner: string | null } | null>(null);
+  const [owner, setOwner] = useState<{ machineId: string; owner: string | null; unconfirmed?: true } | null>(
+    null,
+  );
   // Each pairing is its own: a click again, or Cancel, makes the one before answer nothing.
   const attempt = useRef(0);
   const keepNow = useRef(keep);
@@ -103,7 +105,7 @@ export function usePairing({
     };
   }, [key, serverUrl, pollMs]);
 
-  // A PC paired before this run: ask whose it is until the server answers; a key it pairs with no machine, or another, has none.
+  // A PC paired before this run: ask whose it is until the server answers; a key it pairs with no machine, or another, is unconfirmed.
   const pairedId = saved.loaded ? saved.machineId.trim() : "";
   const pairedKey = saved.loaded ? saved.machineKey.trim() : "";
   useEffect(() => {
@@ -115,10 +117,11 @@ export function usePairing({
       if (!live) return;
       if (answer === "unanswered") timer = window.setTimeout(() => void ask(), pollMs);
       else
-        setOwner({
-          machineId: pairedId,
-          owner: typeof answer === "object" && answer.machineId === pairedId ? answer.owner : null,
-        });
+        setOwner(
+          typeof answer === "object" && answer.machineId === pairedId
+            ? answer
+            : { machineId: pairedId, owner: null, unconfirmed: true },
+        );
     };
     void ask();
     return () => {
@@ -134,11 +137,9 @@ export function usePairing({
       : !saved.loaded
         ? { kind: "checking" }
         : saved.machineKey.trim() && saved.machineId.trim()
-          ? {
-              kind: "paired",
-              machineId: saved.machineId.trim(),
-              owner: owner?.machineId === saved.machineId.trim() ? owner.owner : undefined,
-            }
+          ? owner?.machineId === saved.machineId.trim()
+            ? { kind: "paired", ...owner }
+            : { kind: "paired", machineId: saved.machineId.trim(), owner: undefined }
           : { kind: "unpaired" };
   return { pairing, pair, cancel };
 }

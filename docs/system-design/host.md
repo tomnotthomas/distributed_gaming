@@ -391,8 +391,9 @@ The machine key comes from pairing, the host app's Account step before Go live
 the PC (`POST /api/pairings { keyHash }`, signed in); the app asks
 `GET /api/pairings/mine` with the key (any origin) until the server answers with the
 machine id it gave the PC and its owner (Steam persona, else Steam id), which the Account
-step shows; when the server names no owner for the kept key, the step claims no ownership
-and asks the owner to pair again. The pairing link carries only the key's hash; the app sends the key itself
+step shows; when the server doesn't know the kept key, or answers it for another machine id,
+the step claims no ownership and asks the owner to pair again, and when it knows the key but
+links no Steam account (a hand-made key with no owner), the step says so and goes on. The pairing link carries only the key's hash; the app sends the key itself
 only to its own server, as the bearer of its Host API calls. Whoever adds the PC is its
 owner, so the page treats the hash as a secret: it stays out of analytics and never rides
 through Steam sign-in (with the browser's storage blocked, the page offers no sign-in to

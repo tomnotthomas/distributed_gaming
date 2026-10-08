@@ -310,14 +310,16 @@ export type Connection = {
  * opened (`code` to compare with it, `link` to open it again, `unanswered`
  * while the server does not answer), stopped (`why`, in one sentence), or
  * paired as `machineId` with `owner`, the Steam account the server says it is
- * paired with (undefined while asking, null when it names none).
+ * paired with (undefined while asking, null when it knows the key but links no
+ * account). `unconfirmed` when the server doesn't know the key, or answers it
+ * for another machine id: then nobody is named.
  */
 export type Pairing =
   | { kind: "checking" }
   | { kind: "unpaired" }
   | { kind: "waiting"; code: string; link: string; unanswered: boolean }
   | { kind: "failed"; why: string }
-  | { kind: "paired"; machineId: string; owner: string | null | undefined };
+  | { kind: "paired"; machineId: string; owner: string | null | undefined; unconfirmed?: true };
 
 /** Whether the connection has everything signing in needs. */
 export const connectionReady = (c: Pick<Connection, "url" | "machineId" | "machineKey">): boolean =>

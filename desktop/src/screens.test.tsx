@@ -558,7 +558,7 @@ describe("going live", () => {
     cleanup();
     // The server names nobody: no claim of ownership, no Unknown account, and Pair again with the saved key.
     const unconfirmed = {
-      view: realView(off, { pairing: { kind: "paired", machineId: "pc-1", owner: null } }),
+      view: realView(off, { pairing: { kind: "paired", machineId: "pc-1", owner: null, unconfirmed: true } }),
       actions: actions(),
     };
     render(<Shell host={unconfirmed} step="pair" onStep={go} setupDone finishSetup={vi.fn()} paid />);
@@ -571,6 +571,29 @@ describe("going live", () => {
     fireEvent.click(screen.getByRole("button", { name: "Pair again" }));
     expect(unconfirmed.actions.pair).toHaveBeenCalledOnce();
     expect(unconfirmed.actions.pair).toHaveBeenCalledWith();
+    cleanup();
+    // A key the server knows with no Steam account: a neutral line, paired, and no Pair again.
+    render(
+      <Shell
+        host={{
+          view: realView(off, { pairing: { kind: "paired", machineId: "hand-pc", owner: null } }),
+          actions: actions(),
+        }}
+        step="pair"
+        onStep={go}
+        setupDone
+        finishSetup={vi.fn()}
+        paid
+      />,
+    );
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("This PC is paired");
+    expect(
+      screen.getByText(/This PC uses a Lanterel machine key with no Steam account linked\./),
+    ).toBeInTheDocument();
+    expect(screen.getByText("None linked")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pair again" })).toBeNull();
+    expect(screen.queryByText(/couldn't confirm/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Choose games" })).toBeInTheDocument();
     cleanup();
     render(<Shell host={host} step="pair" onStep={go} setupDone finishSetup={vi.fn()} paid />);
     fireEvent.click(screen.getByRole("button", { name: "Choose games" }));
