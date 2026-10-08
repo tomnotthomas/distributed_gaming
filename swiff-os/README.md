@@ -141,9 +141,10 @@ starts Swiff OS, from the app's Restart now or Windows' own; after one that neve
 (BootNext ignored, or Windows picked from the firmware's menu), the record waits for Swiff OS,
 a cancel, the uninstall or the next Go live. The app notes only when it wrote one and whether that run finished
 (`rental-provision.json` in its data), so that start asks for administrator rights only then.
-The install writes none: its restart goes to MokManager, never Swiff OS. A machine id and
-server the app's Settings do not hold, or a machine key it does not keep, stop a run before it
-changes anything. The console installer takes `--server`, `--machine-id` and the key from
+The install writes none: its restart goes to MokManager, never Swiff OS. The server is
+Lanterel's own in the hosts download (`desktop/src/settings.ts`), and the one in Settings only
+when sharing the Windows desktop. A machine id or server the app does not hold, or a machine key
+it does not keep, stop a run before it changes anything. The console installer takes `--server`, `--machine-id` and the key from
 `--machine-key-file`.
 
 **The image set** (`swiff-os/image-set.sh`, read by `desktop/image-set.cjs`) is what the
