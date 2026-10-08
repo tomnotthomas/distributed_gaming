@@ -9,7 +9,7 @@ import type { HostBridge } from "./bridge";
 import { DEMAND_EVERY_MS } from "./demand";
 import { untilChoices } from "./model";
 import { BUSY_MS, IDLE_MS } from "./useSteam";
-import { rentalOf } from "../rental.cjs";
+import { rentalOf, type RentalPlan } from "../rental.cjs";
 import FACTS from "./test/rental-facts.json";
 import type { ShareEvents } from "./useScreenShare";
 
@@ -638,6 +638,89 @@ describe("useHost", () => {
       await settle();
       expect(reports().at(-1)!.path).toBe("/api/machines/pc-2/availability");
       expect(result.current.view.crew).toEqual(crewOf(true));
+    });
+  });
+
+  describe("Go live's TPM registration", () => {
+    const EK = { ek: true, certificate: "QUFB", intermediates: [] as string[] };
+    const ONCE = {
+      kind: "once",
+      steps: [{ id: "ek", title: "Read", confirm: null, commands: [], ops: [{ op: "ek" }] }],
+    } as unknown as RentalPlan;
+    /** Every Host API ask Go live made, as "METHOD url". */
+    let asked: string[];
+
+    beforeEach(() => {
+      devShare.on = false;
+      localStorage.setItem("swiff.machineId", "geekom");
+      asked = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string, init?: RequestInit) => {
+          if (!url.endsWith("/ek")) throw new TypeError("no network in tests");
+          asked.push(`${init?.method ?? "GET"} ${url}`);
+          return init?.method === "PUT"
+            ? new Response(null, { status: 204 })
+            : Response.json({ fingerprint: null });
+        }),
+      );
+    });
+    afterEach(() => {
+      devShare.on = true;
+    });
+
+    /** Go live on a PC whose last check read the TPM's EK, with the bridge's machine key as `machineKey`. */
+    async function goLive(machineKey = "test-machine-key") {
+      const bridge = fakeBridge();
+      (window as { swiffHost?: HostBridge }).swiffHost = bridge;
+      bridge.loadMachineKey = vi.fn(async () => machineKey);
+      bridge.readRental = vi.fn(async () => rentalOf({ ...structuredClone(FACTS), check: EK }, []));
+      bridge.planRental = vi.fn(async () => ONCE);
+      const hook = renderHook(() => useHost());
+      await settle();
+      act(() => hook.result.current.actions.goLiveRental());
+      // The EK's fingerprint is hashed off the main thread: wait for Go live to end, not a few ticks.
+      await vi.waitFor(async () => {
+        await settle();
+        expect(hook.result.current.view.rental.run.status).toBe("failed");
+      });
+      return { ...hook, bridge };
+    }
+
+    it("registers the TPM with Lanterel's server in the build hosts download, which has no field for one", async () => {
+      // What 0.1.0 keeps on a PC: an empty address from its Settings, or one an earlier build kept.
+      for (const kept of ["", "hushed-otter-42.trycloudflare.com"]) {
+        localStorage.setItem("swiff.signalingUrl", kept);
+        asked = [];
+        const { result, bridge, unmount } = await goLive();
+        expect(asked).toEqual([
+          "GET https://swiff.onrender.com/api/machines/geekom/ek",
+          "PUT https://swiff.onrender.com/api/machines/geekom/ek",
+        ]);
+        expect(result.current.view.rental.run.failed?.step).not.toBe("ek");
+        expect(bridge.runRental).toHaveBeenCalledOnce();
+        // Lanterel OS is provisioned with the same server.
+        expect(bridge.planRental).toHaveBeenCalledWith(
+          expect.objectContaining({
+            machine: { serverUrl: "wss://swiff.onrender.com", machineId: "geekom" },
+          }),
+        );
+        unmount();
+      }
+    });
+
+    it("says whether the server's address or the machine key is missing when sharing this Windows desktop", async () => {
+      devShare.on = true;
+      localStorage.setItem("swiff.signalingUrl", "");
+      const noServer = await goLive();
+      expect(noServer.result.current.view.rental.run.failed).toEqual({ step: "ek", error: "no-server" });
+      noServer.unmount();
+
+      localStorage.setItem("swiff.signalingUrl", "signal.example");
+      const noKey = await goLive("");
+      expect(noKey.result.current.view.rental.run.failed).toEqual({ step: "ek", error: "no-machine" });
+      expect(asked).toEqual([]);
+      expect(noKey.bridge.runRental).not.toHaveBeenCalled();
     });
   });
 

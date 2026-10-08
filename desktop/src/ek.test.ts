@@ -5,7 +5,7 @@
 
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { registerEk } from "./ek";
+import { registerEk, TIMEOUT_MS } from "./ek";
 import EK from "./test/ek-chain.json";
 
 const MACHINE = { url: "wss://swiff.example/ws", machineId: "pc 1", machineKey: "the-key" };
@@ -93,6 +93,38 @@ describe("registering the TPM's EK", () => {
     const fetch = vi.fn(async () => json(401, { error: "unauthorized" }));
     expect(await registerEk(MACHINE, CHAIN, fetch)).toEqual({ ok: false, error: "bad-key" });
     expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("waits out a server that is waking up, as Lanterel's does after a quiet hour", async () => {
+    vi.useFakeTimers();
+    // Each ask's deadline, on the test's clock.
+    vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+      const deadline = new AbortController();
+      setTimeout(() => deadline.abort(new DOMException("The operation timed out.", "TimeoutError")), ms);
+      return deadline.signal;
+    });
+    try {
+      /** A server that first answers after `wakes` ms, or never. */
+      const asleep = (wakes: number | null) =>
+        vi.fn(
+          (_url: string | URL | Request, init?: RequestInit) =>
+            new Promise<Response>((answer, fail) => {
+              init?.signal?.addEventListener("abort", () => fail(init.signal!.reason));
+              if (init?.method === "PUT") answer(new Response(null, { status: 204 }));
+              else if (wakes !== null) setTimeout(() => answer(json(200, { fingerprint: null })), wakes);
+            }),
+        );
+      const waking = registerEk(MACHINE, CHAIN, asleep(45_000));
+      await vi.advanceTimersByTimeAsync(45_000);
+      expect(await waking).toEqual({ ok: true, registered: "now" });
+      // One that never answers is given up on, in about a minute.
+      const down = registerEk(MACHINE, CHAIN, asleep(null));
+      await vi.advanceTimersByTimeAsync(TIMEOUT_MS);
+      expect(await down).toEqual({ ok: false, error: "failed" });
+    } finally {
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    }
   });
 
   it("fails without throwing when the server does not answer or the address is no good", async () => {

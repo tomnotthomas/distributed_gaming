@@ -15,17 +15,23 @@ import type { EkCertificate } from "../rental.cjs";
 import type { Machine } from "./report";
 
 /**
- * Why the EK did not register: the app has no machine key to ask with, the
- * server knows no such PC, refused the machine key, or does not trust the
- * TPM's maker; it answered but could not check the TPM; or it did not answer.
+ * Why the EK did not register: the app has no server address, or no machine
+ * id and key, to ask with; the server knows no such PC, refused the machine
+ * key, or does not trust the TPM's maker; it answered but could not check the
+ * TPM; or it did not answer.
  */
-export type EkError = "no-machine" | "unknown-machine" | "bad-key" | "untrusted" | "unavailable" | "failed";
+export type EkError =
+  "no-server" | "no-machine" | "unknown-machine" | "bad-key" | "untrusted" | "unavailable" | "failed";
 
 /** Registered now, already registered, or a server that takes no EKs (its verifier attests without one). */
 export type EkResult =
   { ok: true; registered: "now" | "already" | "not-needed" } | { ok: false; error: EkError };
 
-const TIMEOUT_MS = 15_000;
+/**
+ * How long each ask waits. Lanterel's server sleeps when nobody uses it, and
+ * waking takes up to a minute: a Go live after a quiet hour waits it out.
+ */
+export const TIMEOUT_MS = 60_000;
 
 /** SHA-256 of a base64 DER certificate, in hex: how the server names the EK it has. */
 async function fingerprint(certificate: string): Promise<string> {

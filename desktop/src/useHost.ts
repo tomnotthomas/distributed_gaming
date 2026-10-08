@@ -3,7 +3,7 @@ import { httpOrigin } from "@swiff/rtc";
 import type { PcRead } from "../pc.cjs";
 import { bridge } from "./bridge";
 import { demandRows, useDemand } from "./demand";
-import { registerEk } from "./ek";
+import { registerEk, type EkError } from "./ek";
 import { WINDOWS_SHARE } from "./devShare";
 import { syncErrorProject } from "./errorProject";
 import { clock } from "./format";
@@ -111,11 +111,14 @@ export function useHost(): Host {
     onChanged: () => setReads((n) => n + 1),
   });
   const demand = useDemand({ url, machineId, machineKey });
-  // Go live registers this PC's TPM with the server (ek.ts), with the connection as it is then.
-  const ekMachine = useRef<Machine | null>(null);
+  // Go live registers this PC's TPM with the server (ek.ts), with the connection as it is then,
+  // or says which part of it is missing.
+  const ekMachine = useRef<Machine | EkError>("no-machine");
   const rental = useRental({
     registerEk: async (ek) =>
-      ekMachine.current ? registerEk(ekMachine.current, ek) : { ok: false, error: "no-machine" },
+      typeof ekMachine.current === "string"
+        ? { ok: false, error: ekMachine.current }
+        : registerEk(ekMachine.current, ek),
   });
 
   // --- the games offered: every installed game the owner has not turned off
@@ -356,9 +359,11 @@ export function useHost(): Host {
   // Seats for friends: read and kept on the platform with the machine key, whatever the PC is doing.
   const seatMachine = connectionReady(settings) && !refusedAddress(socket) ? socket : null;
   ekMachine.current =
-    seatMachine === null
-      ? null
-      : { url: seatMachine, machineId: machineId.trim(), machineKey: machineKey.trim() };
+    seatMachine !== null
+      ? { url: seatMachine, machineId: machineId.trim(), machineKey: machineKey.trim() }
+      : refusedAddress(socket)
+        ? "no-server"
+        : "no-machine";
   const seats = useMemo(() => {
     if (seatMachine === null) return null;
     let site: string | null = null;

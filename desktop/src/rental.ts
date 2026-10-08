@@ -947,6 +947,10 @@ function ekFailure(setup: RentalSetup, error: string, stoppedAt: string): Failur
       "This PC's TPM has no certificate",
       "The server only lets a PC host once its TPM's maker vouches for it, and Windows can't read that certificate yet: leave the PC online for a few minutes, so Windows can fetch it from the maker, then try again.",
     ],
+    "no-server": [
+      "Add the server's address",
+      "This PC has no server address to register its TPM with: add the signaling server in Settings, then go live again.",
+    ],
     "no-machine": [
       "Add this PC's machine key",
       "Lanterel registers this PC's TPM with the server using its machine id and key: add them in Settings, then go live again.",

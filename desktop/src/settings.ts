@@ -1,12 +1,18 @@
 // The Electron host is not served by the signaling server, so it cannot read
-// the address off `location` the way the web app does. It remembers what was
-// typed last instead — the tunnel URL changes often enough to matter.
+// the address off `location` the way the web app does. The app hosts download
+// connects to Lanterel's own server, and has no field for another. Sharing this
+// Windows desktop (devShare.ts) remembers what was typed last instead — the
+// tunnel URL changes often enough to matter.
 
 //
 // The machine id is not a secret and lives beside it. The machine key is, so it
 // goes through preload.cjs to main, which stores it encrypted by the OS.
 
 import { bridge } from "./bridge";
+import { WINDOWS_SHARE } from "./devShare";
+
+/** Lanterel's own server: where the app hosts download registers this PC, and Lanterel OS connects. */
+export const LANTEREL_SERVER = "https://swiff.onrender.com";
 
 const URL_KEY = "swiff.signalingUrl";
 const ID_KEY = "swiff.machineId";
@@ -31,8 +37,11 @@ function save(key: string, value: string) {
   }
 }
 
-/** The signaling server the owner pasted, as typed. */
-export const loadUrl = () => load(URL_KEY);
+/**
+ * The signaling server: the one the owner pasted, as typed, when sharing this
+ * Windows desktop; otherwise Lanterel's own, whatever an earlier build kept.
+ */
+export const loadUrl = () => (WINDOWS_SHARE ? load(URL_KEY) : LANTEREL_SERVER);
 export const saveUrl = (url: string) => save(URL_KEY, url);
 /** This PC's machine id; the default room until the owner sets one. */
 export const loadMachineId = () => load(ID_KEY) || DEFAULT_HOST_ID;
