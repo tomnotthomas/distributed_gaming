@@ -38,7 +38,8 @@
 // SWIFF_SESSION_NO_IOMMU=1 boots the VM without its virtual IOMMU instead, and
 // stops after the owner's steps: the boot must not reach `ready` (the image's
 // swiff-dmaguard.service fails, so systemd-pcrphase.service never extends it
-// into PCR 11), and the PC gets no state key and is never offered.
+// into PCR 11), swiff-hostd's floor check must refuse the PC, and it gets no
+// state key and is never offered.
 //
 // Every step is one line, PASS or FAIL, with what the VM reported on its serial
 // console (sessiontest-monitor, swiff-hostd's and the streamer's logs). The run

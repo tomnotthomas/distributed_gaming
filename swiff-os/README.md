@@ -672,8 +672,9 @@ candidate. Whether a PC behind a real NAT, with a relay elsewhere, does the same
 to find out: renters only TURN can reach depend on it.
 
 `SWIFF_SESSION_NO_IOMMU=1` boots the VM without QEMU's virtual IOMMU (`intel-iommu`). That run
-passes only when the boot does not reach `ready` (`systemd-pcrphase.service` never runs), the PC
-gets no state key and is never offered.
+passes only when the boot does not reach `ready` (`systemd-pcrphase.service` never runs),
+swiff-hostd logs its hardware-floor refusal (`not offered: …`), and the PC gets no state key and is
+never offered.
 
 ## Follow-ups
 
