@@ -929,6 +929,37 @@ describe("the uninstall", () => {
     expect(plan.steps.flatMap((s) => s.commands).join("\n")).not.toContain("55554444");
   });
 
+  it("leaves no key request waiting for a restart once its boot-entry step cancelled shim's requests", () => {
+    const disk = new Map<string, string>();
+    const files = {
+      readFileSync: (file: string) => {
+        if (!disk.has(file)) throw new Error("ENOENT");
+        return disk.get(file)!;
+      },
+      writeFileSync: (file: string, data: string) => void disk.set(file, data),
+      mkdirSync: () => undefined,
+      rmSync: (file: string) => void disk.delete(file),
+    } as unknown as typeof import("node:fs");
+    const crypt = {
+      seal: (text: string) => Buffer.from(text).reverse(),
+      open: (sealed: Buffer) => Buffer.from(sealed).reverse().toString(),
+    };
+    const store = keyStore("/data", crypt, files);
+    keyStep(store, mokPlan("48217730"), "mok", 2000);
+    expect(keyOf(store.read(), 1000)?.state).toBe("queued");
+    const plan = uninstallPlan(installed());
+    keyStep(store, plan, "unprovision", 3000);
+    expect(keyOf(store.read(), 1000)?.state).toBe("queued");
+    keyStep(store, plan, "boot-entry", 3000);
+    expect(keyOf(store.read(), 1000)).toBeNull();
+    // The owner's word on the blue screen outlives it: an uninstall that stops later keeps the key confirmed.
+    for (const yes of [true, false]) {
+      store.answer(yes);
+      keyStep(store, plan, "boot-entry", 4000);
+      expect(store.read()?.answer).toBe(yes ? "yes" : "no");
+    }
+  });
+
   it("refuses a PC where nothing was installed", () => {
     expect(() => uninstallPlan(pc())).toThrow(/not installed/);
   });

@@ -69,6 +69,7 @@
       "measured-boot.cjs",
       "provision.cjs",
       "user-data.cjs",
+      "relaunch.cjs",
       "dist/**"
     ],
     "win": {
