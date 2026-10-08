@@ -123,6 +123,9 @@ install added, and reads it back. At its next start Swiff OS seals the record to
 and zeroes it (below, **Provisioning** under "What runs"), so the plaintext key is on the disk
 only from the Windows run that writes it to that start: the owner's accepted exception to the
 review rule against secrets in plain-text files, for that window only and with the app's wipe.
+Swiff OS zeroes a record it cannot take in as well; only a PC that loses power before
+`swiff-provision` runs at that start keeps the record past it, until the next Go live or the
+uninstall writes over it.
 Should that start not come, the app zeroes the record itself (the worker's `unprovision`, only
 while the keep still holds a record): when the run that wrote it is cancelled or fails, as the
 uninstall's first disk step, and at the app's next start when no Swiff OS boot took it in: a
@@ -344,17 +347,17 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   SHA-256, a `wss://` server, or `ws://` on this machine, a machine id and a machine key),
   sealed with `systemd-creds` under Swiff's signed PCR 11 policy, as the state's U share is,
   so only a signed Swiff OS boot of this PC opens it, and zeroed; the keep is then formatted
-  as ext4 and keeps the sealed record (`provision.cred`). A TPM that cannot seal leaves the
-  record for the next boot. Every boot then unseals it and writes swiff-hostd's config for
-  that boot, `/var/lib/swiff/hostd.json` (0600, in root's 0700 `/var/lib/swiff`, on the
-  tmpfs), from the image's own settings (`/usr/lib/swiff/hostd.json`) with this machine's
+  as ext4 and keeps the sealed record (`provision.cred`). A record it cannot take in (damaged,
+  of another version, or one the TPM cannot seal) is zeroed all the same. Every boot then
+  unseals it and writes swiff-hostd's config for that boot, `/var/lib/swiff/hostd.json`
+  (0600, in root's 0700 `/var/lib/swiff`, on the tmpfs), from the image's own settings (`/usr/lib/swiff/hostd.json`) with this machine's
   server and id, and its machine key beside it. The record is data only: everything that
   names a program, a device or a user comes from the image, so a record (which the owner's
   Windows can write) cannot make the agent run anything. A keep with neither a record nor a
   sealed provisioning, or one that no longer unseals (the TPM was cleared), starts no agent,
   and the owner's next Go live provisions it again. Nothing logs the record or the key. A keep
-  that cannot be formatted or take `provision.cred` gets the record written back (unmounted
-  first), for the next boot to take in again.
+  that cannot be formatted or take `provision.cred` once the record is zeroed is not
+  provisioned either, until the owner's next Go live.
 - **The Steam client is kept across reboots, never a renter's.** Ubuntu's Steam launcher
   installs the client into the renter's home, which every reboot wipes, and first asks
   whether to install it, a question nobody is at the PC to answer; the session answers it

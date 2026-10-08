@@ -122,10 +122,6 @@ describe("provisioning a boot", () => {
         disk.formatted = disk.filesystem = disk.mounted = true;
       },
       mount: async () => (disk.mounted = disk.filesystem),
-      restore: async (record) => {
-        disk.mounted = disk.filesystem = false;
-        record.copy(disk.head, 0);
-      },
     };
     const sealed: Buffer[] = [];
     const run = () =>
@@ -185,30 +181,26 @@ describe("provisioning a boot", () => {
     expect(JSON.parse(await readFile(m.paths.config, "utf8")).machineId).toBe(GIVEN.machineId);
   });
 
-  it("leaves the record where it is when the TPM cannot seal it", async () => {
+  it("zeroes the record when the TPM cannot seal it", async () => {
     const m = await machine(provisionRecord(GIVEN), { sealFails: true });
     await expect(m.run()).rejects.toThrow(/systemd-creds/);
-    expect(m.disk.wiped).toBe(0);
-    expect(parseRecord(m.disk.head)).toEqual(GIVEN);
+    expect(m.disk.wiped).toBe(1024 * 1024);
+    expect(m.disk.head.equals(Buffer.alloc(m.disk.head.length))).toBe(true);
+    expect(m.disk.formatted).toBe(false);
   });
 
-  it("puts the record back when the keep cannot be formatted, and the next boot takes it in", async () => {
+  it("zeroes the record when the keep cannot be formatted", async () => {
     const m = await machine(provisionRecord(GIVEN), { formatFails: true });
     await expect(m.run()).rejects.toThrow(/mkfs/);
-    expect(parseRecord(m.disk.head)).toEqual(GIVEN);
+    expect(m.disk.head.equals(Buffer.alloc(m.disk.head.length))).toBe(true);
     await expect(stat(m.paths.config)).rejects.toThrow();
-
-    const next = await machine(m.disk.head);
-    expect(await next.run()).toBe(true);
-    expect(JSON.parse(await readFile(next.paths.config, "utf8")).machineId).toBe(GIVEN.machineId);
   });
 
-  it("puts the record back when the sealed provisioning cannot be kept, the keep unmounted", async () => {
+  it("zeroes the record when the sealed provisioning cannot be kept", async () => {
     const m = await machine(provisionRecord(GIVEN), { credentialFails: true });
     await expect(m.run()).rejects.toThrow(/ENOENT/);
     expect(m.disk.formatted).toBe(true);
-    expect(m.disk.mounted).toBe(false);
-    expect(parseRecord(m.disk.head)).toEqual(GIVEN);
+    expect(m.disk.head.equals(Buffer.alloc(m.disk.head.length))).toBe(true);
     expect(m.logs.join("\n")).not.toContain(GIVEN.machineKey);
   });
 
@@ -236,6 +228,18 @@ describe("provisioning a boot", () => {
     expect(await m.run()).toBe(false);
     expect(m.logs[0]).toMatch(/checksum/);
     expect(m.disk.formatted).toBe(false);
+    expect(m.disk.wiped).toBe(1024 * 1024);
+    expect(m.disk.head.equals(Buffer.alloc(m.disk.head.length))).toBe(true);
+    expect(m.logs.join("\n")).not.toContain(GIVEN.machineKey);
+  });
+
+  it("zeroes a record of another version", async () => {
+    const other = provisionRecord(GIVEN);
+    other.writeUInt32BE(2, 8);
+    const m = await machine(other);
+    expect(await m.run()).toBe(false);
+    expect(m.logs[0]).toMatch(/version 2/);
+    expect(m.disk.head.equals(Buffer.alloc(m.disk.head.length))).toBe(true);
   });
 });
 
@@ -264,16 +268,6 @@ describe("the machine's side", () => {
     // Mounted already: not again.
     expect(await keep.mount()).toBe(true);
     expect(runs.filter(([c]) => c === "mount")).toHaveLength(1);
-
-    // A record put back: the filesystem unmounted first, then the record at the start.
-    runs.length = 0;
-    const record = provisionRecord(GIVEN);
-    await keep.restore(record);
-    expect(runs).toEqual([
-      ["mountpoint", "-q", "/var/lib/swiff/keep"],
-      ["umount", "/var/lib/swiff/keep"],
-    ]);
-    expect(parseRecord(await keep.head(RECORD_BYTES))).toEqual(GIVEN);
   });
 
   it("seals and unseals with systemd-creds under the signed PCR policy, the payload on stdin", async () => {
