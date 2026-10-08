@@ -60,3 +60,8 @@ review:
         dependencies that are not necessary, and abstractions built for
         imagined future needs. Never ask to cut validation, error handling,
         security or accessibility.
+    - path: "**"
+      instructions: |
+        Actively try to break the change: inputs that give a wrong result or a
+        crash, races, security holes, and callers broken by a changed
+        signature. Report a finding only with a concrete case that shows it.
