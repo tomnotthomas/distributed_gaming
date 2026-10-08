@@ -1,0 +1,2 @@
+enable swiff-wifitest-ap.service
+enable swiff-wifitest.service

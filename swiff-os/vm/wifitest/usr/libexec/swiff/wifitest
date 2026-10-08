@@ -1,0 +1,65 @@
+#!/bin/bash
+# VM Wi-Fi test build only. Checks swiff-network's verdict, and what it rests
+# on, against the phase on the fixture disk. Every result is one line on the
+# serial console for vm/wifi-test.sh:
+#   SWIFF-WIFITEST <PASS|FAIL|INFO> <name> <detail>
+set -u
+
+fix=/run/swiff-wifitest
+
+# Prints one result line for wifi-test.sh.
+say() { echo "SWIFF-WIFITEST $*"; }
+# Runs a command and reports PASS or FAIL under the given name.
+check() { # name detail command...
+	local name=$1 detail=$2
+	shift 2
+	if "$@" > /dev/null 2>&1; then say PASS "$name" "$detail"; else say FAIL "$name" "$detail"; fi
+}
+# Runs a command as the renter, without privileges.
+as_renter() { setpriv --reuid=renter --regid=renter --init-groups --no-new-privs -- "$@"; }
+
+phase=$(cat "$fix/phase")
+network=$(paste -sd' ' /run/swiff/network 2> /dev/null)
+say INFO network "$network"
+# When network-online.target was reached, in seconds since the kernel started.
+online_at=$(($(systemctl show -P ActiveEnterTimestampMonotonic network-online.target) / 1000000))
+check verdict-in-time "network-online.target reached ${online_at} s after boot" test "$online_at" -gt 0 -a "$online_at" -le 120
+failed=$(systemctl list-units --failed --no-legend --plain | awk '{ print $1 }' | paste -sd' ' -)
+check network-units-not-failed "failed units: ${failed:-none}" bash -c "! grep -Eq 'network|iwd|provision' <<< '$failed'"
+check state-readable-by-renter "" as_renter cat /run/swiff/network
+
+case $phase in
+wifi)
+	check network-online-wifi "$network" test "$network" = "STATE=online MEDIUM=wifi"
+	wlan=$(networkctl list --no-legend --no-pager | awk '$3 == "wlan" { print $2; exit }')
+	addr=$(ip -4 -o addr show dev "$wlan" 2> /dev/null | awk '{ print $4 }')
+	check wifi-dhcp-address "${wlan:-no wlan} ${addr:-no address}" grep -q '^203\.0\.113\.' <<< "$addr"
+	# A name resolved through the access point's DNS server, as the renter's programs resolve one.
+	name=
+	for _ in $(seq 20); do
+		name=$(as_renter getent ahostsv4 wifitest.lanterel.example | awk 'NR == 1 { print $1 }')
+		[ -n "$name" ] && break
+		sleep 1
+	done
+	check dns-over-wifi "wifitest.lanterel.example -> ${name:-nothing}" test "$name" = 203.0.113.1
+	file=/var/lib/iwd/$(cat "$fix/iwd-name")
+	modes=$(stat -c '%U %a' /var/lib/iwd "$file" 2>&1 | paste -sd' ' -)
+	check iwd-network-root-only "/var/lib/iwd and $file: $modes" test "$modes" = "root 700 root 600"
+	check renter-cannot-read-wifi "" bash -c "! setpriv --reuid=renter --regid=renter --init-groups cat '$file'"
+	# iwd answers root, the control, and refuses the renter: nobody at the PC changes its network.
+	iwd_call=(busctl call net.connman.iwd / org.freedesktop.DBus.ObjectManager GetManagedObjects)
+	check root-reaches-iwd "" "${iwd_call[@]}"
+	check renter-cannot-reach-iwd "$(as_renter "${iwd_call[@]}" 2>&1 | head -c 120)" bash -c "! setpriv --reuid=renter --regid=renter --init-groups ${iwd_call[*]}"
+	logged=$(journalctl -b -o cat | grep -cF -- "$(cat "$fix/passphrase")")
+	check passphrase-not-logged "$logged journal lines" test "$logged" = 0
+	;;
+no-ap)
+	check network-failed-wifi "$network" test "$network" = "STATE=failed MEDIUM=wifi REASON=wifi"
+	;;
+none)
+	check network-failed-no-network "$network" test "$network" = "STATE=failed MEDIUM=ethernet REASON=no-network"
+	left=$(cd /var/lib/iwd && ls -- *.psk *.open 2> /dev/null)
+	check no-wifi-network-left "${left:-none}" test -z "$left"
+	;;
+esac
+say DONE wifitest
