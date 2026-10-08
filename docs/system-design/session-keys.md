@@ -267,7 +267,8 @@ The attestation routes themselves take no other credential: the evidence is the 
 **`tpm`, the production verifier** (`tpm-verifier.ts`). The owner's Windows registers the
 TPM's EK certificate once, with the machine key; it must chain to a TPM vendor root. The host
 app does it at Go live (`desktop/src/ek.ts`): its elevated worker reads the certificate Windows
-has for the TPM (the TPM's own, or the one Windows fetched from its maker, as for Intel PTT), and
+has for the EK `swiff-hostd` uses, RSA 2048 else ECC P-256 (the TPM's own, or the one Windows
+fetched from its maker, as for Intel PTT), and
 the app registers it only when `GET .../ek` names another or none, since registering the same EK
 again starts the firmware cooldown. It registers before anything changes what the PC starts: the
 read stops Go live before BootNext when the TPM's certificate is not the one the app registered (a
