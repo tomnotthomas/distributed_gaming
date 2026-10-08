@@ -157,8 +157,11 @@ export type PlanOp =
   | { op: "mok-cancel" }
   | { op: "boot-first"; entry: "swiff" | "windows" }
   | { op: "boot-next"; entry: "swiff" }
-  /** `record` is filled in by main as the step runs, never planned: it holds the machine key. */
-  | { op: "provision"; record?: Provisioning }
+  /**
+   * `record` and `wifi` (the agreed Wi-Fi's name, null on a cable) are filled in by main as the step
+   * runs, never planned: the record holds the machine key. The worker reads the Wi-Fi's password itself.
+   */
+  | { op: "provision"; record?: Provisioning; wifi?: string | null }
   | { op: "unprovision" }
   | { op: "installed" }
   | { op: "removal-check"; disk: number | null; ids: string[] }

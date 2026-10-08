@@ -13,8 +13,10 @@
 // reaches the internet (Get-NetConnectionProfile), and the connected Wi-Fi's
 // saved profile from the WLAN API, as Windows' own profile XML: the same in
 // every display language. The password is in that profile only when the run
-// asks for it, at Go live (`withKey`); it goes nowhere but into the record,
-// and is never logged, reported or shown. Nothing is written to disk.
+// asks for it (`withKey`): only the elevated installer worker does, as it
+// writes Go live's record (rental-worker.cjs), since Windows gives it in the
+// clear to administrators only. It goes nowhere but into the record, and is
+// never logged, reported or shown. Nothing is written to disk.
 
 const { execFile } = require("node:child_process");
 const { encodeCommand, powershell } = require("./probe.cjs");
@@ -231,42 +233,43 @@ function networkOf(read) {
 }
 
 /**
- * The provisioning's `wifi` (provision.cjs) for a read made `withKey`: the
- * connected network's name, security and password. Null when Lanterel OS
- * gets online without it (wired) or cannot join it (networkOf's other kinds),
- * and "unsupported" when the password is not one Lanterel OS can use.
+ * What Lanterel OS gets online over as the run starts, from a read without the
+ * password: wired or the Wi-Fi the owner agreed to hand over (`agreed`, its
+ * name as the Go live screen showed it). Throws, with networkOf's kind as its
+ * message, when Lanterel OS would have no network it can join, or "changed"
+ * when it is not the agreed Wi-Fi.
  */
-function wifiOf(read) {
+function networkToHand(read, agreed) {
   const network = networkOf(read);
-  if (network.kind !== "wifi") return null;
-  const { ssid, security } = network;
-  if (security === "open") return { ssid, security };
-  const key = read.wifi.find((w) => w.network === ssid)?.profiles.find((p) => p.ssid === ssid)?.key;
-  const wifi = { ssid, security, passphrase: key };
-  return wifiProblem(wifi) ? "unsupported" : wifi;
+  if (network.kind === "wired") return network;
+  if (network.kind !== "wifi") throw new Error(network.kind);
+  if (network.ssid !== agreed) throw new Error("changed");
+  return network;
 }
 
 /**
- * The Wi-Fi Go live hands Lanterel OS, from a read made `withKey` as the run
- * starts: null when a network cable is plugged in. Throws, with networkOf's
- * kind as its message, when Lanterel OS would have no network it can join,
- * or "changed" when it is not the Wi-Fi the owner agreed to hand over
- * (`agreed`, its name as the Go live screen showed it).
+ * The provisioning's `wifi` (provision.cjs) the elevated worker hands Lanterel
+ * OS, from its read made `withKey`: null when a network cable is plugged in.
+ * Throws as networkToHand does, "unreadable" when Windows did not give the
+ * password in the clear, and "unsupported" when it is not one Lanterel OS can
+ * use. Never quotes the password.
  */
 function wifiToHand(read, agreed) {
-  const network = networkOf(read);
+  const network = networkToHand(read, agreed);
   if (network.kind === "wired") return null;
-  if (network.kind !== "wifi") throw new Error(network.kind);
-  if (network.ssid !== agreed) throw new Error("changed");
-  const wifi = wifiOf(read);
-  if (!wifi || wifi === "unsupported") throw new Error("unsupported");
+  const { ssid, security } = network;
+  if (security === "open") return { ssid, security };
+  const key = read.wifi.find((w) => w.network === ssid)?.profiles.find((p) => p.ssid === ssid)?.key;
+  if (typeof key !== "string") throw new Error("unreadable");
+  const wifi = { ssid, security, passphrase: key };
+  if (wifiProblem(wifi)) throw new Error("unsupported");
   return wifi;
 }
 
 /**
  * This PC's network read (parseNetwork); null anywhere but Windows, or when
  * PowerShell cannot run it. `withKey` reads the connected Wi-Fi's password
- * too: only for Go live's record.
+ * too: only in the elevated worker, for Go live's record.
  */
 function readNetwork({
   withKey = false,
@@ -289,10 +292,10 @@ function readNetwork({
 module.exports = {
   networkOf,
   networkScript,
+  networkToHand,
   parseNetwork,
   profileOf,
   readNetwork,
   securityOf,
-  wifiOf,
   wifiToHand,
 };

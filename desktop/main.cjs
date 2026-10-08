@@ -39,7 +39,7 @@ const {
   wipeRecord,
   wipesAtStart,
 } = require("./provision.cjs");
-const { networkOf, readNetwork, wifiToHand } = require("./network.cjs");
+const { networkOf, networkToHand, readNetwork } = require("./network.cjs");
 const { runPlan, startWorker } = require("./rental-exec.cjs");
 const { BITLOCKER_PANEL, drivesOff, recoveryOf, recoveryStore } = require("./recovery-key.cjs");
 const { bootTrail, canAnswer, keyOf, keyStep, keyStore } = require("./rental-key.cjs");
@@ -444,10 +444,10 @@ ipcMain.handle("rental:run", async (event) => {
         results: [],
       };
     }
-    // Lanterel OS gets online over the cable, or the Wi-Fi the owner agreed to: checked before anything changes.
+    // Lanterel OS gets online over the cable, or the Wi-Fi the owner agreed to: checked before anything
+    // changes. Its password is the elevated worker's to read, as it writes the record.
     try {
-      const wifi = wifiToHand(await readNetwork({ withKey: true }), agreed);
-      if (wifi) record.wifi = wifi;
+      networkToHand(await readNetwork(), agreed);
     } catch (error) {
       return {
         status: "failed",
@@ -476,8 +476,9 @@ ipcMain.handle("rental:run", async (event) => {
   }
   try {
     const outcome = await runPlan(plan, {
-      // The machine key and the Wi-Fi password, read when the run started, go nowhere but to the worker.
-      apply: async (op, progress) => worker.apply(op.op === "provision" ? { ...op, record } : op, progress),
+      // The machine key, read when the run started, goes nowhere but to the worker, with the agreed Wi-Fi's name.
+      apply: async (op, progress) =>
+        worker.apply(op.op === "provision" ? { ...op, record, wifi: agreed } : op, progress),
       // The owner agreed to every step at once, with the OK that started this run.
       confirm: async () => true,
       only: plan.steps.filter((s) => !restarts(s)).map((s) => s.id),

@@ -20,7 +20,9 @@
 //   firmware       Boot####, BootOrder, BootNext and shim's MOK requests
 //                  (efi.cjs), through SetFirmwareEnvironmentVariableEx
 //   provisioning   the record that hands Swiff OS this PC's server, machine id
-//                  and machine key (provision.cjs), written at the start of the
+//                  and machine key (provision.cjs), and the agreed Wi-Fi's name
+//                  and password, which only this elevated side can read
+//                  (network.cjs), written at the start of the
 //                  keep partition the install added, and read back; zeroed
 //                  again (unprovision) while no Lanterel OS boot has taken it in
 //
@@ -53,6 +55,7 @@ const {
   trustOf,
 } = require("./image-set.cjs");
 const { writeRootFile } = require("./esp-file.cjs");
+const { readNetwork, wifiToHand } = require("./network.cjs");
 const { holdsRecord, provisionRecord, RECORD_BYTES } = require("./provision.cjs");
 const {
   BOOT_PATH,
@@ -276,6 +279,7 @@ const WINDOWS = {
   powershell: (lines) => powershell(lines, { dir: STATE_DIR }),
   firmware: (requests) => firmware(requests, STATE_DIR),
   openDisk,
+  network: () => readNetwork({ withKey: true }),
   stateDir: STATE_DIR,
 };
 
@@ -422,7 +426,12 @@ function checkOp(op) {
       );
     case "provision":
       // Its fields are checked as the record is made (provisionRecord).
-      return must(op.record && typeof op.record === "object", "A bad provisioning.");
+      return must(
+        op.record &&
+          typeof op.record === "object" &&
+          (op.wifi === undefined || op.wifi === null || typeof op.wifi === "string"),
+        "A bad provisioning.",
+      );
     case "unprovision":
     case "image-check":
     case "fast-startup-off":
@@ -1021,7 +1030,10 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
       case "provision": {
         const keep = s.partitions.find((p) => p.role === "keep");
         must(s.disk !== null && keep, "This Lanterel OS has no keep partition: install Lanterel OS again.");
-        const record = provisionRecord(op.record);
+        // The app names the Wi-Fi the owner agreed to (`wifi`), never its password: read here, on a PC still on
+        // that Wi-Fi, or none on a cable. Without `wifi` (the console), no Wi-Fi is handed over.
+        const wifi = op.wifi === undefined ? null : wifiToHand(await win.network(), op.wifi);
+        const record = provisionRecord({ ...op.record, wifi: wifi ?? undefined });
         try {
           await withDisk(s.disk, async (disk, gpt) => {
             // The keep the install added, where it was added: nothing else is written.

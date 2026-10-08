@@ -13,7 +13,7 @@ import type { LastLive, PlanStep, RentalPlan, RentalRead, RentalTarget } from ".
 import type { RemovalCheck } from "../rental-removal.cjs";
 import type { RentalRun, RentalSetup, WritePass } from "./model";
 import { clock, shortGpu } from "./format";
-import { networkStop } from "./network";
+import { isNetworkStop, networkStop } from "./network";
 
 /**
  *   ok       ready
@@ -1044,8 +1044,9 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
       at: "Not started",
       far: "not started",
     };
-  if (failedStep === "network") {
-    // Main checked the network as the run started (main.cjs wifiFor), before anything changed.
+  if (failedStep === "network" || (failedStep === "provision" && isNetworkStop(error))) {
+    // Main checked the network as the run started (main.cjs rental:run), or the worker as it read the
+    // Wi-Fi's password, before it wrote anything.
     const stop = networkStop(error);
     return {
       kind: "network",

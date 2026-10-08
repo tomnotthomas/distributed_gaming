@@ -38,7 +38,10 @@ export function securityOf(
   profile: Pick<WifiProfile, "authentication" | "encryption" | "oneX" | "keyType">,
 ): Wifi["security"] | "enterprise" | null;
 export function networkOf(read: NetworkRead | null): Network;
-export function wifiOf(read: NetworkRead | null): Wifi | "unsupported" | null;
+export function networkToHand(
+  read: NetworkRead | null,
+  agreed: string | null,
+): Extract<Network, { kind: "wired" | "wifi" }>;
 export function wifiToHand(read: NetworkRead | null, agreed: string | null): Wifi | null;
 export function readNetwork(options?: {
   withKey?: boolean;

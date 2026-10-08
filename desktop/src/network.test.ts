@@ -6,11 +6,11 @@ import { describe, expect, it, vi } from "vitest";
 import {
   networkOf,
   networkScript,
+  networkToHand,
   parseNetwork,
   profileOf,
   readNetwork,
   securityOf,
-  wifiOf,
   wifiToHand,
   type NetworkRead,
   type WifiProfile,
@@ -254,53 +254,25 @@ describe("networkOf", () => {
   });
 });
 
-describe("wifiOf", () => {
-  it("is the payload's wifi: name, security and password, none for an open network", () => {
-    expect(wifiOf(WIFI())).toEqual({ ssid: "Brammiball", security: "psk", passphrase: "correct horse 15" });
-    expect(wifiOf(WIFI({ authentication: "WPA3SAE" }))).toEqual({
-      ssid: "Brammiball",
-      security: "sae",
-      passphrase: "correct horse 15",
-    });
-    expect(wifiOf(WIFI({ authentication: "open", encryption: "none", keyType: null, key: null }))).toEqual({
-      ssid: "Brammiball",
-      security: "open",
-    });
-  });
-
-  it("is none on a cable or a network Lanterel OS cannot join", () => {
-    expect(wifiOf({ ...WIFI(), wired: true })).toBeNull();
-    expect(wifiOf(WIFI({ authentication: "WPA2" }))).toBeNull();
-    expect(wifiOf(null)).toBeNull();
-  });
-
-  it("is unsupported without a password Lanterel OS can use", () => {
-    expect(wifiOf(WIFI({ key: null }))).toBe("unsupported");
-    expect(wifiOf(WIFI({ key: "short" }))).toBe("unsupported");
-    expect(wifiOf(WIFI({ key: "x".repeat(64) }))).toBe("unsupported");
-    expect(wifiOf(WIFI({ key: "pässwort-mit-umlaut" }))).toBe("unsupported");
-  });
-});
-
-describe("wifiToHand", () => {
-  it("hands over the Wi-Fi the owner agreed to, and nothing on a cable", () => {
-    expect(wifiToHand(WIFI(), "Brammiball")).toEqual({
+describe("networkToHand", () => {
+  it("lets the run start on a cable or the Wi-Fi the owner agreed to, read without its password", () => {
+    const keyless = WIFI({ key: null });
+    expect(networkToHand(keyless, "Brammiball")).toEqual({
+      kind: "wifi",
       ssid: "Brammiball",
       security: "psk",
-      passphrase: "correct horse 15",
     });
-    expect(wifiToHand({ ...WIFI(), wired: true }, null)).toBeNull();
-    expect(wifiToHand({ ...WIFI(), wired: true }, "Brammiball")).toBeNull();
+    expect(networkToHand({ ...keyless, wired: true }, null)).toEqual({ kind: "wired" });
   });
 
-  it("stops the run, before anything changes, on any other network: by kind, never with the password", () => {
+  it("stops the run, before anything changes, on any other network: by kind", () => {
     const stop = (read: NetworkRead | null, agreed: string | null) => {
       try {
-        wifiToHand(read, agreed);
+        networkToHand(read, agreed);
       } catch (error) {
         return (error as Error).message;
       }
-      return "handed";
+      return "started";
     };
     expect(stop(WIFI(), null)).toBe("changed");
     expect(stop(WIFI(), "Nachbar")).toBe("changed");
@@ -308,7 +280,65 @@ describe("wifiToHand", () => {
     expect(stop(WIFI({ authentication: "WPA2" }), "Brammiball")).toBe("enterprise");
     expect(stop({ wired: false, wifi: [] }, "Brammiball")).toBe("none");
     expect(stop(null, "Brammiball")).toBe("unread");
-    expect(stop(WIFI({ key: "short" }), "Brammiball")).toBe("unsupported");
+  });
+});
+
+describe("wifiToHand", () => {
+  const stop = (read: NetworkRead | null, agreed: string | null) => {
+    try {
+      wifiToHand(read, agreed);
+    } catch (error) {
+      return (error as Error).message;
+    }
+    return "handed";
+  };
+
+  it("hands over the agreed Wi-Fi's name, security and password, none for an open one, nothing on a cable", () => {
+    expect(wifiToHand(WIFI(), "Brammiball")).toEqual({
+      ssid: "Brammiball",
+      security: "psk",
+      passphrase: "correct horse 15",
+    });
+    expect(wifiToHand(WIFI({ authentication: "WPA3SAE" }), "Brammiball")).toEqual({
+      ssid: "Brammiball",
+      security: "sae",
+      passphrase: "correct horse 15",
+    });
+    expect(
+      wifiToHand(
+        WIFI({ authentication: "open", encryption: "none", keyType: null, key: null }),
+        "Brammiball",
+      ),
+    ).toEqual({ ssid: "Brammiball", security: "open" });
+    expect(wifiToHand({ ...WIFI(), wired: true }, null)).toBeNull();
+    expect(wifiToHand({ ...WIFI(), wired: true }, "Brammiball")).toBeNull();
+  });
+
+  it("stops as networkToHand does on any other network", () => {
+    expect(stop(WIFI(), "Nachbar")).toBe("changed");
+    expect(stop(WIFI({ authentication: "WPA2" }), "Brammiball")).toBe("enterprise");
+    expect(stop(null, "Brammiball")).toBe("unread");
+  });
+
+  it("stops as unreadable, not unsupported, when Windows kept the password encrypted", () => {
+    const read = parseNetwork(
+      printed({
+        wired: false,
+        wifi: {
+          network: "Brammiball",
+          ipv4: "Internet",
+          ipv6: "NoTraffic",
+          profiles: [profileXml({ key: null })],
+        },
+      }),
+    );
+    expect(read?.wifi[0]?.profiles[0]).toMatchObject({ ssid: "Brammiball", key: null });
+    expect(stop(read, "Brammiball")).toBe("unreadable");
+  });
+
+  it("stops as unsupported on a password Lanterel OS cannot use, never quoting it", () => {
+    for (const key of ["short", "x".repeat(64), "pässwort-mit-umlaut"])
+      expect(stop(WIFI({ key }), "Brammiball")).toBe("unsupported");
   });
 });
 
@@ -339,11 +369,15 @@ describe("readNetwork", () => {
     expect(await readNetwork({ platform: "win32", run: failing })).toBeNull();
   });
 
-  it("asks Windows for the password only when it is for Go live's record", () => {
-    expect(networkScript(false)).toContain("Connected(0)");
-    expect(networkScript(false)).toContain("-replace '<keyMaterial>[^<]*</keyMaterial>', ''");
-    expect(networkScript(true)).toContain("Connected(4)");
-    expect(networkScript(true)).not.toContain("keyMaterial");
+  it("gives the screen no password, even from a read that carries one", () => {
+    const read = parseNetwork(
+      printed({
+        wired: false,
+        wifi: { network: "Brammiball", ipv4: "Internet", ipv6: "NoTraffic", profiles: [profileXml()] },
+      }),
+    );
+    expect(networkOf(read)).toEqual({ kind: "wifi", ssid: "Brammiball", security: "sae" });
+    expect(JSON.stringify(networkOf(read))).not.toContain("correct horse 15");
   });
 });
 
@@ -384,7 +418,7 @@ describe("what the Go live screen says", () => {
     });
     // No read yet is a read that failed.
     expect(networkRefusal(undefined, "en")?.title).toBe("Couldn't check this PC's network");
-    for (const kind of ["none", "enterprise", "offline", "unsupported", "unread", "changed"])
+    for (const kind of ["none", "enterprise", "offline", "unsupported", "unread", "changed", "unreadable"])
       for (const lang of ["en", "de"] as const) expect(networkStop(kind, "x", lang).why).toMatch(/[.]$/);
   });
 
@@ -395,6 +429,9 @@ describe("what the Go live screen says", () => {
       title: "The Wi-Fi changed",
       rail: "Wi-Fi changed",
     });
+    expect(networkStop("unreadable", null, "en").why).toBe(
+      "The Wi-Fi password could not be read: connect a network cable, or try again.",
+    );
     expect(networkStop("whatever", null, "en").title).toBe("Couldn't check this PC's network");
   });
 });

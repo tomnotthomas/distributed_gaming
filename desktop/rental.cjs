@@ -816,9 +816,9 @@ const step = (id, title, ops, confirm = null) => ({
  * Hand Swiff OS what its agent needs to offer this PC: the server, the machine
  * id and the machine key, and on a PC without a network cable the Wi-Fi it is
  * connected to (provision.cjs). The op names none of them: the app fills them
- * in as the step runs, from the machine key it keeps encrypted and the Wi-Fi
- * Windows has saved (network.cjs), so neither the plan on screen nor a report
- * carries the key or the Wi-Fi password.
+ * in as the step runs, from the machine key it keeps encrypted, and the
+ * elevated worker reads the Wi-Fi's password Windows has saved (network.cjs),
+ * so neither the plan on screen nor a report carries the key or the password.
  */
 const provisionStep = () =>
   step(

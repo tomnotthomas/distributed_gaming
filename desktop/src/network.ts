@@ -14,8 +14,11 @@ export const uiLang = (): Lang =>
 export const networkReady = (network: Network | null | undefined): boolean =>
   network?.kind === "wired" || network?.kind === "wifi";
 
-/** Why Go live waits: networkOf's kinds that leave Lanterel OS offline, and a Wi-Fi other than the one agreed to. */
-export type NetworkStop = Exclude<Network["kind"], "wired" | "wifi"> | "changed";
+/**
+ * Why Go live waits: networkOf's kinds that leave Lanterel OS offline, a Wi-Fi other than the one agreed
+ * to, and a password the run's elevated read did not get in the clear (network.cjs wifiToHand).
+ */
+export type NetworkStop = Exclude<Network["kind"], "wired" | "wifi"> | "changed" | "unreadable";
 
 export type NetworkRefusal = {
   title: string;
@@ -67,6 +70,10 @@ const COPY: Record<
         "The Wi-Fi changed",
         "This PC is on another network than the one this screen showed: check again, then hold the button again.",
       ],
+      unreadable: () => [
+        "Couldn't read the Wi-Fi password",
+        "The Wi-Fi password could not be read: connect a network cable, or try again.",
+      ],
     },
     label: "Check again",
     rail: "No network",
@@ -104,6 +111,10 @@ const COPY: Record<
         "Das WLAN hat sich geändert",
         "Dieser PC ist jetzt in einem anderen Netzwerk als dem, das hier stand: Prüf erneut und halte den Knopf dann noch einmal.",
       ],
+      unreadable: () => [
+        "WLAN-Passwort nicht lesbar",
+        "Das WLAN-Passwort konnte nicht gelesen werden: Steck ein Netzwerkkabel ein oder versuch es noch einmal.",
+      ],
     },
     label: "Erneut prüfen",
     rail: "Kein Netzwerk",
@@ -116,6 +127,9 @@ const COPY: Record<
     },
   },
 };
+
+/** Whether a run's error is a network stop: main's check as the run starts, or the worker's as it writes the record. */
+export const isNetworkStop = (error: string): boolean => Object.hasOwn(COPY.en.stops, error);
 
 /** What a stop says, for the network it stopped on: a run's stop names only its kind, the network the Wi-Fi's name. */
 export function networkStop(stop: string, ssid: string | null = null, lang: Lang = uiLang()): NetworkRefusal {
@@ -153,6 +167,6 @@ export function wifiConsent(
   return { label: consent.label, text: consent.text(quoted(network.ssid, lang)) };
 }
 
-/** The Wi-Fi Go live hands Lanterel OS, by name, for main to hold the run to (main.cjs wifiFor); null on a cable. */
+/** The Wi-Fi Go live hands Lanterel OS, by name, for main to hold the run to (main.cjs rental:run); null on a cable. */
 export const agreedWifi = (network: Network | null | undefined): string | null =>
   network?.kind === "wifi" ? network.ssid : null;
