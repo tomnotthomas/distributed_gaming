@@ -15,8 +15,8 @@
 //      a release's own.
 //   2. the owner: offers the PC with the machine key and registers its TPM's
 //      EK certificate, as their app does before the PC restarts into rental
-//      mode, and provisions it as their app does: the installer's own
-//      provision step (desktop/vm/apply-plan.cjs) writes the server, the
+//      mode, and provisions it as their app does: Go live's own provision
+//      step (desktop/vm/apply-plan.cjs) writes the server, the
 //      machine id and the machine key at the start of the image's keep
 //      partition. No config is given to the VM any other way.
 //   3. the VM: OVMF with Secure Boot and a software TPM manufactured with an EK
@@ -312,10 +312,10 @@ function prepare() {
   const overlay = ["-f", "qcow2", "-b", IMAGE, "-F", "raw"];
   execFileSync("qemu-img", ["create", "-q", ...overlay, join(RUN, "disk.qcow2")]);
   copyFileSync(OVMF_VARS, join(RUN, "vars.fd"));
-  // The owner's app before the restart into rental mode: Go live's provision step, with the
-  // server and machine id from its Settings and the machine key from its encrypted store. It
-  // reads the build's keep partition only, and hands the record over in a file, written into
-  // the overlay at the keep's start.
+  // The owner's app before the restart into rental mode: Go live's own provision step, with
+  // the server and machine id from its Settings and the machine key from its encrypted store.
+  // It reads the build's keep partition only, and hands the record over in a file, written
+  // into the overlay at the keep's start.
   const recordFile = join(RUN, "provision.rec");
   writeFileSync(KEY_FILE, `${MACHINE_KEY}\n`, { mode: 0o600 });
   try {
