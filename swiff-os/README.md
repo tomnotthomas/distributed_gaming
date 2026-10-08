@@ -118,14 +118,21 @@ to what it starts), so the app asks the owner.
 machine key, and the image carries none of them. Before each restart into Swiff OS (the
 install, Go live, starting it once) the app hands them over (`desktop/provision.cjs`): main
 reads the machine key from its encrypted store as the step runs, never putting it in a plan,
-and the elevated worker writes one record (`SWIFFPRV`, a version, the length and SHA-256 of
-a JSON payload `{ serverUrl, machineId, machineKey }`, padded to 4 KiB) at the start of the
-keep partition the install added, and reads it back. At its next start Swiff OS seals the
-record to the PC's TPM and zeroes it (below, **Provisioning** under "What runs"), so the
-plaintext key is on the disk only from the owner's restart to that start. A machine id and
-server the app's Settings do not hold, or a machine key it does not keep, stop that step,
-before the image is written. The console installer takes `--server`, `--machine-id` and the
-key from `--machine-key-file`.
+and the elevated worker writes one record (`SWIFFPRV`, a version, the length and SHA-256 of a
+JSON payload `{ serverUrl, machineId, machineKey }`, padded to 4 KiB) at the start of the keep
+partition the install added, and reads it back. At its next start Swiff OS seals the record to
+the PC's TPM and zeroes it (below, **Provisioning** under "What runs"), so the plaintext key is
+on the disk only from the Windows run that writes it to that start: the owner's accepted
+exception to the review rule against secrets in plain-text files, for that window only and with
+the app's wipe. Should that start not come, the app zeroes the record itself (the worker's
+`unprovision`, only while the keep still holds a record): when the run that wrote it is
+cancelled or fails, as the uninstall's first disk step, and at the app's next start when the
+run ended before any Swiff OS boot took it in (no restart since, or shim went back to Windows
+without Swiff's boot loader). The app notes only when it wrote one (`rental-provision.json` in
+its data), so that start asks for administrator rights only then. A machine id and server the
+app's Settings do not hold, or a machine key it does not keep, stop that step, before the image
+is written. The console installer takes `--server`, `--machine-id` and the key from
+`--machine-key-file`.
 
 **The image set** (`swiff-os/image-set.sh`, read by `desktop/image-set.cjs`) is what the
 installer writes: the build's ESP files on a FAT32 with 512-byte sectors (Windows' chkdsk

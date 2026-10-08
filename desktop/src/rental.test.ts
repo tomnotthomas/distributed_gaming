@@ -876,6 +876,7 @@ describe("the uninstall", () => {
     const plan = uninstallPlan(installed());
     expect(plan.steps.map((s) => s.id)).toEqual([
       "boot-entry",
+      "unprovision",
       "partitions",
       "room",
       "labels",
@@ -886,6 +887,7 @@ describe("the uninstall", () => {
     expect(plan.steps.flatMap((s) => s.ops)).toEqual([
       { op: "boot-entry-remove" },
       { op: "mok-cancel" },
+      { op: "unprovision" },
       { op: "gpt-remove", disk: 0, partitions: record.partitions },
       { op: "grow", disk: 0, partition: 3, letter: "C", size: 1000 * GiB },
       { op: "label", letter: "C", label: "Windows" },
@@ -1470,7 +1472,7 @@ describe("when a step stops", () => {
     const { setup, f } = failed(
       "room",
       "Resize-Partition: Size Not Supported.",
-      { steps: { ...done(["boot-entry", "partitions"]), room: "failed" } },
+      { steps: { ...done(["boot-entry", "unprovision", "partitions"]), room: "failed" } },
       uninstallPlan(installed),
       installed,
     );
@@ -1482,7 +1484,7 @@ describe("when a step stops", () => {
         "Windows starts as normal. Lanterel OS is off the boot menu. Lanterel OS is off the disk. The 24 GB stays unused until this finishes.",
       label: "Try again",
       rail: "Removal stopped",
-      far: "at step 3 of 4",
+      far: "at step 4 of 5",
     });
     expect(rentalLine(setup)).toBe("Removal stopped");
   });
@@ -1599,6 +1601,7 @@ describe("Remove Lanterel OS", () => {
     expect(plan.mok).toBeUndefined();
     expect(plan.steps.map((s) => s.id)).toEqual([
       "boot-entry",
+      "unprovision",
       "partitions",
       "room",
       "fast-startup",
@@ -1614,6 +1617,7 @@ describe("Remove Lanterel OS", () => {
     expect(plan.steps[0]!.commands.join("\n")).toMatch(/MokDel/);
     // Only the last step restarts, and only on the owner's word.
     expect(plan.steps.map((s) => s.ops.some((o) => o.op === "restart"))).toEqual([
+      false,
       false,
       false,
       false,

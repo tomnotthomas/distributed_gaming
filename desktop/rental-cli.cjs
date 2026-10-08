@@ -41,7 +41,7 @@ const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
 const readline = require("node:readline");
-const { machineKeyProblem, machineProblem } = require("./provision.cjs");
+const { leftRecord, machineKeyProblem, machineProblem } = require("./provision.cjs");
 const { dryRun, runPlan, startWorker } = require("./rental-exec.cjs");
 const { readImageSet, trustOf } = require("./image-set.cjs");
 const { bootTrail } = require("./rental-key.cjs");
@@ -218,6 +218,11 @@ async function main([cmd, ...rest]) {
           say({ event });
         },
       });
+      // A run that stopped short leaves no machine key on the disk.
+      if (!opts["dry-run"] && leftRecord(outcome))
+        await w
+          .apply({ op: "unprovision" })
+          .catch((error) => say({ error: `The provisioning record is still on the disk: ${error.message}` }));
       say({ outcome, ...(w.ops ? { ops: unkeyed(w.ops) } : {}) });
       process.exitCode = outcome.status === "done" ? 0 : 1;
     } finally {

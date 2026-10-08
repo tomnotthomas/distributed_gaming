@@ -17,8 +17,18 @@
 //
 // The record carries data only: what Lanterel OS runs comes from its signed
 // image. The machine key is never shown in a plan, logged or kept anywhere else.
+//
+// Until that boot the record is the machine key in the clear on the disk: the
+// owner's accepted exception to the review rule against writing secrets to a
+// plain-text file, for that window only and with this wipe. So it is zeroed (the plans' `unprovision` op) whenever it is left behind: a run
+// that wrote it and then failed, an uninstall, and, at this app's next start,
+// a run that ended before any Lanterel OS boot took it in. The app notes when
+// it wrote one (provisionStore), never what, to know that without
+// administrator rights.
 
 const crypto = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const RECORD_MAGIC = Buffer.from("SWIFFPRV", "ascii");
 const RECORD_VERSION = 1;
@@ -84,11 +94,82 @@ function provisionRecord({ serverUrl, machineId, machineKey }) {
   return record;
 }
 
+/** Whether `block`, the start of the keep, still holds a record: none once Lanterel OS took it in. */
+const holdsRecord = (block) =>
+  block.length >= RECORD_MAGIC.length && block.subarray(0, RECORD_MAGIC.length).equals(RECORD_MAGIC);
+
+/**
+ * The app's note, in `dir` (its user data), of when it last wrote a record that
+ * may still be on the disk: never the record, nor the key.
+ */
+function provisionStore(dir, files = fs) {
+  const file = path.join(dir, "rental-provision.json");
+  return {
+    /** When the record was written (ms), or null when none is left. */
+    read: () => {
+      try {
+        const at = JSON.parse(files.readFileSync(file, "utf8"))?.at;
+        return Number.isFinite(at) ? at : null;
+      } catch {
+        return null;
+      }
+    },
+    written: (at) => {
+      files.mkdirSync(dir, { recursive: true });
+      files.writeFileSync(file, `${JSON.stringify({ at })}\n`);
+    },
+    forget: () => files.rmSync(file, { force: true }),
+  };
+}
+
+/**
+ * What a run's step event tells the note (provisionStore `store`): a record is
+ * written as the provision step starts, and gone once an unprovision step is done.
+ */
+function provisionEvent(store, event, at) {
+  if (event.type !== "step") return;
+  if (event.id === "provision" && event.state === "running") store.written(at);
+  else if (event.id === "unprovision" && event.state === "done") store.forget();
+}
+
+/** Whether a run's outcome (rental-exec.cjs runPlan) left a record behind: it ended short, at or after its provision step. */
+const leftRecord = (outcome) =>
+  outcome.status !== "done" && (outcome.done.includes("provision") || outcome.failed?.step === "provision");
+
+/**
+ * Whether a record noted at `at` was left behind, from an earlier run of this
+ * app: the PC has not restarted since (`bootAt`, ms), or its restart went to
+ * shim and back to Windows without Lanterel OS's boot loader (this start's
+ * boot trail, rental-key.cjs bootTrail), so no Lanterel OS boot took it in.
+ */
+function abandoned(at, bootAt, trail = null) {
+  if (at === null) return false;
+  if (at > bootAt) return true;
+  return Boolean(trail && trail.at >= at && trail.shim && trail.windowsAfterShim && !trail.loader);
+}
+
+/** Zero a record left behind through the elevated worker's `apply`, then forget it; false when that failed. */
+async function wipeRecord(apply, store) {
+  try {
+    await apply({ op: "unprovision" }, () => {});
+  } catch {
+    return false;
+  }
+  store.forget();
+  return true;
+}
+
 module.exports = {
   RECORD_BYTES,
   RECORD_MAGIC,
   RECORD_VERSION,
+  abandoned,
+  holdsRecord,
+  leftRecord,
   machineKeyProblem,
   machineProblem,
+  provisionEvent,
   provisionRecord,
+  provisionStore,
+  wipeRecord,
 };

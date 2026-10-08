@@ -791,6 +791,10 @@ function commandsOf(op) {
         "# Lanterel Host's provisioning record (provision.cjs): the server, this PC's machine id and its machine key, written raw at the start of Lanterel OS's keep partition, then read back",
         "#   Lanterel OS seals it to this PC's TPM at its next start and zeroes it there; the machine key is never shown or logged",
       ];
+    case "unprovision":
+      return [
+        "# Zero Lanterel Host's provisioning record at the start of Lanterel OS's keep partition, if no Lanterel OS start has taken it in yet, then read back",
+      ];
     case "installed":
       return [`# Record in ${INSTALL_FILE} that Lanterel OS is installed`];
     case "forget":
@@ -1063,6 +1067,9 @@ function uninstallPlan(rental) {
   );
   if (install.partitions.length && install.disk !== null) {
     steps.push(
+      step("unprovision", "Erase this PC's machine key from Lanterel OS's keep partition", [
+        { op: "unprovision" },
+      ]),
       step(
         "partitions",
         `Remove Lanterel OS's ${install.partitions.length} partitions from disk ${install.disk}`,

@@ -80,6 +80,7 @@ const UNINSTALL: RentalPlan = {
   kind: "uninstall",
   steps: [
     step("boot-entry", "Take Lanterel OS out of the boot menu"),
+    step("unprovision", "Erase this PC's machine key from Lanterel OS's keep partition"),
     step("partitions", "Remove Lanterel OS's 8 partitions from disk 0"),
     step("room", "Give C: its 24 GB back"),
   ],
@@ -100,6 +101,7 @@ const REMOVE_DISK: RentalPlan = {
   phase: "disk",
   steps: [
     step("boot-entry", "Take Lanterel OS out of the boot menu"),
+    step("unprovision", "Erase this PC's machine key from Lanterel OS's keep partition"),
     step("partitions", "Remove Lanterel OS's 8 partitions from disk 0"),
     step("room", "Give C: its 24 GB back"),
     step("verify", "Check nothing of Lanterel OS is left"),

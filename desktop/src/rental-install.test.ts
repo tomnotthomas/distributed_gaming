@@ -17,7 +17,15 @@ import { testBuild } from "../build-kind.cjs";
 import { fat32Volume, readRootFile } from "./test/fat32.ts";
 import { copyChecked, MANIFEST, SIGNATURE, readImageSet, trustOf } from "../image-set.cjs";
 import { channelOf, clientOf, dryRun, handshake, runPlan, startWorker } from "../rental-exec.cjs";
-import { provisionRecord, RECORD_BYTES } from "../provision.cjs";
+import {
+  abandoned,
+  leftRecord,
+  provisionEvent,
+  provisionRecord,
+  provisionStore,
+  RECORD_BYTES,
+  wipeRecord,
+} from "../provision.cjs";
 import { checkOp, createWorker, diskPath, serve, type Windows } from "../rental-worker.cjs";
 import {
   EK_UNREGISTERED,
@@ -1020,6 +1028,98 @@ describe("the elevated worker", () => {
     ).toThrow();
     expect(() => checkOp({ op: "mok-import", cert: "other.cer", code: "12345678" })).toThrow();
     expect(() => checkOp({ op: "restart" })).not.toThrow();
+  });
+});
+
+describe("a provisioning record left on the disk", () => {
+  /** Lanterel OS installed, its keep holding this PC's record, and the app's note of when it wrote it. */
+  async function provisioned() {
+    const { pc, worker, layout } = await setup();
+    const store = provisionStore(path.join(dir, "app"));
+    const onEvent = (e: { type: string; id?: string; state?: string }) =>
+      provisionEvent(store, e, Date.now());
+    const install = installPlan(rentalOf(pc.facts(), [{ letter: "C", games: 1 }]), {
+      layout,
+      code: "48217730",
+    });
+    expect(await runPlan(install, { apply: skipping(worker.apply), onEvent })).toMatchObject({
+      status: "done",
+    });
+    const keep = pc.gpt().entries.find((e) => e.name === "swiff-keep")!;
+    const head = () => pc.disk.read(keep.first * 512, RECORD_BYTES);
+    expect(head().equals(provisionRecord(MACHINE))).toBe(true);
+    expect(store.read()).not.toBeNull();
+    return { pc, worker, store, onEvent, head, keep };
+  }
+  const zeroed = (block: Buffer) => block.every((b) => b === 0);
+
+  it("is zeroed when the run that wrote it fails, and forgotten", async () => {
+    const { worker, store, onEvent, head } = await provisioned();
+    const failing = async (op: PlanOp) => {
+      if (op.op === "boot-first") throw new Error("The firmware refused BootOrder.");
+      return skipping(worker.apply)(op);
+    };
+    const outcome = await runPlan(switchPlan("start"), { apply: failing, onEvent });
+    expect(outcome).toMatchObject({ status: "failed", failed: { step: "boot-order" } });
+    expect(head().equals(provisionRecord(MACHINE))).toBe(true);
+    expect(leftRecord(outcome)).toBe(true);
+    expect(await wipeRecord(worker.apply, store)).toBe(true);
+    expect(zeroed(head())).toBe(true);
+    expect(store.read()).toBeNull();
+  });
+
+  it("counts a run stopped or failed at or after its provision step, not one that ended or stopped before it", () => {
+    expect(leftRecord({ status: "stopped", done: ["provision"] })).toBe(true);
+    expect(leftRecord({ status: "failed", done: [], failed: { step: "provision" } })).toBe(true);
+    expect(leftRecord({ status: "failed", done: ["bitlocker"], failed: { step: "check" } })).toBe(false);
+    expect(leftRecord({ status: "done", done: ["provision", "restart"] })).toBe(false);
+  });
+
+  it("is never zeroed once Lanterel OS took it in and formatted its keep", async () => {
+    const { pc, worker, keep, head } = await provisioned();
+    const formatted = Buffer.alloc(RECORD_BYTES, 0xab);
+    pc.disk.write([{ offset: keep.first * 512, bytes: formatted }]);
+    await worker.apply({ op: "unprovision" });
+    expect(head().equals(formatted)).toBe(true);
+  });
+
+  it("is zeroed by the uninstall before Lanterel OS's partitions go, and forgotten", async () => {
+    const { pc, worker, store, onEvent, head } = await provisioned();
+    let atRemoval: Buffer | null = null;
+    const outcome = await runPlan(uninstallPlan(rentalOf(pc.facts())), {
+      apply: async (op) => {
+        if (op.op === "gpt-remove") atRemoval = head();
+        return worker.apply(op);
+      },
+      onEvent,
+    });
+    expect(outcome).toMatchObject({ status: "done" });
+    expect(zeroed(atRemoval!)).toBe(true);
+    expect(store.read()).toBeNull();
+  });
+
+  it("is zeroed at the app's next start when no Lanterel OS boot took it in, without asking otherwise", async () => {
+    const { worker, store, head } = await provisioned();
+    const at = store.read()!;
+    // The PC has not restarted since the run wrote it: the run ended, or the app quit, before its restart.
+    expect(abandoned(at, at - 60_000, null)).toBe(true);
+    // A restart since, into Lanterel OS: it took the record in.
+    expect(abandoned(at, at + 60_000, null)).toBe(false);
+    expect(
+      abandoned(at, at + 60_000, { at: at + 90_000, shim: true, loader: true, windowsAfterShim: false }),
+    ).toBe(false);
+    // A restart since that went to shim and back to Windows without Lanterel OS's boot loader.
+    expect(
+      abandoned(at, at + 60_000, { at: at + 90_000, shim: true, loader: false, windowsAfterShim: true }),
+    ).toBe(true);
+    // Nothing noted: nothing to wipe.
+    expect(abandoned(null, at + 60_000, null)).toBe(false);
+    // A wipe that fails, the UAC prompt declined, keeps the note for the next start.
+    expect(await wipeRecord(async () => Promise.reject(new Error("declined")), store)).toBe(false);
+    expect(store.read()).toBe(at);
+    expect(await wipeRecord(worker.apply, store)).toBe(true);
+    expect(zeroed(head())).toBe(true);
+    expect(store.read()).toBeNull();
   });
 });
 
