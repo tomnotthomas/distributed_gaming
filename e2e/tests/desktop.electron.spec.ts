@@ -321,8 +321,8 @@ test.describe("Lanterel Host desktop app, demo data", () => {
       .evaluateAll((options) =>
         options.map((o) => ({ id: (o as HTMLOptionElement).value, name: o.textContent ?? "" })),
       );
-    // The design's screens, rental mode's states and problems among them.
-    expect(screens).toHaveLength(48);
+    // The design's screens: pairing with Steam, rental mode's states and problems among them.
+    expect(screens).toHaveLength(49);
 
     for (const { id, name } of screens) {
       await picker.selectOption(id);
