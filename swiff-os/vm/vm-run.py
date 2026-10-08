@@ -275,9 +275,12 @@ def main():
 
     started = time.monotonic()
     registered()
-    mark = os.path.join(VMS, str(proc.pid))
-    with open(mark, "w") as f:
+    # Written whole, then renamed into place: another runner never reads half a record.
+    record = os.path.join(STATE, f".vm-{proc.pid}")
+    with open(record, "w") as f:
         f.write(f"{start_time(proc.pid)} {name} {mem}\n")
+    mark = os.path.join(VMS, str(proc.pid))
+    os.replace(record, mark)
     # Holds the start lock until QEMU counts: the child itself once it has
     # exec'd into QEMU, or (through sudo) one of its children.
     is_vm = any(os.path.basename(a).startswith("qemu-system") for a in cmd[:4])
