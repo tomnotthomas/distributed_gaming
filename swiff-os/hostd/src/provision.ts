@@ -56,21 +56,25 @@ export class ProvisionError extends Error {}
 
 /**
  * The provisioning a record block holds; null when the block holds no record
- * (no magic: a keep already formatted, or never written). Throws
- * ProvisionError for a record cut short or of another version.
+ * (no magic and no payload that matches its checksum: a keep already
+ * formatted, or never written). Throws ProvisionError for a record cut short,
+ * of another version, or whose magic alone is damaged.
  */
 export function parseRecord(block: Buffer): Provisioning | null {
-  if (block.length < HEADER_BYTES || !block.subarray(0, 8).equals(RECORD_MAGIC)) return null;
+  if (block.length < HEADER_BYTES) return null;
+  const length = block.readUInt32BE(12);
+  const whole = length <= RECORD_BYTES - HEADER_BYTES && HEADER_BYTES + length <= block.length;
+  const payload = whole ? block.subarray(HEADER_BYTES, HEADER_BYTES + length) : null;
+  const matches =
+    payload !== null && createHash("sha256").update(payload).digest().equals(block.subarray(16, 48));
+  if (!block.subarray(0, 8).equals(RECORD_MAGIC)) {
+    if (matches) throw new ProvisionError("the provisioning record's magic is damaged");
+    return null;
+  }
   const version = block.readUInt32BE(8);
   if (version !== RECORD_VERSION) throw new ProvisionError(`the provisioning record is version ${version}`);
-  const length = block.readUInt32BE(12);
-  if (length > RECORD_BYTES - HEADER_BYTES || HEADER_BYTES + length > block.length) {
-    throw new ProvisionError("the provisioning record is cut short");
-  }
-  const payload = block.subarray(HEADER_BYTES, HEADER_BYTES + length);
-  if (!createHash("sha256").update(payload).digest().equals(block.subarray(16, 48))) {
-    throw new ProvisionError("the provisioning record does not match its checksum");
-  }
+  if (!payload) throw new ProvisionError("the provisioning record is cut short");
+  if (!matches) throw new ProvisionError("the provisioning record does not match its checksum");
   return payloadOf(payload);
 }
 

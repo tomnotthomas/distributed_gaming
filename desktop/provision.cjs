@@ -94,9 +94,18 @@ function provisionRecord({ serverUrl, machineId, machineKey }) {
   return record;
 }
 
-/** Whether `block`, the start of the keep, still holds a record: none once Lanterel OS took it in. */
-const holdsRecord = (block) =>
-  block.length >= RECORD_MAGIC.length && block.subarray(0, RECORD_MAGIC.length).equals(RECORD_MAGIC);
+/**
+ * Whether `block`, the start of the keep, still holds a record: none once
+ * Lanterel OS took it in. One whose magic alone is damaged still holds the key.
+ */
+function holdsRecord(block) {
+  if (block.length < HEADER_BYTES) return false;
+  if (block.subarray(0, RECORD_MAGIC.length).equals(RECORD_MAGIC)) return true;
+  const length = block.readUInt32BE(12);
+  if (HEADER_BYTES + length > Math.min(RECORD_BYTES, block.length)) return false;
+  const payload = block.subarray(HEADER_BYTES, HEADER_BYTES + length);
+  return crypto.createHash("sha256").update(payload).digest().equals(block.subarray(16, HEADER_BYTES));
+}
 
 /**
  * The app's note, in `dir` (its user data), of the last record it wrote that
@@ -151,15 +160,18 @@ const leftRecord = (outcome) =>
  *
  *   wipe  left behind: a run that did not finish, or a restart since that
  *         went to shim and back to Windows without Lanterel OS's boot loader
- *   wait  Start once or Go live finished and the PC has not restarted since:
- *         BootNext starts Lanterel OS, which takes it in
- *   gone  a restart since started Lanterel OS, which took it in
+ *   wait  Start once or Go live finished, and no restart since is known to
+ *         have started Lanterel OS's boot loader (none yet, or a trail that
+ *         does not show it): the note stays, for Lanterel OS to take the
+ *         record in, or a cancel, the uninstall or the next Go live to cover it
+ *   gone  a restart since started Lanterel OS's boot loader, and Lanterel OS
+ *         takes the record in or zeroes it
  */
 function fateOf(note, bootAt, trail = null) {
   if (!note.done) return "wipe";
-  if (note.at > bootAt) return "wait";
-  const back = trail && trail.at >= note.at && trail.shim && trail.windowsAfterShim && !trail.loader;
-  return back ? "wipe" : "gone";
+  if (note.at > bootAt || !trail || trail.at < note.at) return "wait";
+  if (trail.loader) return "gone";
+  return trail.shim && trail.windowsAfterShim ? "wipe" : "wait";
 }
 
 /** Zero a record left behind through the elevated worker's `apply`, then forget it; false when that failed. */

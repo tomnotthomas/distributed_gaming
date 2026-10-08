@@ -233,6 +233,17 @@ describe("provisioning a boot", () => {
     expect(m.logs.join("\n")).not.toContain(GIVEN.machineKey);
   });
 
+  it("zeroes a record whose magic alone is damaged", async () => {
+    const damaged = provisionRecord(GIVEN);
+    damaged.fill(0, 0, 8);
+    const m = await machine(damaged);
+    expect(await m.run()).toBe(false);
+    expect(m.logs[0]).toMatch(/magic/);
+    expect(m.disk.wiped).toBe(1024 * 1024);
+    expect(m.disk.head.equals(Buffer.alloc(m.disk.head.length))).toBe(true);
+    expect(m.logs.join("\n")).not.toContain(GIVEN.machineKey);
+  });
+
   it("zeroes a record of another version", async () => {
     const other = provisionRecord(GIVEN);
     other.writeUInt32BE(2, 8);

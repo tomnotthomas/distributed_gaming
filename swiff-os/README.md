@@ -123,16 +123,18 @@ install added, and reads it back. At its next start Swiff OS seals the record to
 and zeroes it (below, **Provisioning** under "What runs"), so the plaintext key is on the disk
 only from the Windows run that writes it to that start: the owner's accepted exception to the
 review rule against secrets in plain-text files, for that window only and with the app's wipe.
-Swiff OS zeroes a record it cannot take in as well; only a PC that loses power before
-`swiff-provision` runs at that start keeps the record past it, until the next Go live or the
-uninstall writes over it.
+Swiff OS zeroes a record it cannot take in as well; only a PC that loses power after Swiff's
+boot loader starts and before `swiff-provision` runs keeps the record past that start, until
+the next Go live or the uninstall writes over it.
 Should that start not come, the app zeroes the record itself (the worker's `unprovision`, only
 while the keep still holds a record): when the run that wrote it is cancelled or fails, as the
 uninstall's first disk step, and at the app's next start when no Swiff OS boot took it in: a
 run that did not finish, or a finished Go live or Start once whose restart went to shim and
-back to Windows without Swiff's boot loader. A finished Go live or Start once with no restart
-since keeps its record: BootNext still starts Swiff OS, from the app's Restart now or Windows'
-own. The app notes only when it wrote one and whether that run finished
+back to Windows without Swiff's boot loader. A finished Go live or Start once keeps its note
+until this start's boot trail shows Swiff's boot loader: with no restart since, BootNext still
+starts Swiff OS, from the app's Restart now or Windows' own; after one that never reached shim
+(BootNext ignored, or Windows picked from the firmware's menu), the record waits for Swiff OS,
+a cancel, the uninstall or the next Go live. The app notes only when it wrote one and whether that run finished
 (`rental-provision.json` in its data), so that start asks for administrator rights only then.
 The install writes none: its restart goes to MokManager, never Swiff OS. A machine id and
 server the app's Settings do not hold, or a machine key it does not keep, stop a run before it

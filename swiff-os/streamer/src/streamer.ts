@@ -140,16 +140,20 @@ export function startStreamer({
     });
     attachInput(pc, receiver, current);
 
-    const offer = await pc.createOffer();
-    if (peer !== current) return;
-    // The offer goes before werift gathers, and the candidates follow it as werift
-    // finds them (onIceCandidate above). Its setLocalDescription waits for every
-    // candidate, up to 5 s for a STUN server that does not answer (UDP blocked, or
-    // its name not resolving), and a renter who reconnects joins again every 4 s
-    // while no offer has come: an offer held that long never reaches them.
-    send({ type: "offer", sdp: { type: offer.type, sdp: offer.sdp } });
     try {
+      const offer = await pc.createOffer();
+      if (peer !== current) return;
+      // The offer goes before werift gathers, and the candidates follow it as werift
+      // finds them (onIceCandidate above). Its setLocalDescription waits for every
+      // candidate, up to 5 s for a STUN server that does not answer (UDP blocked, or
+      // its name not resolving), and a renter who reconnects joins again every 4 s
+      // while no offer has come: an offer held that long never reaches them.
+      send({ type: "offer", sdp: { type: offer.type, sdp: offer.sdp } });
       await pc.setLocalDescription(offer);
+    } catch (cause) {
+      // A peer whose offer failed takes no answer: the renter's next join gets a fresh one.
+      if (peer === current) teardown();
+      throw cause;
     } finally {
       gathered();
     }

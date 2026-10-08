@@ -474,7 +474,7 @@ ipcMain.handle("rental:run", async (event) => {
 /**
  * At start: a provisioning record an earlier run left on the disk, which no
  * Lanterel OS boot took in, is zeroed (one UAC prompt); one a boot took in is
- * only forgotten, and one a finished run's restart has still to take in stays
+ * only forgotten, and one no restart is known to have taken in yet stays
  * (provision.cjs fateOf). With no record noted, nothing asks for administrator rights.
  */
 async function wipeLeftRecord() {

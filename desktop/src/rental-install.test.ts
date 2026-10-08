@@ -1096,6 +1096,15 @@ describe("a provisioning record left on the disk", () => {
     expect(head().equals(formatted)).toBe(true);
   });
 
+  it("is zeroed when its magic alone is damaged", async () => {
+    const { pc, worker, keep, head } = await provisioned();
+    const damaged = provisionRecord(MACHINE);
+    damaged.fill(0, 0, 8);
+    pc.disk.write([{ offset: keep.first * 512, bytes: damaged }]);
+    await worker.apply({ op: "unprovision" });
+    expect(zeroed(head())).toBe(true);
+  });
+
   it("is zeroed by the uninstall before Lanterel OS's partitions go, and forgotten", async () => {
     const { pc, worker, store, run, head } = await provisioned();
     let atRemoval: Buffer | null = null;
@@ -1110,6 +1119,7 @@ describe("a provisioning record left on the disk", () => {
 
   const SHIM_BACK = { shim: true, loader: false, windowsAfterShim: true };
   const LANTEREL = { shim: true, loader: true, windowsAfterShim: false };
+  const WINDOWS = { shim: false, loader: false, windowsAfterShim: false };
 
   it("stays for a finished Go live or Start once until its restart, and is zeroed when that restart did not take it in", async () => {
     const { worker, store, run, head } = await provisioned();
@@ -1120,8 +1130,12 @@ describe("a provisioning record left on the disk", () => {
       expect(head().equals(provisionRecord(MACHINE))).toBe(true);
       // The app quit before the restart: BootNext still starts Lanterel OS, which takes the record in.
       expect(fateOf(note, note.at - 60_000, null)).toBe("wait");
+      // A restart since with no trail, one older than the note, or none through shim (BootNext
+      // ignored, or Windows picked from the firmware's menu): nothing shows Lanterel OS took it in.
+      expect(fateOf(note, note.at + 60_000, null)).toBe("wait");
+      expect(fateOf(note, note.at + 60_000, { at: note.at - 90_000, ...LANTEREL })).toBe("wait");
+      expect(fateOf(note, note.at + 60_000, { at: note.at + 90_000, ...WINDOWS })).toBe("wait");
       // A restart since that started Lanterel OS: it took the record in, and the note goes.
-      expect(fateOf(note, note.at + 60_000, null)).toBe("gone");
       expect(fateOf(note, note.at + 60_000, { at: note.at + 90_000, ...LANTEREL })).toBe("gone");
       // A restart since that went to shim and back to Windows without Lanterel OS's boot loader.
       expect(fateOf(note, note.at + 60_000, { at: note.at + 90_000, ...SHIM_BACK })).toBe("wipe");
