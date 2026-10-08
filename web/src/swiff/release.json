@@ -1,4 +1,37 @@
 {
-  "host": null,
-  "image": null
+  "host": {
+    "file": "LanterelHost-0.1.0.exe",
+    "sha256": "b0b63fdbfb4a34e089951b99c0294afacb7c993182723f23a5921d26b906154a",
+    "bytes": 75684037,
+    "url": "https://github.com/tomnotthomas/distributed_gaming/releases/download/host-v0.1.0/LanterelHost-0.1.0.exe"
+  },
+  "image": {
+    "version": "0.1.0",
+    "files": [
+      {
+        "name": "swiffos_0.1.0.esp.raw",
+        "sha256": "83f5d7a4e513a66b146ad91f89c2a22786105e34710858534c2af9e32f60974c"
+      },
+      {
+        "name": "swiffos_0.1.0.root-x86-64-verity.raw",
+        "sha256": "a3dedc2010992657d44c1dce587cd33fe0745f926e3cf8692513c5b6054434c5"
+      },
+      {
+        "name": "swiffos_0.1.0.root-x86-64.raw",
+        "sha256": "4d04b9b41e079884fd4a95e7231da4eec42f6e06882b991c564954cb38740db4"
+      },
+      {
+        "name": "swiffos-key.cer",
+        "sha256": "2480ad54b30788ed735522289b7d9765d9f0b224dee5d49dba31a3017768bccd"
+      },
+      {
+        "name": "swiffos.json",
+        "sha256": "13f2e0485562cc51d8d47d5c4867f47ab711c7bd31684e5e039a72c21146de80"
+      },
+      {
+        "name": "swiffos.json.sig",
+        "sha256": "7c3af91e496c39328edc7defdf608ffc26d6aeb3bcf0b61a9ce636f3ebea8e40"
+      }
+    ]
+  }
 }
