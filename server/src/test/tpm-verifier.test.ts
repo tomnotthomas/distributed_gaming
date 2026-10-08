@@ -18,6 +18,7 @@ import { Platform } from "../platform.js";
 import { BootPolicyError, readBootPolicy, signBootPolicy, type BootPolicy } from "../boot-policy.js";
 import { bootFacts, parseEventLog, replay } from "../eventlog.js";
 import { trustStore, verifyEkCertificate, type TpmKind } from "../ek.js";
+import { EFI_IMAGE_SECURITY_DATABASE_GUID, SHIM_LOCK_GUID, guidBytes } from "../release-policy.js";
 import { migrate } from "../schema.js";
 import { createStateKeys, memoryStateKeyStore } from "../state-key.js";
 import {
@@ -997,13 +998,22 @@ describe("the TPM verifier's configuration", () => {
     }
   });
 
+  it("takes the vendor roots checked in beside the server when ATTESTATION_TPM_ROOTS is unset", () => {
+    const { env, cleanup } = configured();
+    try {
+      const config = attestationFromEnv({ ...env, ATTESTATION_TPM_ROOTS: "" });
+      assert.equal(config.verifier?.name, "tpm");
+    } finally {
+      cleanup();
+    }
+  });
+
   it("has no verifier, and says why, when anything it needs is missing or wrong", () => {
     const { dir, env, cleanup } = configured();
     try {
       const otherKey = generateKeyPairSync("ed25519").publicKey.export({ format: "pem", type: "spki" });
       writeFileSync(join(dir, "other.pem"), otherKey);
       for (const [change, says] of [
-        [{ ATTESTATION_TPM_ROOTS: "" }, "ATTESTATION_TPM_ROOTS"],
         [{ ATTESTATION_TPM_ROOTS: join(dir, "nowhere") }, "no root certificates"],
         [{ ATTESTATION_POLICY: join(dir, "nowhere.json") }, "ENOENT"],
         [{ ATTESTATION_POLICY_KEY: join(dir, "other.pem") }, "signature"],
@@ -1117,6 +1127,41 @@ describe("the event log", () => {
     const withLocality = Buffer.concat([header.subarray(0, headerLength), noAction, startup]);
     const replayed = replay(parseEventLog(withLocality), [0]);
     assert.equal(replayed.get(0)!.toString("hex"), "00".repeat(31) + "03");
+  });
+
+  it("takes shim's SbatLevel, whatever level a PC holds, as no authority", () => {
+    const variable = (guid: string, name: string, value: string) => {
+      const lengths = Buffer.alloc(16);
+      lengths.writeBigUInt64LE(BigInt(name.length), 0);
+      lengths.writeBigUInt64LE(BigInt(value.length), 8);
+      return Buffer.concat([
+        guidBytes(guid),
+        lengths,
+        Buffer.from(name, "utf16le"),
+        Buffer.from(value, "latin1"),
+      ]);
+    };
+    // As a real PC's SbatLevel read, written by a Windows update: in no shim's list.
+    const level = "sbat,1,2025051000\nshim,4\ngrub,5\ngrub.debian,4\ngrub.peimage,2\ngrub.proxmox,2";
+    const event = (
+      data: Buffer,
+      digest: Buffer<ArrayBufferLike> = createHash("sha256").update(data).digest(),
+    ) => ({
+      pcr: 7,
+      type: EV_EFI_VARIABLE_AUTHORITY,
+      sha256: digest,
+      data,
+    });
+    const authorities = (data: Buffer, digest?: Buffer<ArrayBufferLike>) =>
+      bootFacts({ events: [event(data, digest)], startupLocality: 0 }).secureBootAuthorities.length;
+    assert.equal(authorities(variable(SHIM_LOCK_GUID, "SbatLevel", level)), 0);
+    assert.equal(authorities(variable(SHIM_LOCK_GUID, "SbatLevel", "sbat,1,2021030218\n")), 0);
+    // Anything else is an authority the release must list: another GUID, a
+    // value that is not a level, or data its digest does not bind.
+    assert.equal(authorities(variable(EFI_IMAGE_SECURITY_DATABASE_GUID, "SbatLevel", level)), 1);
+    assert.equal(authorities(variable(SHIM_LOCK_GUID, "SbatLevel", "a certificate")), 1);
+    assert.equal(authorities(variable(SHIM_LOCK_GUID, "MokListRT", level)), 1);
+    assert.equal(authorities(variable(SHIM_LOCK_GUID, "SbatLevel", level), Buffer.alloc(32, 1)), 1);
   });
 
   it("refuses a log that is not crypto-agile or has no SHA-256 bank", () => {

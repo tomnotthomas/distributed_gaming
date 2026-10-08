@@ -11,8 +11,8 @@
 // Each holds the vendor's root certificates and any intermediates, as PEM (one
 // or more per file) or DER. A self-signed certificate is a root; any other is an
 // intermediate, usable by an EK certificate of either kind, which the root at
-// the end of its chain decides. Microsoft's TrustedTpm.cab is one source of
-// them; see docs/system-design/session-keys.md.
+// the end of its chain decides. server/tpm-roots is the store the server
+// ships, from Microsoft's TrustedTpm.cab and AMD (server/tpm-roots/README.md).
 
 import { X509Certificate, createHash, type KeyObject } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";

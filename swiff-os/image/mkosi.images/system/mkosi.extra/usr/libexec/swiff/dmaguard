@@ -1,0 +1,18 @@
+#!/bin/sh
+# Succeeds only with DMA remapping on: an IOMMU under /sys/class/iommu that
+# translates devices' DMA (an IOMMU group of type DMA or DMA-FQ, not identity).
+# systemd-pcrphase.service, which extends the `ready` phase into PCR 11,
+# requires it, so without DMA remapping the boot never reaches the PCR 11 a
+# release's boot policy names, and the server never attests this PC.
+set -eu
+if [ -z "$(ls /sys/class/iommu 2> /dev/null)" ]; then
+	echo "no IOMMU: turn on IOMMU (AMD-Vi or Intel VT-d) in the firmware settings" >&2
+	exit 1
+fi
+for type in /sys/kernel/iommu_groups/*/type; do
+	case $(cat "$type" 2> /dev/null) in
+	DMA | DMA-FQ) exit 0 ;;
+	esac
+done
+echo "the IOMMU remaps no device's DMA" >&2
+exit 1

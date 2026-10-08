@@ -58,6 +58,7 @@ import {
   type HostCert,
 } from "./access.js";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { createHmac } from "node:crypto";
 import type {
   AttestActivationGrant,
@@ -260,7 +261,8 @@ export type AttestationConfig = {
  * as none: a typo never opens hosting up. `tpm` keeps each machine's EK,
  * firmware baseline and TPM counters in `database`, and needs:
  *
- *   ATTESTATION_TPM_ROOTS   directory of TPM vendor roots, in firmware/ and discrete/ (ek.ts)
+ *   ATTESTATION_TPM_ROOTS   directory of TPM vendor roots, in firmware/ and discrete/ (ek.ts);
+ *                           unset, the store checked in at server/tpm-roots
  *   ATTESTATION_POLICY      the signed boot policy file (boot-policy.ts)
  *   ATTESTATION_POLICY_KEY  the PEM public key that signs it
  *   ROOM_SECRET             keys the AK activation credentials
@@ -309,6 +311,9 @@ export function attestationFromEnv(
   return { attestedOnly, verifier, warnings };
 }
 
+/** The TPM vendor roots checked in beside the server (server/tpm-roots, from scripts/tpm-roots.mjs). */
+export const TPM_ROOTS = fileURLToPath(new URL("../tpm-roots/", import.meta.url));
+
 /** The TPM verifier from the environment; throws naming what is missing or unreadable. */
 function tpmVerifierFromEnv(env: NodeJS.ProcessEnv, database?: Queryable): TpmVerifier {
   const setting = (key: string) => {
@@ -317,7 +322,7 @@ function tpmVerifierFromEnv(env: NodeJS.ProcessEnv, database?: Queryable): TpmVe
     return value;
   };
   const secret = setting("ROOM_SECRET");
-  const roots = loadTrustStore(setting("ATTESTATION_TPM_ROOTS"));
+  const roots = loadTrustStore(env.ATTESTATION_TPM_ROOTS?.trim() || TPM_ROOTS);
   if (!roots.roots.length) throw new Error("ATTESTATION_TPM_ROOTS has no root certificates");
   const policy = readBootPolicy(
     readFileSync(setting("ATTESTATION_POLICY"), "utf8"),

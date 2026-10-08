@@ -197,6 +197,23 @@ The app reads nothing from the release unless a key in `image-trust.json` signed
 file is gzip-compressed and cut into parts under 1.9 GiB (a release takes at most 2 GiB a file): the
 8 GiB root, mostly empty, packs to about 1.3 GB, the whole set to about 1.4 GB.
 
+The server's TPM verifier accepts a boot only of a release its signed boot policy lists
+(`server/src/boot-policy.ts`). The release's entry is made from the set, on the same machine,
+and signed with the same image signing key:
+
+```sh
+swiff-os/boot-policy.sh <set-dir> <policy-dir> --previous <last-policy-dir>/boot-policy.payload.json
+```
+
+It checks the Secure Boot signatures of shim (Microsoft's UEFI CA 2011 or 2023), systemd-boot
+and the UKI (the set's `swiffos-key.cer`) with `sbverify` and `openssl` (`sbsigntool` must be
+installed), computes PCR 11, the boot chain's Authenticode digests and the PCR 7 authorities from
+the set's own files, checks each against what the build signed, shows the payload and asks
+before signing; run it from a terminal, since without one it signs nothing. The server takes `boot-policy.json` as `ATTESTATION_POLICY` and `boot-policy.pub.pem`
+as `ATTESTATION_POLICY_KEY`; keep `boot-policy.payload.json` for the next release's
+`--previous`, so hosts still on this one keep attesting. A release's entry says `iommu: true`:
+the image refuses to reach `ready` without DMA remapping (`swiff-dmaguard`, below).
+
 To rotate the keys (on suspicion of a leak, or to move them into an HSM, which is a rotation like
 any other): make the new pair into a new folder (`release-key.sh ~/.lanterel-keys/release-<date>
 <backup-file>`), `add-trust` its `public.txt` beside the old entry, and ship an app release that
@@ -330,6 +347,10 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
 
 `swiff-hwcheck` checks the parts of D3 that Swiff OS can see on its own at boot, and writes the verdict
 to `/run/swiff/hardware-floor`. The EK certificate and the TPM tier are checked by attestation (stage 3).
+The IOMMU is also enforced: `systemd-pcrphase.service`, which extends the `ready` phase into PCR 11,
+requires `swiff-dmaguard`, which fails unless an IOMMU under `/sys/class/iommu` remaps devices' DMA
+(an IOMMU group of type `DMA` or `DMA-FQ`). Without it the boot never reaches the PCR 11 the release's
+boot policy names, so the server attests no such PC and releases it no state key.
 
 ## Stage 4: the shared games library
 
@@ -649,6 +670,11 @@ first pair it nominates (its host candidate to the renter's relayed one), and on
 the page opens after sign-in it fails every check within 1.6 s without using its own relayed
 candidate. Whether a PC behind a real NAT, with a relay elsewhere, does the same is the next thing
 to find out: renters only TURN can reach depend on it.
+
+`SWIFF_SESSION_NO_IOMMU=1` boots the VM without QEMU's virtual IOMMU (`intel-iommu`). That run
+passes only when the boot does not reach `ready` (`systemd-pcrphase.service` never runs),
+swiff-hostd logs its hardware-floor refusal (`not offered: …`), and the PC gets no state key and is
+never offered.
 
 ## Follow-ups
 
