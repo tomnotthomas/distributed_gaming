@@ -15,9 +15,10 @@ skip() {
 command -v coderabbit >/dev/null 2>&1 || skip "coderabbit CLI not installed"
 
 # A hung network must not hold up the push; a timed-out review is skipped.
-limit() {
-  if command -v timeout >/dev/null 2>&1; then timeout "$@"; else shift && "$@"; fi
-}
+# Homebrew installs GNU timeout as gtimeout unless its gnubin is on PATH.
+timeout_cmd=$(command -v timeout || command -v gtimeout) ||
+  skip "no timeout or gtimeout command to bound the review"
+limit() { "$timeout_cmd" "$@"; }
 
 # Checked first because a signed-out review starts an interactive browser login.
 limit 30 coderabbit auth status --agent 2>/dev/null | grep -Eq '"authenticated": *true' ||
@@ -34,7 +35,7 @@ limit 900 coderabbit review --agent --base-commit "$base" </dev/null 2>&1 | node
   const findings = events.filter((e) => e.type === "finding");
   const done = events.find((e) => e.type === "complete");
   if (done && done.status === "review_completed") {
-    for (const f of findings) console.log(`\n[${f.severity}] ${f.fileName}\n${f.codegenInstructions}`);
+    for (const f of findings) console.log(`\n[${f.severity}] ${f.fileName}\n${f.codegenInstructions ?? JSON.stringify(f)}`);
     console.log(`\ncoderabbit-review: ${findings.length} finding(s)`);
     process.exit(findings.length > 0 ? 1 : 0);
   }
