@@ -15,7 +15,7 @@ skip() {
 command -v coderabbit >/dev/null 2>&1 || skip "coderabbit CLI not installed"
 
 # Checked first because a signed-out review starts an interactive browser login.
-coderabbit auth status --agent 2>/dev/null | grep -q '"authenticated":true' ||
+coderabbit auth status --agent 2>/dev/null | grep -Eq '"authenticated": *true' ||
   skip "coderabbit CLI not signed in; run: coderabbit auth login"
 
 base=$(git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD main 2>/dev/null) ||
