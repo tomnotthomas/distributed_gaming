@@ -10,7 +10,9 @@ commands:
   # Unit and integration tests. The browser/Electron e2e suite stays in CI:
   # locally the macOS firewall flakes its ICE step.
   test: "npm test"
-  lint: "npm run typecheck && npm run format:check --if-present"
+  # Ends with a CodeRabbit CLI review of the branch; it fails only on findings
+  # and skips when the CLI is missing, signed out or offline.
+  lint: "npm run typecheck && npm run format:check --if-present && bash scripts/coderabbit-review.sh"
   format: "npm run format --if-present"
 
 # Changes here need a human, never an automatic fix.
@@ -51,3 +53,15 @@ review:
         Fail anything that can write a password, API key, token, machine key,
         join ticket, TURN credential, SDP body or ICE candidate to a log,
         analytics event, error message or plain-text file.
+    - path: "**"
+      instructions: |
+        Flag code the task does not need: home-grown copies of what the repo,
+        the platform or an existing dependency already provides, new
+        dependencies that are not necessary, and abstractions built for
+        imagined future needs. Never ask to cut validation, error handling,
+        security or accessibility.
+    - path: "**"
+      instructions: |
+        Actively try to break the change: inputs that give a wrong result or a
+        crash, races, security holes, and callers broken by a changed
+        signature. Report a finding only with a concrete case that shows it.
