@@ -14,8 +14,13 @@ skip() {
 
 command -v coderabbit >/dev/null 2>&1 || skip "coderabbit CLI not installed"
 
+# A hung network must not hold up the push; a timed-out review is skipped.
+limit() {
+  if command -v timeout >/dev/null 2>&1; then timeout "$@"; else shift && "$@"; fi
+}
+
 # Checked first because a signed-out review starts an interactive browser login.
-coderabbit auth status --agent 2>/dev/null | grep -Eq '"authenticated": *true' ||
+limit 30 coderabbit auth status --agent 2>/dev/null | grep -Eq '"authenticated": *true' ||
   skip "coderabbit CLI not signed in; run: coderabbit auth login"
 
 base=$(git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD main 2>/dev/null) ||
@@ -23,7 +28,7 @@ base=$(git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD main 2
 
 # --agent prints one JSON event per line; the exit code is 0 with or without
 # findings, so the events decide the result.
-coderabbit review --agent --base-commit "$base" </dev/null 2>&1 | node -e '
+limit 900 coderabbit review --agent --base-commit "$base" </dev/null 2>&1 | node -e '
   const lines = require("fs").readFileSync(0, "utf8").split("\n");
   const events = lines.flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } });
   const findings = events.filter((e) => e.type === "finding");
