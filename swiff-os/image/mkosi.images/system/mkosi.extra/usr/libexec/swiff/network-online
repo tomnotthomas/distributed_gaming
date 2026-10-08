@@ -1,0 +1,50 @@
+#!/bin/sh
+# Lanterel OS's network, as the status screen shows it: online once a cable or
+# Wi-Fi gives this PC a routable address, failed after a minute without one.
+# network-online.target is reached at that verdict either way, and a network
+# that comes later still turns the state online. The state is in
+# /run/swiff/network, readable by everyone, replaced whole at each change:
+#
+#   STATE=connecting|online|failed
+#   MEDIUM=wifi|ethernet   online: the link that is. Otherwise what it waits
+#                          for: wifi when the owner's app handed over a Wi-Fi
+#                          network, ethernet when it did not.
+#   REASON=...             failed only:
+#            wifi             the Wi-Fi network was not joined (out of reach, a
+#                             changed passphrase, or no address from it)
+#            no-wifi-adapter  Wi-Fi was handed over, but this PC has no Wi-Fi
+#                             adapter Lanterel OS can drive
+#            no-network       no Wi-Fi was handed over, and no cable gave an address
+set -u
+
+state=/run/swiff/network
+timeout=60
+
+# Replaces the state with KEY=VALUE lines.
+report() {
+	printf '%s\n' "$@" > "$state.new" && mv "$state.new" "$state"
+}
+# Waits for a routable address on any link, at most --timeout=S seconds (0: for ever).
+wait_online() {
+	/usr/lib/systemd/systemd-networkd-wait-online --any --operational-state=routable "$@"
+}
+# The medium of a link that is online, as networkd types it.
+medium() {
+	networkctl list --no-legend --no-pager | awk '$4 == "routable" { print ($3 == "wlan" ? "wifi" : "ethernet"); exit }'
+}
+
+if ls /var/lib/iwd/*.psk /var/lib/iwd/*.open > /dev/null 2>&1; then
+	want=wifi
+	if [ -n "$(ls /sys/class/ieee80211 2> /dev/null)" ]; then reason=wifi; else reason=no-wifi-adapter; fi
+else
+	want=ethernet reason=no-network
+fi
+
+report STATE=connecting MEDIUM=$want
+if ! wait_online --timeout=$timeout; then
+	report STATE=failed MEDIUM=$want REASON=$reason
+	systemd-notify --ready
+	wait_online --timeout=0
+fi
+report STATE=online MEDIUM="$(medium)"
+systemd-notify --ready

@@ -338,6 +338,12 @@ if [ -e "$MARKER" ]; then say FAIL scratch-fresh "marker from an earlier boot su
 token="swiff-marker-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
 as_renter sh -c "echo $token > $MARKER" && say INFO marker "$token"
 
+# --- Network: over the cable ---------------------------------------------------------
+# swiff-network's verdict, which network-online.target waits for.
+for _ in $(seq 90); do grep -qx STATE=connecting /run/swiff/network 2> /dev/null || break; sleep 1; done
+network=$(paste -sd' ' /run/swiff/network 2> /dev/null)
+check network-online-ethernet "$network" test "$network" = "STATE=online MEDIUM=ethernet"
+
 # --- LAN egress ----------------------------------------------------------------------
 # swiff-netguard fills the gateway/DNS sets shortly after DHCP; wait for it.
 for _ in $(seq 30); do nft list set inet swiff gateway4 2> /dev/null | grep -q 'elements' && break; sleep 1; done

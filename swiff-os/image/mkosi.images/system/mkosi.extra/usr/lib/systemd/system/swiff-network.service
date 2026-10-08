@@ -1,0 +1,22 @@
+# Whether Lanterel OS is online, over a cable or Wi-Fi, for the status screen
+# and for what waits for network-online.target (/usr/libexec/swiff/network-online).
+# It stands in for systemd-networkd-wait-online.service, masked: that one
+# waits for every link and fails the boot with a red line on a PC that has no
+# cable. This one never fails, whatever the network does.
+[Unit]
+Description=Lanterel OS: wait for a cable or Wi-Fi
+DefaultDependencies=no
+Conflicts=shutdown.target
+BindsTo=systemd-networkd.service
+After=systemd-networkd.service iwd.service swiff-provision.service systemd-tmpfiles-setup.service
+Before=network-online.target shutdown.target
+
+[Service]
+Type=notify
+NotifyAccess=all
+ExecStart=/usr/libexec/swiff/network-online
+RemainAfterExit=yes
+TimeoutStartSec=2min
+
+[Install]
+WantedBy=network-online.target
