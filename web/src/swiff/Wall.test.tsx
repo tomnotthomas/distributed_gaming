@@ -398,7 +398,9 @@ describe("Wall", () => {
       const facts = () => screen.getByTestId("hero").querySelector(".hero-kv")!;
       const at = (until: string) => new Map([[games[0]!.id, ready({ ...rig, until })]]);
       const clock = new Date(2026, 9, 3, 22, 0).getTime();
-      const { rerender } = render(<Wall swiff={swiffWith(games, owner, noop, true, { spots: at("23:30"), clock })} />);
+      const { rerender } = render(
+        <Wall swiff={swiffWith(games, owner, noop, true, { spots: at("23:30"), clock })} />,
+      );
       expect(facts()).toHaveTextContent("Free until23:30");
       rerender(<Wall swiff={swiffWith(games, owner, noop, true, { spots: at("late"), clock })} />);
       expect(facts()).toHaveTextContent("Free for12 h+");
