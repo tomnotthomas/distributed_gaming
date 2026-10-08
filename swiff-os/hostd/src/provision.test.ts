@@ -2,18 +2,22 @@
 // writes it (desktop/provision.cjs), sealed to the TPM and kept on the keep
 // partition, and this boot's swiff-hostd config written from it.
 
-import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   checkProvisioning,
+  iwdNetwork,
   linuxKeep,
   parseRecord,
   provision,
   ProvisionError,
   RECORD_BYTES,
+  RECORD_MAGIC,
+  RECORD_VERSION,
   tpmSeal,
   tpmUnseal,
   type Keep,
@@ -31,6 +35,24 @@ const GIVEN: Provisioning = {
   machineId: "gaming-pc-1",
   machineKey: "k3y-0f-the-owners-machine-1234567890",
 };
+
+/** A PC on Wi-Fi: the same, and the network it is on. */
+const ON_WIFI: Provisioning = {
+  ...GIVEN,
+  wifi: { ssid: "Café Wi-Fi", security: "psk", passphrase: " \\back slash" },
+};
+
+/** The record around any payload, framed as desktop/provision.cjs frames it. */
+function recordOf(payload: object): Buffer {
+  const json = Buffer.from(JSON.stringify(payload));
+  const record = Buffer.alloc(RECORD_BYTES);
+  RECORD_MAGIC.copy(record, 0);
+  record.writeUInt32BE(RECORD_VERSION, 8);
+  record.writeUInt32BE(json.length, 12);
+  createHash("sha256").update(json).digest().copy(record, 16);
+  json.copy(record, 48);
+  return record;
+}
 
 /** The image's own settings: everything but this machine's server, id and key. */
 const IMAGE = {
@@ -89,6 +111,60 @@ describe("the record", () => {
   });
 });
 
+describe("the Wi-Fi network", () => {
+  it("takes an open, WPA2 or WPA3 network, and a WPA2 key given as 64 hex digits", () => {
+    expect(checkProvisioning(ON_WIFI)).toEqual(ON_WIFI);
+    const open = { ssid: "Guest", security: "open" };
+    expect(checkProvisioning({ ...GIVEN, wifi: open }).wifi).toEqual(open);
+    const sae = { ssid: "Home", security: "sae", passphrase: "correct horse" };
+    expect(checkProvisioning({ ...GIVEN, wifi: sae }).wifi).toEqual(sae);
+    const psk = { ssid: "Home", security: "psk", passphrase: "ab".repeat(32) };
+    expect(checkProvisioning({ ...GIVEN, wifi: psk }).wifi).toEqual(psk);
+    expect(() => checkProvisioning({ ...GIVEN, wifi: { ...psk, security: "sae" } })).toThrow(
+      "the provisioning's wifi.passphrase is not a sae passphrase",
+    );
+  });
+
+  it("refuses a network iwd could not join, naming the field and never quoting the passphrase", () => {
+    const wifi = { ssid: "Home", security: "psk", passphrase: "correct horse" };
+    const refusals: [object, string][] = [
+      [{ ...wifi, ssid: "" }, "wifi.ssid"],
+      [{ ...wifi, ssid: "é".repeat(17) }, "wifi.ssid"],
+      [{ ...wifi, ssid: "Home\n[Security]" }, "wifi.ssid"],
+      [{ ...wifi, security: "8021x" }, "wifi.security"],
+      [{ ...wifi, passphrase: "seven77" }, "wifi.passphrase"],
+      [{ ...wifi, passphrase: "x".repeat(64) }, "wifi.passphrase"],
+      [{ ...wifi, passphrase: "secret\n[Settings]" }, "wifi.passphrase"],
+      [{ ssid: "Home", security: "psk" }, "wifi.passphrase"],
+    ];
+    for (const [bad, field] of refusals) {
+      expect(() => checkProvisioning({ ...GIVEN, wifi: bad })).toThrow(`the provisioning's ${field}`);
+      expect(() => checkProvisioning({ ...GIVEN, wifi: bad })).not.toThrow(/secret|seven77/);
+    }
+    expect(() => checkProvisioning({ ...GIVEN, wifi: "Home" })).toThrow(
+      "the provisioning's wifi is not an object",
+    );
+  });
+
+  it("is named as iwd names it, its passphrase escaped as iwd reads it", () => {
+    expect(iwdNetwork({ ssid: "Home Net_5G-2", security: "sae", passphrase: "correct horse" })).toEqual({
+      name: "Home Net_5G-2.psk",
+      contents: "[Security]\nPassphrase=correct horse\n\n[Settings]\nAutoConnect=true\n",
+    });
+    expect(iwdNetwork(ON_WIFI.wifi!)).toEqual({
+      name: "=436166c3a92057692d4669.psk",
+      contents: "[Security]\nPassphrase=\\s\\\\back slash\n\n[Settings]\nAutoConnect=true\n",
+    });
+    expect(iwdNetwork({ ssid: "Home", security: "psk", passphrase: "AB".repeat(32) }).contents).toBe(
+      `[Security]\nPreSharedKey=${"ab".repeat(32)}\n\n[Settings]\nAutoConnect=true\n`,
+    );
+    expect(iwdNetwork({ ssid: "Guest", security: "open" })).toEqual({
+      name: "Guest.open",
+      contents: "[Settings]\nAutoConnect=true\n",
+    });
+  });
+});
+
 describe("provisioning a boot", () => {
   /** A keep partition in memory, a TPM that seals by prefixing, and the files in a directory of their own. */
   async function machine(
@@ -102,8 +178,10 @@ describe("provisioning a boot", () => {
       imageConfig: join(dir, "image-hostd.json"),
       config: join(dir, "hostd.json"),
       machineKey: join(dir, "machine-key"),
+      wifi: join(dir, "iwd"),
     };
     await writeFile(paths.imageConfig, JSON.stringify(IMAGE));
+    await mkdir(paths.wifi);
     const disk = {
       head: Buffer.from(head),
       wiped: 0,
@@ -167,6 +245,31 @@ describe("provisioning a boot", () => {
     for (const file of [m.paths.config, m.paths.machineKey, m.paths.credential])
       expect((await stat(file)).mode & 0o777).toBe(0o600);
     expect(m.logs.join("\n")).not.toContain(GIVEN.machineKey);
+  });
+
+  it("seals the Wi-Fi network with the rest and writes it for iwd, root's alone, never logging it", async () => {
+    const m = await machine(recordOf(ON_WIFI));
+    expect(await m.run()).toBe(true);
+    expect(m.sealed.map((p) => JSON.parse(p.toString()))).toEqual([ON_WIFI]);
+    const network = join(m.paths.wifi, "=436166c3a92057692d4669.psk");
+    expect(await readFile(network, "utf8")).toBe(
+      "[Security]\nPassphrase=\\s\\\\back slash\n\n[Settings]\nAutoConnect=true\n",
+    );
+    expect((await stat(network)).mode & 0o777).toBe(0o600);
+    expect(await readFile(m.paths.config, "utf8")).not.toContain("back slash");
+    expect(m.logs.join("\n")).not.toContain("back slash");
+
+    // Every later boot writes it again from the sealed provisioning, on a fresh /var.
+    await writeFile(network, "");
+    m.disk.mounted = false;
+    expect(await m.run()).toBe(true);
+    expect(await readFile(network, "utf8")).toContain("Passphrase=");
+  });
+
+  it("writes no Wi-Fi network for a PC on a cable", async () => {
+    const m = await machine(provisionRecord(GIVEN));
+    expect(await m.run()).toBe(true);
+    expect(await readdir(m.paths.wifi)).toEqual([]);
   });
 
   it("writes the config from the sealed provisioning at every later boot", async () => {
