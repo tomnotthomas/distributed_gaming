@@ -792,7 +792,7 @@ function Lobby({ id, swiff }: { id: string; swiff: Swiff }) {
             <p className="pl-pcline">
               <PcIcon />
               <span>
-                {t(playPc(crew)!.crewOnly === true ? "pl.pcLine" : "pl.pcLineOn", {
+                {t(playPc(crew)!.crewOnly === true && playPc(crew)!.crews === 1 ? "pl.pcLine" : "pl.pcLineOn", {
                   pc: pcTitle(lang, playPc(crew)!),
                 })}
               </span>

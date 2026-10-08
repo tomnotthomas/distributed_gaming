@@ -12,8 +12,11 @@ import { STEAM_LOGIN_URL } from "./steam";
 /** Someone in the crew as its invite shows them: persona, whether they founded it, their answer to its Zockrunde. */
 export type InviteGuest = { name: string | null; admin: boolean; rsvp: Rsvp | null };
 
-/** An invite as the friend opening it sees it: the crew, whether they are in it already, and who is in it. */
-export type OpenedInvite = CrewView & { member: boolean; guests: InviteGuest[] };
+/**
+ * An invite as the friend opening it sees it: the crew, whether they are in it already, and who is in it;
+ * `removed` when the admin removed them while this was the crew's link, which no longer lets them in.
+ */
+export type OpenedInvite = CrewView & { member: boolean; removed: boolean; guests: InviteGuest[] };
 
 /** Where invite links point: /invite/<token>. */
 export const INVITE_PATH = "/invite";

@@ -82,7 +82,8 @@ export function CrewInvite({ swiff }: { swiff: Swiff }) {
       !signedIn ||
       joinedOnce.current ||
       !opened ||
-      typeof opened !== "object"
+      typeof opened !== "object" ||
+      opened.removed
     )
       return;
     joinedOnce.current = true;
@@ -109,6 +110,20 @@ export function CrewInvite({ swiff }: { swiff: Swiff }) {
                 {t("jn.retry")}
               </button>
             ) : null}
+            <button type="button" className="lpill" onClick={goStart}>
+              {t("jn.back")}
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+  if (opened !== null && opened.removed) {
+    return (
+      <main className="crew-lobby" data-testid="invite">
+        <div className="lb-wrap crew-wait crew-gone">
+          <h1>{t("jn.removed")}</h1>
+          <div className="fa-acts">
             <button type="button" className="lpill" onClick={goStart}>
               {t("jn.back")}
             </button>

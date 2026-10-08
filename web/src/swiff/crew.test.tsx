@@ -897,7 +897,7 @@ describe("CrewPage: the guided crew page", () => {
 
   it("promises the PC plays for this crew only when it is crew-only, in English and German", async () => {
     const crewOnly = readyCrew({ session: dated, shared: true, picks: 1 });
-    crewOnly.machines = [{ ...crewOnly.machines[0]!, crewOnly: true }];
+    crewOnly.machines = [{ ...crewOnly.machines[0]!, crewOnly: true, crews: 1 }];
     fetchFrom({ "GET /api/crews/c1": [200, { crew: crewOnly }] });
     const { unmount } = render(<CrewPage swiff={atCrew("c1", library)} />);
     expect(await screen.findByText("Max's PC is on. It plays for this crew only.")).toBeInTheDocument();
@@ -922,6 +922,15 @@ describe("CrewPage: the guided crew page", () => {
     );
     expect(await screen.findByText("Max' PC ist an.")).toBeInTheDocument();
     expect(screen.queryByText(/nur für diese Crew/)).toBeNull();
+  });
+
+  it("does not promise this crew alone when the crew-only PC plays for other crews too", async () => {
+    const shared = readyCrew({ session: dated, shared: true, picks: 1 });
+    shared.machines = [{ ...shared.machines[0]!, crewOnly: true, crews: 2 }];
+    fetchFrom({ "GET /api/crews/c1": [200, { crew: shared }] });
+    render(<CrewPage swiff={atCrew("c1", library)} />);
+    expect(await screen.findByText("Max's PC is on.")).toBeInTheDocument();
+    expect(screen.queryByText(/plays for this crew only/)).toBeNull();
   });
 
   it("says when someone was quicker to start", async () => {
@@ -1536,6 +1545,7 @@ describe("CrewInvite", () => {
     pcs: 0,
     session: null,
     member: false,
+    removed: false,
     guests: [{ name: "Lena", admin: true, rsvp: null }],
   };
   const JOINED = { id: "c1", crew: { ...OPEN, member: undefined, size: 3 }, joined: true };
@@ -1586,6 +1596,29 @@ describe("CrewInvite", () => {
     ]);
     expect(screen.getByRole("link", { name: /I'm in\s*Join with Steam/ })).toBeInTheDocument();
     expect(screen.getByText("On Friday, open the crew page")).toBeInTheDocument();
+  });
+
+  it("tells someone the host removed that they are no longer in the crew, with nothing to join", async () => {
+    const REMOVED = { ...OPEN, removed: true, guests: [] };
+    at(`/invite/${TOKEN}`);
+    const calls = fetchFrom({ [`/api/invites/${TOKEN}`]: [200, { crew: REMOVED }] });
+    const { unmount } = render(<CrewInvite swiff={fakeSwiff()} />);
+    expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("You're no longer in this crew");
+    expect(screen.queryByRole("list")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Join/ })).toBeNull();
+    expect(screen.queryByText(/Session/)).toBeNull();
+    unmount();
+
+    at(`/invite/${TOKEN}`);
+    render(
+      <ScreenLang.Provider value="de">
+        <CrewInvite swiff={fakeSwiff()} />
+      </ScreenLang.Provider>,
+    );
+    expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent(
+      "Du bist nicht mehr in dieser Crew",
+    );
+    expect(calls.some(([method]) => method === "POST")).toBe(false);
   });
 
   it("joins and says yes with the one button, or joins and says no", async () => {

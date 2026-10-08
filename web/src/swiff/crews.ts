@@ -64,7 +64,7 @@ export type CrewPcPlay = {
 
 /**
  * A PC playing for a crew: `id` names the machine a game starts on, `games` the appids on it, `playing` who plays on it now;
- * `crewOnly`, for the viewer's own PC, whether only its crews play on it.
+ * `crewOnly`, for the viewer's own PC, whether only its crews play on it, and `crews` for how many crews it plays.
  */
 export type CrewPc = {
   id: string;
@@ -72,6 +72,7 @@ export type CrewPc = {
   owner: string | null;
   mine: boolean;
   crewOnly?: boolean;
+  crews?: number;
   state: "ready" | "busy" | "offline";
   games: number[];
   playing: CrewPcPlay | null;

@@ -398,6 +398,7 @@ describe("crews", () => {
         pcs: 0,
         session: null,
         member: true,
+        removed: false,
         guests: [
           { name: "Alex", admin: true, rsvp: null },
           { name: "Sam", admin: false, rsvp: null },
@@ -624,11 +625,17 @@ describe("crews", () => {
       // Only its owner reads on the crew page whether the PC is open to anyone too.
       assert.equal((await platform.crew(crewId, HOST))?.machines[0]?.crewOnly, true);
       assert.equal((await platform.crew(crewId, ALEX))?.machines[0]?.crewOnly, undefined);
+      assert.equal((await platform.crew(crewId, HOST))?.machines[0]?.crews, 1);
+      assert.equal((await platform.crew(crewId, ALEX))?.machines[0]?.crews, undefined);
       assert.deepEqual(
         closed.crew.crews.map((c) => [c.id, c.plays]),
         [[crewId, true]],
       );
       assert.equal(await platform.bookMachine("pc-1", 730, 30, STRANGER), null);
+      // Playing for a second crew of its owner's, it is no longer this crew's alone.
+      const own = await found(HOST, "Sam");
+      await offer("pc-1", { crews: [crewId, own.id] });
+      assert.equal((await platform.crew(crewId, HOST))?.machines[0]?.crews, 2);
     });
 
     it("refuses a claim on a PC taken from the renter's crew since the match, and queues the booking again", async () => {
@@ -690,6 +697,17 @@ describe("crews", () => {
       assert.equal(await platform.leaveCrew(members.find((m) => m.name === "Jo")!.id, ALEX), true);
       assert.deepEqual(await platform.joinCrew(inviteId, JO, "Jo"), { ok: false, reason: "not-found" });
       assert.equal(await platform.crew(crewId, JO), null);
+      // The old link tells them they are out, and shows them neither who is in nor the Zockrunde; others see the invite.
+      assert.equal(typeof (await platform.setCrewSession(crewId, ALEX, now + 86_400_000)), "object");
+      const out = await platform.invite(inviteId, JO);
+      assert.equal(out?.removed, true);
+      assert.equal(out?.member, false);
+      assert.equal(out?.session, null);
+      assert.deepEqual(out?.guests, []);
+      const other = await platform.invite(inviteId, STRANGER);
+      assert.equal(other?.removed, false);
+      assert.notEqual(other?.session, null);
+      assert.equal(other?.guests.length, 2);
 
       // Leaving by themselves keeps the way back open.
       const sam = members.find((m) => m.name === "Sam")!;
@@ -1259,6 +1277,7 @@ describe("crew API", () => {
         pcs: 0,
         session: null,
         member: false,
+        removed: false,
         guests: [{ name: "Alex", admin: true, rsvp: null }],
       },
     });
@@ -1391,6 +1410,7 @@ describe("crew API", () => {
         owner: "Sam",
         mine: true,
         crewOnly: true,
+        crews: 1,
         state: "ready",
         games: [570, 730],
         playing: null,

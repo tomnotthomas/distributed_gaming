@@ -313,6 +313,8 @@ export type CrewPc = {
   mine: boolean;
   /** For the viewer's own PC: whether only its crews play on it (crew_only), or anyone too. */
   crewOnly?: boolean;
+  /** For the viewer's own PC: how many crews it plays for. */
+  crews?: number;
   state: CrewPcState;
   games: number[];
   playing: CrewPcPlay | null;
@@ -1887,12 +1889,14 @@ export class Platform {
   /**
    * The crew a live invite joins, as `userId` opening the link sees it (null:
    * signed out), with whether they are in it already and its Zockrunde only
-   * while that is not over; null for a revoked or unknown invite.
+   * while that is not over; null for a revoked or unknown invite. `removed`
+   * when the admin removed them while this was the crew's link, which then no
+   * longer lets them in (joinCrew): they see neither who is in it nor its Zockrunde.
    */
   invite(
     inviteId: string,
     userId: string | null = null,
-  ): Promise<(CrewView & { member: boolean; guests: InviteGuest[] }) | null> {
+  ): Promise<(CrewView & { member: boolean; removed: boolean; guests: InviteGuest[] }) | null> {
     return this.#read(async () => {
       const crew = await this.#inviteCrew(inviteId);
       if (!crew) return null;
@@ -1904,13 +1908,23 @@ export class Platform {
       );
       const member = userId !== null && members.some((m) => m.user_id === userId);
       const view = crewView(crew, userId);
+      const removed =
+        userId !== null &&
+        !member &&
+        (await this.#get(
+          "SELECT 1 FROM crew_removals WHERE crew_id = $1 AND user_id = $2 AND invite_id = $3",
+          crew.id,
+          userId,
+          inviteId,
+        )) !== undefined;
+      if (removed) return { ...view, session: null, member, removed, guests: [] };
       const session = liveSession(view.session, this.#now());
       const guests = members.map((m) => ({
         name: m.name,
         admin: m.user_id === crew.owner_id,
         rsvp: session ? m.rsvp : null,
       }));
-      return { ...view, session, member, guests };
+      return { ...view, session, member, removed, guests };
     });
   }
 
@@ -2590,8 +2604,12 @@ export class Platform {
       owner_id: string | null;
       status: MachineStatus;
       crew_only: boolean;
+      crews: number;
     }>(
-      `SELECT q.id, q.name, q.owner_id, q.status, q.crew_only FROM crew_machines p JOIN machines q ON q.id = p.machine_id
+      `SELECT q.id, q.name, q.owner_id, q.status, q.crew_only,
+         (SELECT count(*)::int FROM crew_machines op JOIN crews o ON o.id = op.crew_id AND o.archived_at IS NULL
+           WHERE op.machine_id = q.id) AS crews
+         FROM crew_machines p JOIN machines q ON q.id = p.machine_id
          WHERE p.crew_id = $1 ORDER BY p.added_at, q.id`,
       crewId,
     );
@@ -2679,8 +2697,8 @@ export class Platform {
           name: q.name,
           owner: owner === null ? null : (persona.get(owner) ?? null),
           mine: owner === userId,
-          // Only its owner learns whether it plays for its crews alone or for anyone too.
-          ...(owner === userId ? { crewOnly: q.crew_only } : {}),
+          // Only its owner learns whether it plays for its crews alone or for anyone too, and for how many crews.
+          ...(owner === userId ? { crewOnly: q.crew_only, crews: q.crews } : {}),
           state: state === "ready" && !this.#offerable(q.id) ? "offline" : state,
           games: installed.filter((g) => g.machine_id === q.id).map((g) => Number(g.appid)),
           playing: play
