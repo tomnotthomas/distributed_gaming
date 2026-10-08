@@ -536,27 +536,42 @@ describe("going live", () => {
     fireEvent.click(screen.getByRole("button", { name: "Pair again" }));
     expect(host.actions.pair).toHaveBeenCalledWith({ fresh: true });
     cleanup();
-    // Asking whose it is, and the server naming nobody.
-    for (const [owner, row] of [
-      [undefined, "Checking"],
-      [null, "Unknown"],
-    ] as const) {
-      render(
-        <Shell
-          host={{
-            view: realView(off, { pairing: { kind: "paired", machineId: "pc-1", owner } }),
-            actions: actions(),
-          }}
-          step="pair"
-          onStep={go}
-          setupDone
-          finishSetup={vi.fn()}
-          paid
-        />,
-      );
-      expect(screen.getByText(row)).toBeInTheDocument();
-      cleanup();
-    }
+    // Still asking whose it is: checking, never a claim it can't confirm.
+    render(
+      <Shell
+        host={{
+          view: realView(off, { pairing: { kind: "paired", machineId: "pc-1", owner: undefined } }),
+          actions: actions(),
+        }}
+        step="pair"
+        onStep={go}
+        setupDone
+        finishSetup={vi.fn()}
+        paid
+      />,
+    );
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("This PC is paired");
+    expect(screen.getAllByText("Checking").length).toBeGreaterThan(0);
+    expect(
+      screen.queryByText("Lanterel couldn't confirm your Steam account. Please pair this PC again."),
+    ).toBeNull();
+    cleanup();
+    // The server names nobody: no claim of ownership, no Unknown account, and Pair again with the saved key.
+    const unconfirmed = {
+      view: realView(off, { pairing: { kind: "paired", machineId: "pc-1", owner: null } }),
+      actions: actions(),
+    };
+    render(<Shell host={unconfirmed} step="pair" onStep={go} setupDone finishSetup={vi.fn()} paid />);
+    expect(
+      screen.getByText("Lanterel couldn't confirm your Steam account. Please pair this PC again."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Unknown")).toBeNull();
+    expect(screen.queryByText("Steam account")).toBeNull();
+    expect(screen.queryByText(/It's yours on Lanterel/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Pair again" }));
+    expect(unconfirmed.actions.pair).toHaveBeenCalledOnce();
+    expect(unconfirmed.actions.pair).toHaveBeenCalledWith();
+    cleanup();
     render(<Shell host={host} step="pair" onStep={go} setupDone finishSetup={vi.fn()} paid />);
     fireEvent.click(screen.getByRole("button", { name: "Choose games" }));
     expect(go).toHaveBeenCalledWith("games");

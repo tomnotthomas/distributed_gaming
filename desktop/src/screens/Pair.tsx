@@ -28,11 +28,16 @@ function statement(pairing: Pairing): { title: string; line: string } {
     case "failed":
       return { title: "This PC isn't paired yet", line: pairing.why };
     case "paired":
+      if (pairing.owner === null)
+        return {
+          title: "This PC isn't confirmed",
+          line: "Lanterel couldn't confirm your Steam account. Please pair this PC again.",
+        };
       return {
         title: "This PC is paired",
         line: pairing.owner
           ? `It's paired with the Steam account ${pairing.owner}. If that isn't yours, pair again with a new key. Its key stays encrypted on this PC.`
-          : "It's yours on Lanterel, with the Steam account you signed in with. Its key stays encrypted on this PC.",
+          : "Lanterel is checking which Steam account it's paired with. Its key stays encrypted on this PC.",
       };
   }
 }
@@ -50,7 +55,8 @@ const STANDING: Record<Pairing["kind"], string> = {
 export function PairSetup({ view, actions, go }: ScreenProps) {
   const { pairing } = view;
   const { title, line } = statement(pairing);
-  const paired = pairing.kind === "paired";
+  const unconfirmed = pairing.kind === "paired" && pairing.owner === null;
+  const paired = pairing.kind === "paired" && !unconfirmed;
 
   return (
     <main className="step">
@@ -69,10 +75,10 @@ export function PairSetup({ view, actions, go }: ScreenProps) {
               Lanterel's server isn't answering right now. This screen keeps asking.
             </Notice>
           ) : null}
-          {pairing.kind === "unpaired" || pairing.kind === "failed" ? (
+          {pairing.kind === "unpaired" || pairing.kind === "failed" || unconfirmed ? (
             <div className="acts">
-              <Pill icon={pairing.kind === "failed" ? "refresh" : "arrow"} onClick={() => actions.pair()}>
-                {pairing.kind === "failed" ? "Pair again" : "Pair with Steam"}
+              <Pill icon={pairing.kind === "unpaired" ? "arrow" : "refresh"} onClick={() => actions.pair()}>
+                {pairing.kind === "unpaired" ? "Pair with Steam" : "Pair again"}
               </Pill>
             </div>
           ) : null}
@@ -88,7 +94,7 @@ export function PairSetup({ view, actions, go }: ScreenProps) {
             </div>
           ) : null}
         </div>
-        <Plate caption={["Account", STANDING[pairing.kind]]}>
+        <Plate caption={["Account", unconfirmed ? "Not confirmed" : STANDING[pairing.kind]]}>
           <div className="mplatebody">
             {pairing.kind === "waiting" ? (
               <p className="paircode" aria-label={`Pairing code ${pairing.code.split("").join(" ")}`}>
@@ -97,7 +103,13 @@ export function PairSetup({ view, actions, go }: ScreenProps) {
             ) : (
               <span className="mono pairstate">
                 {paired ? <Glyph name="check" /> : null}
-                {paired ? "Paired with Steam" : pairing.kind === "checking" ? "Checking" : "Not paired"}
+                {paired
+                  ? "Paired with Steam"
+                  : pairing.kind === "checking"
+                    ? "Checking"
+                    : unconfirmed
+                      ? "Not confirmed"
+                      : "Not paired"}
               </span>
             )}
           </div>
@@ -120,11 +132,13 @@ export function PairSetup({ view, actions, go }: ScreenProps) {
             ) : undefined
           }
         >
-          <Kv label="Paired">{paired ? "Yes" : pairing.kind === "checking" ? "Checking" : "No"}</Kv>
-          <Kv label="Steam account">
-            {paired ? (pairing.owner === undefined ? "Checking" : (pairing.owner ?? "Unknown")) : "None yet"}
+          <Kv label="Paired">
+            {paired ? "Yes" : pairing.kind === "checking" ? "Checking" : unconfirmed ? "Not confirmed" : "No"}
           </Kv>
-          <Kv label="Machine ID">{paired ? pairing.machineId : "Given when paired"}</Kv>
+          {unconfirmed ? null : (
+            <Kv label="Steam account">{paired ? (pairing.owner ?? "Checking") : "None yet"}</Kv>
+          )}
+          <Kv label="Machine ID">{pairing.kind === "paired" ? pairing.machineId : "Given when paired"}</Kv>
         </Zone>
         <Zone title="Next">
           <p className="soft">{paired ? "Pick the games players can play." : "Pair this PC first."}</p>
