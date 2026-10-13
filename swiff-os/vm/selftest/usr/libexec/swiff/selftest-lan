@@ -128,11 +128,15 @@ def outcomes(probes):
     """Runs the probes, each as its user (the renter's in one unprivileged process)."""
     found = {p[0]: probe(*p[2:5]) for p in probes if p[1] == "root"}
     mine = [p for p in probes if p[1] == "renter"]
-    out = subprocess.run(
+    res = subprocess.run(
         ["setpriv", "--reuid=renter", "--regid=renter", "--init-groups", "--no-new-privs", "--", sys.argv[0], "probe"],
         input=json.dumps(mine), capture_output=True, text=True,
-    ).stdout
-    found.update(json.loads(out or "{}"))
+    )
+    # Without the renter's outcomes, a blocked probe would pass as unanswered.
+    if res.returncode != 0 or not res.stdout:
+        check("renter-probes-ran", False, f"exit status {res.returncode}: {res.stderr.strip()[-300:] or 'no output'}")
+        raise SystemExit("the renter's probes did not run")
+    found.update(json.loads(res.stdout))
     return found
 
 
