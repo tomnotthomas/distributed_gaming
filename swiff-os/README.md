@@ -765,6 +765,14 @@ server starts).
 7. The PC is powered off and booted with a kernel command line from outside its signed UKI (an
    SMBIOS string systemd-stub takes and measures into PCR 12). The server refuses its
    attestation (`unknown-boot-extras`), so the PC gets no state key and is never offered.
+8. The record the owner's app sealed in step 1 goes, byte for byte, onto a fresh copy of the
+   image on another PC: a second TPM from the same maker, with its own storage root key, booting
+   the same signed Lanterel OS. Its TPM refuses to open the record, `swiff-provision` zeroes it,
+   and no config is written.
+9. The same record on this PC, in a modified Lanterel OS: the UKI with its os-release changed
+   and everything else as built, its `.pcrsig` and `.pcrpkey` kept and signed again with the
+   build's Secure Boot key, so the firmware still starts it (as if that key had leaked). Its PCR
+   11 is not one Lanterel signed: the record does not open, and no config is written.
 
 Two things stand in for what a VM cannot have. gamescope needs a GPU, so a test picture under
 gamescope's PipeWire node name and a tone stand in for it. The tone plays through `pw-cat`, not
