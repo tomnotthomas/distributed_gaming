@@ -339,7 +339,7 @@ to `GET /api/ping` and one upload test), before the restart. A body is at most 3
 | `hardware.encoders` | Any of `h264`, `hevc`, `av1`: what the GPU can encode the stream with                                                                          | NVENC, AMF or QSV probe: Media Foundation's hardware encoders          |
 | `hardware.display`  | `width`, `height` (1–16384) and `refreshHz` (1–1000), whole numbers: the display the stream captures                                           | The primary display's mode                                             |
 | `games`             | Up to 2000 Steam appids, whole numbers from 1: installed, ready to launch and offered by the owner. `[]` means none                            | `libraryfolders.vdf` → `appmanifest_<appid>.acf` with `StateFlags` = 4 |
-| `controls`          | Any of `kb`, `mouse`, `pad`; `pad` only when the ViGEmBus driver is installed                                                                  | Driver check                                                           |
+| `controls`          | Any of `kb`, `mouse`, `pad`; `pad` only when the ViGEmBus driver is installed. In rental mode all three (Lanterel OS injects them)             | Driver check; none in rental mode                                      |
 | `net`               | All three fields required, numbers from 0: `rttMs` and `jitterMs` up to 60000, `upMbps` up to 100000                                           | Round trip to the server, and an upload test (below)                   |
 
 The host app reads the hardware once per launch, in one PowerShell run (`desktop/probe.cjs`);
