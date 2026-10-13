@@ -122,10 +122,20 @@ encrypts the JSON payload (`{ serverUrl, machineId, machineKey }`, and whatever 
 over besides) with a fresh AES-256-GCM key, and seals that key with `TPM2_Create` under the
 storage root key Windows keeps at `0x81000001`, through Windows' TPM Base Services (one
 PowerShell that compiles a few lines of C# over `tbs.dll`; the commands go over its stdin only,
-never a command line, a file or a log). The sealed key's only policy is `PolicyAuthorize` by
-the key that signs each release's PCR 11 values (the image set's Secure Boot certificate: mkosi
-signs the UKI's `.pcrsig` with it), so only a boot of a UKI Lanterel signed, on this PC's TPM,
-can unseal it. The worker writes one record (`SWIFFPRV`, version 2, the length and SHA-256 of
+never a command line, a file or a log). The sealed key's policy is `PolicyAuthorize` by the
+key that signs each release's PCR 11 values (the image set's Secure Boot certificate: mkosi
+signs the UKI's `.pcrsig` with it), then `PolicyPCR` of PCRs 12 and 13 at zero, so only a boot
+of a UKI Lanterel signed, on this PC's TPM, that took nothing from outside that UKI can unseal
+it. PCRs 12 and 13 are where systemd-stub measures a kernel command line, credentials, add-ons
+and system extensions it takes from outside the UKI; a Lanterel OS boot takes none, so they
+stay zero (the server refuses a boot whose PCR 12 or 13 is not, as `unknown-boot-extras`). With
+Secure Boot off, a boot loader of anyone's choosing could start the genuine UKI with
+`systemd.debug_shell=1` or `init=…`: its PCR 11 is still one Lanterel signed, but its PCR 12 is
+not zero, so the record stays shut. PCR 7 (the Secure Boot state and authorities) is not bound:
+Windows, sealing, cannot know the value Lanterel OS's boot through shim and the MOK will have,
+and a firmware or `dbx` update changes it between Go live and that boot. A boot that turned
+Secure Boot off but took nothing from outside the signed UKI is Lanterel OS as signed, and it
+may open the record. The worker writes one record (`SWIFFPRV`, version 2, the length and SHA-256 of
 the sealed body, padded to 4 KiB) at the start of the keep partition the install added, and
 reads it back. Nothing of the payload is on the disk in the clear: a thief, a housemate or
 software on Windows reading the keep, or a copy of it left on an old SSD, finds only ciphertext
@@ -371,13 +381,15 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   the sealed key under the storage root key at `0x81000001`, checks Lanterel's signature over
   the PolicyPCR digest of this boot's PCR 11 (`TPM2_VerifySignature` with the UKI's `.pcrpkey`,
   the signature from its `.pcrsig`, both in `/run/systemd`), and unseals the key only once
-  `PolicyPCR` and `PolicyAuthorize` hold; the key decrypts the payload, whose tag must match.
-  Another PC, a cleared TPM, a UKI Lanterel did not sign, or a record changed after it was
-  sealed cannot get that far. Should systemd-pcrphase move PCR 11 on to the next phase mid-way,
+  `PolicyPCR`, `PolicyAuthorize` and then `PolicyPCR` of PCRs 12 and 13 at zero hold; the key
+  decrypts the payload, whose tag must match. Another PC, a cleared TPM, a UKI Lanterel did not
+  sign, a boot with a command line or other extras from outside its UKI, or a record changed
+  after it was sealed cannot get that far. Should systemd-pcrphase move PCR 11 on to the next phase mid-way,
   it tries again with the new value. The payload is then checked (a `wss://` server, or
   `ws://` on this machine, a machine id and a machine key), sealed again with `systemd-creds`
-  under Swiff's signed PCR 11 policy, as the state's U share is, so only a signed Swiff OS
-  boot of this PC opens it, and the record is zeroed; the keep is then formatted as ext4 and
+  under Swiff's signed PCR 11 policy, as the state's U share is, and PCRs 12 and 13 at zero
+  (`--tpm2-pcrs=12:sha256=0…+13:sha256=0…`), so only a signed Swiff OS boot of this PC with no
+  extras opens it, and the record is zeroed; the keep is then formatted as ext4 and
   keeps that credential (`provision.cred`). A record it cannot take in (damaged, of another
   version, the plaintext version 1 among them, one the TPM does not open, or one it cannot
   seal again) is zeroed all the same, and swiff-hostd does not start: nothing falls back to a
@@ -737,7 +749,8 @@ server starts).
    into rental mode: Go live's own provision step (`apply-plan.cjs provision` in
    `desktop/vm/`) seals the server, the machine id and the machine key to the VM's TPM, as the
    elevated worker does through TBS (the VM's swtpm on a TCP channel before it boots, its
-   storage root key made at `0x81000001` first, as Windows makes it), and writes the record at
+   storage root key made at `0x81000001` first, as Windows makes it), under the signed PCR 11
+   policy and PCRs 12 and 13 at zero, and writes the record at
    the start of the image's keep partition. Before the first boot the keep holds the record but
    not the machine key in the clear. Nothing else gives the VM a config or a key.
 2. `swiff-provision` opens the record with the TPM, seals it again for itself and zeroes it:
@@ -762,9 +775,12 @@ server starts).
    boot it attests again, opens the same state with U unsealed from the TPM, finds there that it
    took the PC off offer itself, and offers it again, with the Steam client kept from the boot
    before rather than downloaded again.
-7. The PC is powered off and booted with a kernel command line from outside its signed UKI (an
-   SMBIOS string systemd-stub takes and measures into PCR 12). The server refuses its
-   attestation (`unknown-boot-extras`), so the PC gets no state key and is never offered.
+7. The PC is powered off, the record the owner's app sealed in step 1 is written at the start of
+   its keep again, as Go live would, and it is booted with a kernel command line from outside
+   its signed UKI (an SMBIOS string systemd-stub takes and measures into PCR 12). Its PCR 11 is
+   one Lanterel signed, but PCR 12 is not zero: the TPM refuses to open the record,
+   `swiff-provision` zeroes it, no config is written, and `swiff-hostd` never starts, so the PC
+   gets no state key and is never offered.
 8. The record the owner's app sealed in step 1 goes, byte for byte, onto a fresh copy of the
    image on another PC: a second TPM from the same maker, with its own storage root key, booting
    the same signed Lanterel OS. Its TPM refuses to open the record, `swiff-provision` zeroes it,

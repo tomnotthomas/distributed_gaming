@@ -20,7 +20,7 @@ import { fakeTpm, type SrkMode } from "./test/fakeTpm";
 import { GOLDEN_CERT, GOLDEN_PEM } from "./test/goldenKey";
 
 const NAME = "000bb0609f4f2dcf176400b8725546a2aa1239e0a5116a97003cbb6930d2cb974afb";
-const AUTH_POLICY = "b38c8c71cb83e0a22696b8bb6c9aada522313f475ab1d1dff399a36c11105eab";
+const AUTH_POLICY = "e67aa50e13cec368618678569ae8d48b604d1ec2551c608c2078910390ac66ca";
 const NO_SRK = /^Windows has not set up this PC's TPM for Lanterel OS yet: .* then go live again\.$/;
 const MACHINE = {
   serverUrl: "wss://lanterel.example",

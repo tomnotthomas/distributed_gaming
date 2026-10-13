@@ -1,10 +1,12 @@
 // Sealing the hand-over record's key (provision.cjs) to this PC's TPM, so only
 // a Lanterel OS boot of this PC can open it: TPM2_Create under Windows' storage
-// root key, of a sealed object whose one policy is PolicyAuthorize by the key
-// that signs Lanterel OS's PCR 11 policies (the image set's Secure Boot
-// certificate's: mkosi signs the UKI's .pcrsig with it). Only a boot whose PCR
-// 11 that key signed can unseal it (swiff-os/hostd/src/handover.ts), and the
-// sealed object never leaves this TPM in a form another TPM can load.
+// root key, of a sealed object whose policy is PolicyAuthorize by the key that
+// signs Lanterel OS's PCR 11 policies (the image set's Secure Boot
+// certificate's: mkosi signs the UKI's .pcrsig with it), then PolicyPCR of
+// PCRs 12 and 13 at zero. Only a boot whose PCR 11 that key signed, and that
+// took no extras from outside its UKI, can unseal it
+// (swiff-os/hostd/src/handover.ts), and the sealed object never leaves this
+// TPM in a form another TPM can load.
 //
 // Raw TPM 2.0 commands with Node's crypto, as Lanterel OS's side
 // (swiff-os/hostd/src/tpm.ts). Names follow the TCG TPM 2.0 Library
@@ -18,7 +20,7 @@ const crypto = require("node:crypto");
 const SRK_HANDLE = 0x81000001;
 
 const ALG = { RSA: 0x0001, KEYEDHASH: 0x0008, SHA256: 0x000b, NULL: 0x0010, ECC: 0x0023 };
-const CC = { Create: 0x153, PolicyAuthorize: 0x16a, ReadPublic: 0x173 };
+const CC = { Create: 0x153, PolicyAuthorize: 0x16a, ReadPublic: 0x173, PolicyPCR: 0x17f };
 const TPM_RS_PW = 0x40000009;
 /** userWithAuth decrypt sign: the signing key as both sides load it. */
 const SIGNING_ATTRIBUTES = 0x00060040;
@@ -145,10 +147,22 @@ function signingKey(key) {
   return { public: pub, name: Buffer.concat([u16(ALG.SHA256), sha256(pub)]) };
 }
 
-/** The sealed object's authPolicy: PolicyAuthorize by `key` (as signingKey takes it), with an empty policyRef. */
+/**
+ * The TPML_PCR_SELECTION of SHA-256 PCRs 12 and 13: a boot's extras (a command
+ * line from outside its UKI, credentials, add-ons, system extensions), which a
+ * Lanterel OS boot leaves at zero.
+ */
+const EXTRAS = Buffer.from("00000001000b03003000", "hex");
+
+/**
+ * The sealed object's authPolicy: PolicyAuthorize by `key` (as signingKey
+ * takes it), with an empty policyRef, then PolicyPCR of SHA-256 PCRs 12 and 13
+ * at zero.
+ */
 function sealPolicy(key) {
   const { name } = signingKey(key);
-  return sha256(sha256(Buffer.alloc(32), u32(CC.PolicyAuthorize), name));
+  const authorized = sha256(sha256(Buffer.alloc(32), u32(CC.PolicyAuthorize), name));
+  return sha256(authorized, u32(CC.PolicyPCR), EXTRAS, sha256(Buffer.alloc(64)));
 }
 
 /** The sealed object's TPMT_PUBLIC template, under `policy`. */

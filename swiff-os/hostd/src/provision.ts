@@ -5,8 +5,9 @@
 // restarts the PC into it. The record arrives sealed: the owner's Windows app
 // encrypts the payload with a fresh key and seals that key to this PC's TPM
 // under PolicyAuthorize by Lanterel's PCR signing key (the UKI's .pcrpkey, its
-// signed PCR 11 policies in .pcrsig), so only a Lanterel OS boot of this PC
-// opens it, and it is never on the disk in the clear (handover.ts):
+// signed PCR 11 policies in .pcrsig) and PCRs 12 and 13 at zero, so only a
+// Lanterel OS boot of this PC with no extras from outside its UKI opens it,
+// and it is never on the disk in the clear (handover.ts):
 //
 //   offset  bytes
 //        0      8  "SWIFFPRV"
@@ -22,7 +23,8 @@
 //
 //   a record there   open it (handover.ts), then seal its payload to this
 //                    PC's TPM again under Swiff's signed PCR 11 policy
-//                    (systemd-creds, as the state's U share); zero the record;
+//                    (systemd-creds, as the state's U share) and PCRs 12
+//                    and 13 at zero; zero the record;
 //                    format the keep as ext4 and keep the sealed payload there
 //                    (provision.cred). The keep held the old U share, which
 //                    goes with it: the state is renewed, as it is anyway after
@@ -281,7 +283,13 @@ async function writeDurably(path: string, data: Buffer): Promise<void> {
 /** The name the provisioning is sealed under. */
 const CREDENTIAL_NAME = "swiff-provision";
 
-/** Seal with systemd-creds under Swiff's signed PCR 11 policy, as the state's U share is. */
+/** SHA-256 PCRs 12 and 13 at zero: no extras from outside the UKI, as handover.ts binds them. */
+const NO_EXTRAS = `12:sha256=${"0".repeat(64)}+13:sha256=${"0".repeat(64)}`;
+
+/**
+ * Seal with systemd-creds under Swiff's signed PCR 11 policy, as the state's U
+ * share is, and PCRs 12 and 13 at zero.
+ */
 export function tpmSeal(filter: RunFilter = runFilter, policy: typeof PCR_POLICY = PCR_POLICY) {
   return (payload: Buffer) =>
     filter(
@@ -291,6 +299,7 @@ export function tpmSeal(filter: RunFilter = runFilter, policy: typeof PCR_POLICY
         `--name=${CREDENTIAL_NAME}`,
         "--with-key=tpm2-with-public-key",
         `--tpm2-public-key=${policy.publicKey}`,
+        `--tpm2-pcrs=${NO_EXTRAS}`,
         "-",
         "-",
       ],
@@ -298,7 +307,7 @@ export function tpmSeal(filter: RunFilter = runFilter, policy: typeof PCR_POLICY
     );
 }
 
-/** Unseal what tpmSeal sealed; only a boot whose PCR 11 Swiff signed can. */
+/** Unseal what tpmSeal sealed; only a boot whose PCR 11 Swiff signed, with no extras, can. */
 export function tpmUnseal(exec: RunBytes = runBytes, policy: typeof PCR_POLICY = PCR_POLICY) {
   return async (file: string) => {
     // Its absence is told apart from a refusal: the first never was, the second is a changed TPM.

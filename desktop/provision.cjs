@@ -7,7 +7,8 @@
 // The record is sealed on Windows before it touches the disk: its payload is
 // encrypted with a fresh AES-256-GCM key, and that key is sealed to this PC's
 // TPM (tpm-seal.cjs) under a policy only a Lanterel OS boot whose PCR 11
-// Lanterel's key signed can satisfy. So it never sits on the disk in the
+// Lanterel's key signed, with no extras in PCRs 12 and 13, can satisfy. So it
+// never sits on the disk in the
 // clear, and nothing but Lanterel OS on this PC can open it. Lanterel OS
 // unseals it at its next start, seals what it holds again for itself, and
 // zeroes the record (swiff-os/hostd/src/provision.ts and handover.ts, which
@@ -40,6 +41,7 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const { b2 } = require("./tpm-seal.cjs");
 
 const RECORD_MAGIC = Buffer.from("SWIFFPRV", "ascii");
 const RECORD_VERSION = 2;
@@ -81,13 +83,6 @@ function machineProblem({ serverUrl, machineId }) {
 function machineKeyProblem(machineKey) {
   if (typeof machineKey === "string" && MACHINE_KEY.test(machineKey)) return null;
   return "This PC has no machine key Lanterel OS can use: pair it with your Steam account again, in the Account step.";
-}
-
-/** A TPM2B: the bytes with their 16-bit size in front. */
-function b2(data) {
-  const size = Buffer.alloc(2);
-  size.writeUInt16BE(data.length);
-  return Buffer.concat([size, data]);
 }
 
 /**

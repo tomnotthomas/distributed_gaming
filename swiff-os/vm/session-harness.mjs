@@ -19,7 +19,8 @@
 //      provision step (desktop/vm/apply-plan.cjs) seals the server, the
 //      machine id and the machine key to the PC's TPM, under Windows' storage
 //      root key (desktop/vm/swtpm.cjs makes it as Windows does) and a policy
-//      only a boot whose PCR 11 the build's key signed satisfies, and writes
+//      only a boot whose PCR 11 the build's key signed, with PCRs 12 and 13
+//      at zero, satisfies, and writes
 //      the record at the start of the image's keep partition. The keep then
 //      holds the record but not the machine key. No config is given to the VM
 //      any other way.
@@ -42,10 +43,12 @@
 //      attests again, opens the same state, finds there that it took the PC
 //      off offer itself, and offers it again, with the Steam client kept from
 //      the boot before rather than downloaded again.
-//   6. a tampered boot: the PC is powered off and booted with a kernel command
-//      line from outside the signed UKI (an SMBIOS string systemd-stub takes
-//      and measures into PCR 12). The server refuses its attestation, so it
-//      gets no state key and is never offered.
+//   6. a tampered boot: the PC is powered off, the record Go live sealed is
+//      written at its keep's start again, and it is booted with a kernel
+//      command line from outside the signed UKI (an SMBIOS string systemd-stub
+//      takes and measures into PCR 12, which the seal binds at zero). The TPM
+//      does not open the record: Lanterel OS zeroes it, writes no config, and
+//      swiff-hostd never starts, so it gets no state key and is never offered.
 //   7. another PC: the record Go live sealed, copied onto the keep of another
 //      PC with a TPM, a storage root key and firmware of its own. Lanterel OS
 //      there cannot open it: it zeroes the record and swiff-hostd never starts.
@@ -213,8 +216,9 @@ const EXPECTED = NO_IOMMU
       "the restart kept hostd's state: it offered the PC again as its own reset",
       "the second boot does not download Steam again",
       "the PC is offered again after the restart",
-      "a tampered boot is refused attestation",
-      "the tampered boot gets no state key and is not offered",
+      "a boot with a command line from outside its UKI does not open the record",
+      "the tampered boot gets no config, no state key and is not offered",
+      "the record is zeroed after the tampered boot",
       "a record copied to another PC does not open there",
       "the copied record is zeroed there",
       "a modified Lanterel OS does not open the record",
@@ -1197,40 +1201,42 @@ async function renter() {
 }
 
 /**
- * The PC powered off and booted with a kernel command line from outside its
- * signed UKI: systemd-stub measures it into PCR 12, which no release has.
- * Its attestation is refused, so the server keeps its state key back and the
- * PC is never offered.
+ * The PC powered off, the record Go live sealed for it written again at its
+ * keep's start, as Go live would, and booted with a kernel command line from
+ * outside its signed UKI: systemd-stub measures it into PCR 12, which the
+ * seal binds at zero. The TPM does not open the record, so Lanterel OS zeroes
+ * it, writes no config, and swiff-hostd never starts: no state key, never
+ * offered.
  */
 async function tamperedBoot() {
   await powerOff();
+  const disk = join(RUN, "disk.qcow2");
+  writeAt(disk, SEALED, partition("swiff-keep").offset);
   const before = boot;
   await startVm(["-smbios", `type=11,value=${TAMPER}`]);
-  console.log(`----  the VM is booting with ${TAMPER}  [${elapsed()}]`);
+  console.log(`----  the VM is booting with ${TAMPER}, with the sealed record on its keep  [${elapsed()}]`);
   const tampered = before + 1;
-  // The client's refusal, as swiff-hostd logs it, with the verifier's reason
-  // last. A try before systemd measured the `ready` phase into PCR 11 is
-  // refused as unknown-boot-image first: the PCR 12 refusal comes on a later one.
-  const refusal = await until(
-    () => boot >= tampered && seen(/attest answered \d+ .*unknown-boot-extras/, tampered),
-    "the tampered boot's refusal",
-    600_000,
-  ).catch(() => null);
+  const report = await provisionReport(tampered);
   record(
-    "a tampered boot is refused attestation",
-    Boolean(refusal),
-    refusal?.line.replace(/^.*swiff-attest: /, "") ??
-      seen(/\[swiff-hostd\] not offered: /, tampered)?.line ??
-      "no attestation reported",
+    "a boot with a command line from outside its UKI does not open the record",
+    Boolean(report?.refusal) && report.config === "none",
+    report?.detail ?? "not reported",
   );
-  // Long enough for the agent's next tries, which the server refuses the same way.
+  // Long enough for an agent that started to have attested and offered the PC.
   await sleep(45_000);
   const offered = results.get(`boot${tampered}/hostd-offered`);
   const state = seen(/the persistent state is open/, tampered);
   record(
-    "the tampered boot gets no state key and is not offered",
-    Boolean(refusal) && !offered?.ok && !state && !seen(/hostd-phase offered/, tampered),
-    `offered: ${offered?.ok ? "yes" : "no"}, state opened: ${state ? "yes" : "no"}`,
+    "the tampered boot gets no config, no state key and is not offered",
+    report?.config === "none" && !offered?.ok && !state && !seen(/hostd-phase offered/, tampered),
+    `config: ${report?.config ?? "not reported"}, offered: ${offered?.ok ? "yes" : "no"}, state opened: ${state ? "yes" : "no"}`,
+  );
+  await powerOff();
+  const clear = keepInTheClear(disk);
+  record(
+    "the record is zeroed after the tampered boot",
+    !clear.record && !clear.key,
+    `${clear.record ? "the record is still there" : "no record"}; ${clear.key ? "the machine key is in the clear" : "no machine key in the clear"}`,
   );
 }
 

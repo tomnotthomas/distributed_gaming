@@ -381,7 +381,7 @@ describe("the machine's side", () => {
     expect(runs.filter(([c]) => c === "mount")).toHaveLength(1);
   });
 
-  it("seals and unseals with systemd-creds under the signed PCR policy, the payload on stdin", async () => {
+  it("seals and unseals with systemd-creds under the signed PCR policy and PCRs 12 and 13 at zero, the payload on stdin", async () => {
     const dir = await mkdtemp(join(tmpdir(), "swiff-creds-"));
     const policy = { publicKey: join(dir, "pcr-public-key.pem"), signature: join(dir, "pcr-signature.json") };
     const calls: string[][] = [];
@@ -405,6 +405,7 @@ describe("the machine's side", () => {
         "--name=swiff-provision",
         "--with-key=tpm2-with-public-key",
         `--tpm2-public-key=${policy.publicKey}`,
+        `--tpm2-pcrs=12:sha256=${"0".repeat(64)}+13:sha256=${"0".repeat(64)}`,
         "-",
         "-",
       ],

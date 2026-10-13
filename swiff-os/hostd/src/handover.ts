@@ -4,8 +4,10 @@
 // PC's TPM, under the storage root key at 0x81000001, with a policy only a
 // Lanterel OS boot satisfies: PolicyAuthorize by Lanterel's PCR signing key,
 // the key in the UKI's .pcrpkey section, whose signed PCR 11 policies are in
-// its .pcrsig section (systemd-stub leaves both in /run, PCR_POLICY). The
-// record's body (provision.ts) is
+// its .pcrsig section (systemd-stub leaves both in /run, PCR_POLICY), then
+// PolicyPCR of PCRs 12 and 13 at zero: a boot that took a command line,
+// credentials, add-ons or system extensions from outside its UKI has them
+// extended. The record's body (provision.ts) is
 //
 //   TPM2B  the sealed key's TPMT_PUBLIC
 //   TPM2B  the sealed key's TPM2B_PRIVATE contents
@@ -14,9 +16,9 @@
 //       …  the payload's ciphertext, no AAD, to the end of the body
 //
 // Opening it, with the raw commands of tpm.ts: the TPM verifies Lanterel's
-// signature over the policy for this boot's PCR 11, unseals the key under it,
-// and the key decrypts the payload. Another PC, a cleared TPM or a boot
-// Lanterel did not sign cannot. The key and the payload are zeroed as soon as
+// signature over the policy for this boot's PCR 11, checks PCRs 12 and 13 are
+// still zero, unseals the key, and the key decrypts the payload. Another PC, a
+// cleared TPM, a boot Lanterel did not sign or one with extras cannot. The key and the payload are zeroed as soon as
 // they are used, and no message quotes either.
 
 import { createDecipheriv, createHash, createPublicKey } from "node:crypto";
@@ -29,6 +31,8 @@ import { ALG, b2, CC, deviceTransport, selection, Tpm, TpmError, u16, u32, type 
 const SRK_HANDLE = 0x81000001;
 /** The PCR whose signed values say a boot is Lanterel OS's: the UKI's, measured by systemd-stub. */
 const PCR = 11;
+/** The PCRs a boot's extras from outside its UKI go to, zero in a Lanterel OS boot. */
+const EXTRAS = [12, 13];
 /** userWithAuth decrypt sign: what systemd gives the key it loads to check a PCR policy's signature. */
 const SIGNING_ATTRIBUTES = 0x00060040;
 const AES_KEY_BYTES = 32;
@@ -92,9 +96,15 @@ export function signingKey(pem: string): SigningKey {
   return { public: pub, name: Buffer.concat([u16(ALG.SHA256), sha256(pub)]) };
 }
 
-/** The sealed key's authPolicy: PolicyAuthorize by the key named `name`, with an empty policyRef. */
+/**
+ * The sealed key's authPolicy: PolicyAuthorize by the key named `name`, with
+ * an empty policyRef, then PolicyPCR of SHA-256 PCRs 12 and 13 at zero.
+ */
 export function authorizedPolicy(name: Buffer): Buffer {
-  return sha256(sha256(Buffer.concat([Buffer.alloc(32), u32(CC.PolicyAuthorize), name])));
+  const authorized = sha256(sha256(Buffer.concat([Buffer.alloc(32), u32(CC.PolicyAuthorize), name])));
+  return sha256(
+    Buffer.concat([authorized, u32(CC.PolicyPCR), selection(EXTRAS), sha256(Buffer.alloc(32 * EXTRAS.length))]),
+  );
 }
 
 /** The PolicyPCR digest of SHA-256 PCR 11 at `value`: what Lanterel signs for each phase of its boot. */
@@ -180,6 +190,7 @@ async function unsealKey(
     session = await tpm.policySession();
     await tpm.policyPcr(session, [PCR]);
     await tpm.policyAuthorize(session, policy, key.name, ticket);
+    await tpm.policyPcr(session, EXTRAS);
     const aesKey = await tpm.unseal(sealed, session);
     // Used once: the TPM flushed it.
     session = null;

@@ -52,7 +52,7 @@ KwIDAQAB
 -----END PUBLIC KEY-----
 `;
 const GOLDEN_NAME = "000bb0609f4f2dcf176400b8725546a2aa1239e0a5116a97003cbb6930d2cb974afb";
-const GOLDEN_POLICY = "b38c8c71cb83e0a22696b8bb6c9aada522313f475ab1d1dff399a36c11105eab";
+const GOLDEN_POLICY = "e67aa50e13cec368618678569ae8d48b604d1ec2551c608c2078910390ac66ca";
 
 const GIVEN: Provisioning = {
   serverUrl: "wss://lanterel.example",
@@ -303,6 +303,14 @@ describe.skipIf(!SWTPM)("the hand-over on a software TPM", () => {
     });
     expect((await open(record, policy, racing)).toString()).toBe(JSON.stringify(GIVEN));
     expect(moved).toBe(true);
+  });
+
+  it("refuses a boot with a command line from outside its UKI, PCR 11 signed and all", async () => {
+    const now = Buffer.from((await tpm.readPcrs([11]))[11]!, "hex");
+    const policy = { publicKeyPem: pem, signatureJson: signatures(lanterel.privateKey, [now]) };
+    expect((await open(record, policy)).toString()).toBe(JSON.stringify(GIVEN));
+    await tpm.extend(12, sha256("systemd.debug_shell=1"));
+    await expect(open(record, policy)).rejects.toThrow(/TPM refuses to open/);
   });
 
   it("refuses a boot Lanterel did not sign", async () => {
