@@ -502,10 +502,12 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
 
   The verdict holds `multi-user.target` (`swiff-hostd` waits for it).
 
-  This side writes iwd's network file and `/run/swiff/network`; two separate changes consume them:
-  the owner's host app, which hands over the Wi-Fi network and checks for a network before Go
-  live (telling the owner when a cable is needed), and Lanterel's status screen, which shows
-  `/run/swiff/network` and so must wait for neither `network-online.target` nor `multi-user.target`.
+  This side writes iwd's network file and `/run/swiff/network`; two planned follow-up changes,
+  not yet landed, consume them: the owner's host app will hand over the Wi-Fi network and check
+  for a network before Go live (telling the owner when a cable is needed), and Lanterel's status
+  screen will show `/run/swiff/network`, waiting for neither `network-online.target` nor
+  `multi-user.target`. Until the host app hands a Wi-Fi network over, a PC without a cable stays
+  offline (`REASON=no-network`).
 
 - **The renter sees only verified games.** The owner's games library is never written by the renter.
   The renter sees a view of it at `/srv/games` that shows only verified files, and their writes go to
