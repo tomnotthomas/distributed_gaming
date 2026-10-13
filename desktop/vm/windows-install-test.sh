@@ -25,7 +25,8 @@
 #               6. the PC powered off at the key's screen: a clean start, the app asks
 #               7. the key confirmed: PCR 7 a clean start's (Windows Hello's PIN and
 #                  BitLocker unaffected, as vm/pcr7.py replays the TCG log)
-#               8. Swiff OS once through shim; its ESP still sound after Windows
+#               8. Swiff OS once through shim, opening the hand-over Windows sealed
+#                  to the TPM; its ESP still sound after Windows
 #               9. Remove Swiff OS after a full install: its key at MokManager, then
 #                  the rest as the app goes on with it by itself (the disk, its check,
 #                  the restart), the next start checked: all back as it was
@@ -526,6 +527,9 @@ test_run() {
 		tr -d '\r' < "$run/serial.log" | sed 's/\x1b\[[0-9;?]*[A-Za-z]//g' | grep -a 'SWIFF-SELFTEST' > "$run/selftest.txt" || true
 		expect swiffos-secure-boot "Lanterel OS ran with Secure Boot on" grep -q 'SWIFF-SELFTEST PASS secure-boot' "$run/selftest.txt"
 		expect swiffos-verity-root "Lanterel OS's root is its verity device" grep -q 'SWIFF-SELFTEST PASS root-is-verity' "$run/selftest.txt"
+		# Start once's record was sealed on Windows through TBS: only this boot of Lanterel OS opens it.
+		expect swiffos-provisioned "Lanterel OS opened the record Windows sealed to the TPM: $(sed -n 's/^.*SWIFF-SELFTEST INFO provision //p' "$run/selftest.txt" | head -c 300)" \
+			grep -q 'SWIFF-SELFTEST INFO provision .*provisioned by the owner' "$run/selftest.txt"
 		"$run/boot-vars" show "$run/vars.fd" > "$run/vars-swiffos.txt"
 		expect mok-enrolled "MokList holds Lanterel's key, as the confirmation left it" grep -q "^MokList: .*$cert_hex" "$run/vars-swiffos.txt"
 		# Windows has run beside Swiff OS's ESP: it must still be a sound FAT, untouched by chkdsk.
