@@ -431,16 +431,23 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   until the next boot, so Ctrl+Alt+Fn, Alt+Fn and Alt+Left/Right do nothing, and neither does a
   program's or logind's `VT_ACTIVATE`. The session does not start without the lock. No getty runs on
   any VT. This stands behind the streamer's own key filter.
-- **The LAN is blocked.** nftables (`/etc/nftables.conf`) refuses traffic to RFC 1918, link-local,
-  multicast and broadcast addresses, their IPv6 counterparts, every on-link prefix and the prefix of
-  each of the host's own global addresses, so the LAN's global IPv6 addresses (even when the router
-  advertises the prefix without an on-link route) and non-RFC 1918 LANs (such as CGNAT 100.64.0.0/10)
-  are blocked too.
+- **The LAN is blocked.** nftables (`/etc/nftables.conf`, on the read-only root) refuses traffic to
+  RFC 1918, link-local, multicast and broadcast addresses, their IPv6 counterparts, every on-link
+  prefix and the prefix of each of the host's own global addresses, so the LAN's global IPv6
+  addresses (even when the router advertises the prefix without an on-link route) and non-RFC 1918
+  LANs (such as CGNAT 100.64.0.0/10) are blocked too. It applies to every program, root's included.
   Programs fail at once rather than waiting for a timeout (IPv4: "No route to host", IPv6:
-  "Permission denied"). It allows DHCP, IPv6
+  "Permission denied"), except toward a link-local IPv6 address, where they time out. It allows DHCP, IPv6
   neighbour discovery and multicast listener (MLD) reports, and DNS to the current gateway and DNS servers. `swiff-netguard` keeps the
-  gateway, DNS and on-link sets current. The gateway is reachable for DNS and ping only, not for its admin pages. Internet traffic
-  is allowed.
+  gateway, DNS and on-link sets current. The gateway is reachable for DHCP and DNS only, not for its
+  admin pages or anything else. Discovery (mDNS, SSDP/UPnP, LLMNR, NetBIOS) goes to multicast and
+  broadcast addresses, so none of it leaves the PC, and nothing on it listens for discovery. Nothing on the LAN can
+  open a connection to the PC. Internet traffic is allowed, so a renter in the owner's own home
+  streams over the internet, never directly over the LAN.
+- **No network without the firewall.** `nftables.service` loads the rules early in boot, before
+  `network-pre.target`. systemd-networkd and iwd require it, so they configure no link before the
+  rules are in, and none at all if they fail to load. The initrd has no systemd-networkd and no
+  network generator, so nothing brings a link up before the root, where the rules are.
 - **The renter sees only verified games.** The owner's games library is never written by the renter.
   The renter sees a view of it at `/srv/games` that shows only verified files, and their writes go to
   a per-boot encrypted session layer. See [Stage 4](#stage-4-the-shared-games-library).
