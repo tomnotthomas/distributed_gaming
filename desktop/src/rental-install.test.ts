@@ -57,8 +57,8 @@ const CERT = Buffer.from("3082010a0282010100c0ffee", "hex");
 const ID = (i: number) => `00000000-0000-4000-8000-00000000000${i}`;
 const NAMES = [
   "esp",
-  "swiffos_0.1.0",
-  "swiffos_0.1.0",
+  `swiffos_${SWIFF_OS.version}`,
+  `swiffos_${SWIFF_OS.version}`,
   "_empty",
   "_empty",
   "swiff-scratch",
@@ -90,7 +90,7 @@ function imageSet(dir: string, { key = SIGNER.privateKey, cert = CERT } = {}) {
   for (const p of layout.filter((p) => p.split))
     files[splitFile(p.split!)] = { bytes: p.bytes, sha256: "0".repeat(64) };
   files["swiffos-key.cer"] = { bytes: cert.length, sha256: sha256(cert) };
-  const manifest = Buffer.from(JSON.stringify({ version: "0.1.0", layout, files }));
+  const manifest = Buffer.from(JSON.stringify({ version: SWIFF_OS.version, layout, files }));
   fs.writeFileSync(path.join(dir, MANIFEST), manifest);
   fs.writeFileSync(path.join(dir, SIGNATURE), sign(null, manifest, key));
   fs.writeFileSync(path.join(dir, "swiffos-key.cer"), cert);
@@ -750,9 +750,9 @@ describe("the elevated worker", () => {
 
       imageSet(image);
       if (kind === "test") {
-        expect(readImageSet(image, { trust }).version).toBe("0.1.0");
+        expect(readImageSet(image, { trust }).version).toBe(SWIFF_OS.version);
         // Past its signature and certificate, to its images, which this set leaves out.
-        await expect(check()).rejects.toThrow(/swiffos_0\.1\.0\.esp\.raw of the image set is not on this PC/);
+        await expect(check()).rejects.toThrow(`${splitFile("esp")} of the image set is not on this PC`);
       } else {
         expect(() => readImageSet(image, { trust })).toThrow(/Lanterel did not sign this image set/);
         await expect(check()).rejects.toThrow(/Lanterel did not sign this image set/);

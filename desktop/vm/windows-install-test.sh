@@ -730,7 +730,7 @@ test_run() {
 		# the administrator side checks the file itself, before using it (ui-refused-cert below).
 
 		# --- a tampered image: refused by the install's own check, before any disk or key change ---
-		on_vm "Copy-Item -Recurse -Force '$appdata' C:\\swiff\\tampered; \$f = [IO.File]::Open('C:\\swiff\\tampered\\swiffos_0.1.0.esp.raw', 'Open', 'ReadWrite'); \$f.Seek(1048576, 'Begin') | Out-Null; \$f.WriteByte(0x5A); \$f.Close()" || true
+		on_vm "Copy-Item -Recurse -Force '$appdata' C:\\swiff\\tampered; \$f = [IO.File]::Open('C:\\swiff\\tampered\\swiffos_0.2.0.esp.raw', 'Open', 'ReadWrite'); \$f.Seek(1048576, 'Begin') | Out-Null; \$f.WriteByte(0x5A); \$f.Close()" || true
 		printf '%s\n' "plan install" "run check" quit | on_vm "Set-Content C:\\swiff\\cmd-tampered.txt -Value (\$input | Out-String).Trim()"
 		on_vm "$cli serve --image C:\\swiff\\tampered --commands C:\\swiff\\cmd-tampered.txt --code $(new_code)" | tr -d '\r' > "$run/serve-tampered.json" || true
 		expect tampered-image "the install's check refuses a changed image before any change: $(json "$run/serve-tampered.json" outcome '.outcome.failed.error' || true)" grep -q 'is not the file its image set lists' "$run/serve-tampered.json"
