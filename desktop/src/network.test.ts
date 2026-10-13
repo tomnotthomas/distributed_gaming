@@ -359,9 +359,26 @@ describe("wifiToHand", () => {
     expect(stop(read, "Brammiball")).toBe("unreadable");
   });
 
-  it("stops as unsupported on a password Lanterel OS cannot use, never quoting it", () => {
-    for (const key of ["short", "x".repeat(64), "pässwort-mit-umlaut"])
-      expect(stop(WIFI({ key }), "Brammiball")).toBe("unsupported");
+  it("stops as password, not unsupported, on a password Lanterel OS cannot use, never quoting it", () => {
+    for (const key of ["short", "x".repeat(64), "Grüße2024!"])
+      expect(stop(WIFI({ key }), "Brammiball")).toBe("password");
+    expect(stop(WIFI({ authentication: "WPA3SAE", key: "a".repeat(64) }), "Brammiball")).toBe("password");
+  });
+
+  it("hands over a WPA2 key given as 64 hex digits", () => {
+    const key = "0123456789abcdef".repeat(4);
+    expect(wifiToHand(WIFI({ key }), "Brammiball")).toEqual({
+      ssid: "Brammiball",
+      security: "psk",
+      passphrase: key,
+    });
+  });
+
+  it("refuses a Wi-Fi whose name has a control character before Go live", () => {
+    expect(networkOf(WIFI({ ssid: "Bram\u0007ball" }, { network: "Bram\u0007ball" }))).toEqual({
+      kind: "unsupported",
+      ssid: "Bram\u0007ball",
+    });
   });
 });
 
@@ -441,7 +458,16 @@ describe("what the Go live screen says", () => {
     });
     // No read yet is a read that failed.
     expect(networkRefusal(undefined, "en")?.title).toBe("Couldn't check this PC's network");
-    for (const kind of ["none", "enterprise", "offline", "unsupported", "unread", "changed", "unreadable"])
+    for (const kind of [
+      "none",
+      "enterprise",
+      "offline",
+      "unsupported",
+      "unread",
+      "changed",
+      "unreadable",
+      "password",
+    ])
       for (const lang of ["en", "de"] as const) expect(networkStop(kind, "x", lang).why).toMatch(/[.]$/);
   });
 
@@ -454,6 +480,9 @@ describe("what the Go live screen says", () => {
     });
     expect(networkStop("unreadable", null, "en").why).toBe(
       "The Wi-Fi password could not be read: connect a network cable, or try again.",
+    );
+    expect(networkStop("password", null, "de").why).toBe(
+      "Lanterel OS kann das Passwort dieses WLANs nicht nutzen: Steck ein Netzwerkkabel ein oder gib dem Router ein Passwort aus 8 bis 63 einfachen Zeichen ohne Umlaute.",
     );
     expect(networkStop("whatever", null, "en").title).toBe("Couldn't check this PC's network");
   });

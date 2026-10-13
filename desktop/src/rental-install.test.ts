@@ -1108,6 +1108,12 @@ describe("a provisioning record left on the disk", () => {
     await expect(worker.apply({ op: "provision", record: MACHINE, wifi: "Nachbar" })).rejects.toThrow(
       "changed",
     );
+    for (const key of ["Grüße2024!", "x".repeat(64)]) {
+      pc.win.network = onWifi(key);
+      await expect(worker.apply({ op: "provision", record: MACHINE, wifi: "Brammiball" })).rejects.toThrow(
+        /^password$/,
+      );
+    }
     expect(head().equals(before)).toBe(true);
 
     pc.win.network = onWifi("correct horse 15");

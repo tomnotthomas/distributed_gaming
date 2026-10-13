@@ -80,24 +80,48 @@ function machineKeyProblem(machineKey) {
 
 /** The Wi-Fi securities Lanterel OS joins, and whether each takes a passphrase. */
 const WIFI_SECURITY = { open: false, psk: true, sae: true };
+/** An SSID Lanterel OS takes: no control characters or lone surrogates. */
+const SSID = /^[^\p{Cc}\p{Cs}]+$/u;
 /** A WPA passphrase: 8 to 63 printable ASCII characters. */
 const PASSPHRASE = /^[\x20-\x7e]{8,63}$/;
+/** A WPA2-Personal key itself, in place of a passphrase: 64 hex digits. */
+const PSK_HEX = /^[0-9a-fA-F]{64}$/;
+
+/** Why `ssid` is not one Lanterel OS can join, or null when it is: 1 to 32 bytes, no control characters. */
+function ssidProblem(ssid) {
+  const bytes = typeof ssid === "string" ? Buffer.byteLength(ssid, "utf8") : 0;
+  return bytes >= 1 && bytes <= 32 && SSID.test(ssid)
+    ? null
+    : "The Wi-Fi's name is not one Lanterel OS can join.";
+}
 
 /**
- * Why `wifi` cannot be provisioned, or null when it can: an SSID of 1 to 32
- * bytes, a security Lanterel OS joins, and a passphrase exactly when it takes
+ * Why `passphrase` is not one Lanterel OS can use for a Wi-Fi of `security`
+ * (psk or sae), or null when it is: 8 to 63 printable ASCII characters, or
+ * for psk the key as 64 hex digits. Never quotes the passphrase.
+ */
+function passphraseProblem(security, passphrase) {
+  if (
+    typeof passphrase === "string" &&
+    (PASSPHRASE.test(passphrase) || (security === "psk" && PSK_HEX.test(passphrase)))
+  )
+    return null;
+  return "The Wi-Fi's password is not one Lanterel OS can use.";
+}
+
+/**
+ * Why `wifi` cannot be provisioned, or null when it can: an SSID ssidProblem
+ * takes, a security Lanterel OS joins, and a passphrase exactly when it takes
  * one. Never quotes the passphrase.
  */
 function wifiProblem(wifi) {
   if (!wifi || typeof wifi !== "object") return "The Wi-Fi is not one Lanterel OS can join.";
   const { ssid, security, passphrase } = wifi;
-  const bytes = typeof ssid === "string" ? Buffer.byteLength(ssid, "utf8") : 0;
-  if (bytes < 1 || bytes > 32) return "The Wi-Fi's name is not one Lanterel OS can join.";
+  const nameIssue = ssidProblem(ssid);
+  if (nameIssue) return nameIssue;
   if (!Object.hasOwn(WIFI_SECURITY, security)) return "The Wi-Fi's security is not one Lanterel OS can join.";
   if (!WIFI_SECURITY[security]) return passphrase === undefined ? null : "An open Wi-Fi has no password.";
-  return typeof passphrase === "string" && PASSPHRASE.test(passphrase)
-    ? null
-    : "The Wi-Fi's password is not one Lanterel OS can use.";
+  return passphraseProblem(security, passphrase);
 }
 
 /**
@@ -248,6 +272,8 @@ module.exports = {
   provisionEvent,
   provisionRecord,
   provisionStore,
+  passphraseProblem,
+  ssidProblem,
   wifiProblem,
   wipeRecord,
   wipesAtStart,

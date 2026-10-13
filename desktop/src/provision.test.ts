@@ -33,6 +33,8 @@ describe("provisionRecord", () => {
     expect(payloadOf(provisionRecord({ ...MACHINE, wifi }))).toEqual({ ...MACHINE, wifi });
     const psk = { ssid: "Büro & Gäste", security: "psk" as const, passphrase: "  spaces count  " };
     expect(payloadOf(provisionRecord({ ...MACHINE, wifi: psk }))).toEqual({ ...MACHINE, wifi: psk });
+    const hex = { ssid: "Home", security: "psk" as const, passphrase: "0123456789ABCDEF".repeat(4) };
+    expect(payloadOf(provisionRecord({ ...MACHINE, wifi: hex }))).toEqual({ ...MACHINE, wifi: hex });
   });
 
   it("carries no password for an open network, and nothing beyond the three fields", () => {
@@ -48,6 +50,8 @@ describe("provisionRecord", () => {
     const refused = [
       { ssid: "", security: "psk", passphrase: secret },
       { ssid: "x".repeat(33), security: "psk", passphrase: secret },
+      { ssid: "Bram\u0007ball", security: "psk", passphrase: secret },
+      { ssid: "Home", security: "sae", passphrase: "a".repeat(64) },
       { ssid: "Office", security: "wpa2-enterprise", passphrase: secret },
       { ssid: "Café", security: "open", passphrase: secret },
       { ssid: "Home", security: "psk" },

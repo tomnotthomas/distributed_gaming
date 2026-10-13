@@ -16,9 +16,10 @@ export const networkReady = (network: Network | null | undefined): boolean =>
 
 /**
  * Why Go live waits: networkOf's kinds that leave Lanterel OS offline, a Wi-Fi other than the one agreed
- * to, and a password the run's elevated read did not get in the clear (network.cjs wifiToHand).
+ * to, and a password the run's elevated read did not get in the clear or Lanterel OS cannot use
+ * (network.cjs wifiToHand).
  */
-export type NetworkStop = Exclude<Network["kind"], "wired" | "wifi"> | "changed" | "unreadable";
+export type NetworkStop = Exclude<Network["kind"], "wired" | "wifi"> | "changed" | "unreadable" | "password";
 
 export type NetworkRefusal = {
   title: string;
@@ -74,6 +75,10 @@ const COPY: Record<
         "Couldn't read the Wi-Fi password",
         "The Wi-Fi password could not be read: connect a network cable, or try again.",
       ],
+      password: () => [
+        "Lanterel OS can't use this Wi-Fi's password",
+        "Lanterel OS can't use this Wi-Fi's password: connect a network cable, or give the router a password of 8 to 63 plain characters without umlauts.",
+      ],
     },
     label: "Check again",
     rail: "No network",
@@ -114,6 +119,10 @@ const COPY: Record<
       unreadable: () => [
         "WLAN-Passwort nicht lesbar",
         "Das WLAN-Passwort konnte nicht gelesen werden: Steck ein Netzwerkkabel ein oder versuch es noch einmal.",
+      ],
+      password: () => [
+        "Lanterel OS kann dieses WLAN-Passwort nicht nutzen",
+        "Lanterel OS kann das Passwort dieses WLANs nicht nutzen: Steck ein Netzwerkkabel ein oder gib dem Router ein Passwort aus 8 bis 63 einfachen Zeichen ohne Umlaute.",
       ],
     },
     label: "Erneut prüfen",

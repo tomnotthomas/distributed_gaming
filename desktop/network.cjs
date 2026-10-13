@@ -21,7 +21,7 @@
 
 const { execFile } = require("node:child_process");
 const { encodeCommand, powershell } = require("./probe.cjs");
-const { wifiProblem } = require("./provision.cjs");
+const { passphraseProblem, ssidProblem } = require("./provision.cjs");
 
 /** How long the read may take: compiling the WLAN calls is most of it. */
 const NETWORK_TIMEOUT_MS = 30_000;
@@ -224,7 +224,7 @@ function securityOf({ authentication, encryption, oneX, keyType }) {
  *   offline      Windows says the Wi-Fi does not reach the internet: no
  *                internet, or a sign-in web page (a captive portal)
  *   unsupported  WEP, the first WPA, Enhanced Open, a hidden network, or a
- *                password Lanterel OS cannot take
+ *                name Lanterel OS cannot take
  *   unread       the read failed, or found no saved profile for the network
  *
  * Never the password: the read for the screen does not carry it.
@@ -239,7 +239,7 @@ function networkOf(read) {
   const { ssid } = profile;
   const security = securityOf(profile);
   if (security === "enterprise") return { kind: "enterprise", ssid };
-  if (!security || profile.hidden) return { kind: "unsupported", ssid };
+  if (!security || profile.hidden || ssidProblem(ssid)) return { kind: "unsupported", ssid };
   if (wifi.ipv4 !== "Internet" && wifi.ipv6 !== "Internet") return { kind: "offline", ssid };
   return { kind: "wifi", ssid, security };
 }
@@ -263,7 +263,7 @@ function networkToHand(read, agreed) {
  * The provisioning's `wifi` (provision.cjs) the elevated worker hands Lanterel
  * OS, from its read made `withKey`: null when a network cable is plugged in.
  * Throws as networkToHand does, "unreadable" when Windows did not give the
- * password in the clear, and "unsupported" when it is not one Lanterel OS can
+ * password in the clear, and "password" when it is not one Lanterel OS can
  * use. Never quotes the password.
  */
 function wifiToHand(read, agreed) {
@@ -273,9 +273,8 @@ function wifiToHand(read, agreed) {
   if (security === "open") return { ssid, security };
   const key = read.wifi.find((w) => w.network === ssid)?.profiles.find((p) => p.ssid === ssid)?.key;
   if (typeof key !== "string") throw new Error("unreadable");
-  const wifi = { ssid, security, passphrase: key };
-  if (wifiProblem(wifi)) throw new Error("unsupported");
-  return wifi;
+  if (passphraseProblem(security, key)) throw new Error("password");
+  return { ssid, security, passphrase: key };
 }
 
 /**
