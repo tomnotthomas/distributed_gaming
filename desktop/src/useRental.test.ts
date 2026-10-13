@@ -689,7 +689,13 @@ describe("useRental", () => {
     await act(async () => {});
     act(() => result.current.goLive());
     const once = plan("once", "once");
-    once.steps.push({ id: "restart", title: "Restart", confirm: "Restarts.", commands: [], ops: [{ op: "restart" }] });
+    once.steps.push({
+      id: "restart",
+      title: "Restart",
+      confirm: "Restarts.",
+      commands: [],
+      ops: [{ op: "restart" }],
+    });
     await answer(0, once);
     await act(async () => {});
     expect(host.restartRental).not.toHaveBeenCalled();

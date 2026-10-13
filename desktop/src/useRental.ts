@@ -6,7 +6,15 @@ import type { EkResult } from "./ek";
 import { IDLE_RUN, type ImageDownload, type RentalRun, type RentalSetup, type WritePass } from "./model";
 import { meter } from "./progress";
 import { agreedWifi, networkReady } from "./network";
-import { REPORT_FAILED, endsInRestart, fileName, firmwareChecks, pcChecks, recoveryDue, writesOf } from "./rental";
+import {
+  REPORT_FAILED,
+  endsInRestart,
+  fileName,
+  firmwareChecks,
+  pcChecks,
+  recoveryDue,
+  writesOf,
+} from "./rental";
 import { loadMachineId, loadUrl, toSocketUrl } from "./settings";
 
 /**
@@ -254,7 +262,9 @@ export function useRental({
    * Restart now, once `first` (Go live's report) is in: the screen says it restarts from the start.
    * Go live's own restart reports this PC again; one the platform did not take does not restart.
    */
-  const restart = (first: Promise<boolean> = preview?.kind === "once" ? reportPc() : Promise.resolve(true)) => {
+  const restart = (
+    first: Promise<boolean> = preview?.kind === "once" ? reportPc() : Promise.resolve(true),
+  ) => {
     const host = bridge();
     if (!host) return;
     setRun((r) => ({ ...r, status: "restarting", stepStartedAt: Date.now() }));
