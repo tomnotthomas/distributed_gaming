@@ -3,7 +3,7 @@
 // root key, of a sealed object whose one policy is PolicyAuthorize by the key
 // that signs Lanterel OS's PCR 11 policies (the image set's Secure Boot
 // certificate's: mkosi signs the UKI's .pcrsig with it). Only a boot whose PCR
-// 11 that key signed can unseal it (swiff-os/hostd/src/provision.ts), and the
+// 11 that key signed can unseal it (swiff-os/hostd/src/handover.ts), and the
 // sealed object never leaves this TPM in a form another TPM can load.
 //
 // Raw TPM 2.0 commands with Node's crypto, as Lanterel OS's side

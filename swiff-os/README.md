@@ -117,17 +117,26 @@ to what it starts), so the app asks the owner.
 machine key, and the image carries none of them. Before each restart into Swiff OS (Go live,
 starting it once) the app hands them over (`desktop/provision.cjs`): main reads the machine key
 from its encrypted store as the step runs, never putting it in a plan, and the elevated worker
-writes one record (`SWIFFPRV`, a version, the length and SHA-256 of a JSON payload `{
-serverUrl, machineId, machineKey }`, padded to 4 KiB) at the start of the keep partition the
-install added, and reads it back. At its next start Swiff OS seals the record to the PC's TPM
-and zeroes it (below, **Provisioning** under "What runs"), so the plaintext key is on the disk
-only from the Windows run that writes it to that start: the owner's accepted exception to the
-review rule against secrets in plain-text files, for that window only and with the app's wipe.
-Swiff OS zeroes a record it cannot take in as well. The one remaining exception: a PC that
-loses power after Swiff's boot loader starts and before `swiff-provision` runs keeps the record
-past that start. The app's boot trail is the current power-on's measured-boot log, so the next
-Windows start does not see that boot (fate `wait`): the note stays, and the cancel, the
-uninstall or the next Go live wipes the record.
+seals them to this PC's TPM before anything touches the disk (`desktop/tpm-seal.cjs`). It
+encrypts the JSON payload (`{ serverUrl, machineId, machineKey }`, and whatever the app hands
+over besides) with a fresh AES-256-GCM key, and seals that key with `TPM2_Create` under the
+storage root key Windows keeps at `0x81000001`, through Windows' TPM Base Services (one
+PowerShell that compiles a few lines of C# over `tbs.dll`; the commands go over its stdin only,
+never a command line, a file or a log). The sealed key's only policy is `PolicyAuthorize` by
+the key that signs each release's PCR 11 values (the image set's Secure Boot certificate: mkosi
+signs the UKI's `.pcrsig` with it), so only a boot of a UKI Lanterel signed, on this PC's TPM,
+can unseal it. The worker writes one record (`SWIFFPRV`, version 2, the length and SHA-256 of
+the sealed body, padded to 4 KiB) at the start of the keep partition the install added, and
+reads it back. Nothing of the payload is on the disk in the clear: a thief, a housemate or
+software on Windows reading the keep, or a copy of it left on an old SSD, finds only ciphertext
+that this PC's TPM opens for Lanterel OS alone. At its next start Lanterel OS opens it, seals
+it again for itself and zeroes the record (below, **Provisioning** under "What runs"). A PC
+whose TPM cannot seal (no TPM 2.0 Windows lets the app use, or one Windows has not set up)
+stops Go live at that step, before anything is written, with what to do next. Swiff OS zeroes
+a record it cannot take in as well. A PC that loses power after Swiff's boot loader starts and
+before `swiff-provision` runs keeps the sealed record past that start. The app's boot trail is
+the current power-on's measured-boot log, so the next Windows start does not see that boot
+(fate `wait`): the note stays, and the cancel, the uninstall or the next Go live wipes the record.
 Should that start not come, the app zeroes the record itself (the worker's `unprovision`, only
 while the keep still holds a record): when the run that wrote it is cancelled or fails, as the
 uninstall's first disk step, and at the app's next start when no Swiff OS boot took it in: a
@@ -279,9 +288,10 @@ driven through its own screens. `desktop/rental-cli.cjs`
 drives the same installer from a console, one step at a
 time. `desktop/vm/rental-install-test.sh` downloads the image set as a host does (packed in
 several parts, served from a local HTTP server), carries the plans out with it on a disk image with
-`apply-plan.cjs` standing in for Windows, and boots the shim chain under OVMF with
-Microsoft's keys, checking that Swiff OS took the provisioning in (no record and no machine
-key left in the clear on its keep); `desktop/vm/mok-enroll-test.sh` confirms the app's MOK
+`apply-plan.cjs` standing in for Windows (it seals Go live's record on the VM's swtpm, as the
+worker does through TBS), and boots the shim chain under OVMF with Microsoft's keys, checking
+that the record Go live wrote holds no machine key in the clear and that Swiff OS took it in
+(no record and no machine key left in the clear on its keep); `desktop/vm/mok-enroll-test.sh` confirms the app's MOK
 request at MokManager, after a miss and then with the code.
 
 ## Stage 1: the image
@@ -356,12 +366,22 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   owner's app provisioned (below).
 - **Provisioning: what the owner's app hands over, sealed to the TPM.** `swiff-provision.service`
   (`swiff-hostd provision`, `hostd/src/provision.ts`) runs before the agent. A fresh record at
-  the start of the keep partition (the host app's, above) is checked (its version, length and
-  SHA-256, a `wss://` server, or `ws://` on this machine, a machine id and a machine key),
-  sealed with `systemd-creds` under Swiff's signed PCR 11 policy, as the state's U share is,
-  so only a signed Swiff OS boot of this PC opens it, and zeroed; the keep is then formatted
-  as ext4 and keeps the sealed record (`provision.cred`). A record it cannot take in (damaged,
-  of another version, or one the TPM cannot seal) is zeroed all the same. Every boot then
+  the start of the keep partition (the host app's, above) arrives sealed, and is opened with raw
+  TPM 2.0 commands on `/dev/tpmrm0` (`hostd/src/handover.ts`, no tpm2-tools): the TPM loads
+  the sealed key under the storage root key at `0x81000001`, checks Lanterel's signature over
+  the PolicyPCR digest of this boot's PCR 11 (`TPM2_VerifySignature` with the UKI's `.pcrpkey`,
+  the signature from its `.pcrsig`, both in `/run/systemd`), and unseals the key only once
+  `PolicyPCR` and `PolicyAuthorize` hold; the key decrypts the payload, whose tag must match.
+  Another PC, a cleared TPM, a UKI Lanterel did not sign, or a record changed after it was
+  sealed cannot get that far. Should systemd-pcrphase move PCR 11 on to the next phase mid-way,
+  it tries again with the new value. The payload is then checked (a `wss://` server, or
+  `ws://` on this machine, a machine id and a machine key), sealed again with `systemd-creds`
+  under Swiff's signed PCR 11 policy, as the state's U share is, so only a signed Swiff OS
+  boot of this PC opens it, and the record is zeroed; the keep is then formatted as ext4 and
+  keeps that credential (`provision.cred`). A record it cannot take in (damaged, of another
+  version, the plaintext version 1 among them, one the TPM does not open, or one it cannot
+  seal again) is zeroed all the same, and swiff-hostd does not start: nothing falls back to a
+  record in the clear. Every boot then
   unseals it and writes swiff-hostd's config for that boot, `/var/lib/swiff/hostd.json`
   (0600, in root's 0700 `/var/lib/swiff`, on the tmpfs), from the image's own settings (`/usr/lib/swiff/hostd.json`) with this machine's
   server and id, and its machine key beside it. The record is data only: everything that
@@ -715,9 +735,13 @@ server starts).
 1. The owner offers the PC with the machine key, registers its TPM's EK certificate
    (`PUT /api/machines/:id/ek`), and provisions it as their app does before the PC restarts
    into rental mode: Go live's own provision step (`apply-plan.cjs provision` in
-   `desktop/vm/`) writes the server, the machine id and the machine key at the start of the
-   image's keep partition. Nothing else gives the VM a config or a key.
-2. `swiff-provision` seals the record to the TPM and zeroes it: neither it nor the machine key is
+   `desktop/vm/`) seals the server, the machine id and the machine key to the VM's TPM, as the
+   elevated worker does through TBS (the VM's swtpm on a TCP channel before it boots, its
+   storage root key made at `0x81000001` first, as Windows makes it), and writes the record at
+   the start of the image's keep partition. Before the first boot the keep holds the record but
+   not the machine key in the clear. Nothing else gives the VM a config or a key.
+2. `swiff-provision` opens the record with the TPM, seals it again for itself and zeroes it:
+   neither it nor the machine key is
    left in the clear on the keep, and the renter can read neither the key, the config nor the
    keep. `swiff-hostd` attests with `swiff-attest`, formats its persistent state (the image's
    state partition) with U XOR V, V released only to that attested boot, and waits for the

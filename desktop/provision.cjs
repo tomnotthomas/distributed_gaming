@@ -10,8 +10,8 @@
 // Lanterel's key signed can satisfy. So it never sits on the disk in the
 // clear, and nothing but Lanterel OS on this PC can open it. Lanterel OS
 // unseals it at its next start, seals what it holds again for itself, and
-// zeroes the record (swiff-os/hostd/src/provision.ts, which reads the same
-// format):
+// zeroes the record (swiff-os/hostd/src/provision.ts and handover.ts, which
+// read the same format):
 //
 //   offset  bytes
 //        0      8  "SWIFFPRV"
