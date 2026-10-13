@@ -24,7 +24,9 @@
 //                    after Windows ran. A record it cannot take in (damaged,
 //                    of another version, or one the TPM cannot seal) is
 //                    zeroed all the same: the owner's next Go live writes a
-//                    fresh one.
+//                    fresh one. A record taken in is the owner's Go live:
+//                    the note it leaves for this boot (go-live) tells
+//                    swiff-hostd to offer the PC.
 //   none             mount the keep.
 //
 // then unseal provision.cred and write this boot's swiff-hostd config (the
@@ -145,6 +147,8 @@ export type ProvisionPaths = {
   /** Where this boot's swiff-hostd config goes, and the machine key it names. */
   config: string;
   machineKey: string;
+  /** Left in the boot a fresh record came with: the owner went live (resume.ts). */
+  goLive: string;
 };
 
 export const PATHS: ProvisionPaths = {
@@ -152,6 +156,7 @@ export const PATHS: ProvisionPaths = {
   imageConfig: "/usr/lib/swiff/hostd.json",
   config: "/var/lib/swiff/hostd.json",
   machineKey: "/var/lib/swiff/machine-key",
+  goLive: "/var/lib/swiff/go-live",
 };
 
 /** The keep partition and where it is mounted. */
@@ -231,6 +236,7 @@ export async function provision({
   // The agent would refuse it at start: refused here, before anything is written.
   parseConfig(config);
   await writeDurably(paths.machineKey, Buffer.from(`${given.machineKey}\n`));
+  if (fresh) await writeDurably(paths.goLive, Buffer.alloc(0));
   // Written last: the config is what starts swiff-hostd (ConditionPathExists).
   await writeDurably(paths.config, Buffer.from(`${JSON.stringify(config, null, 2)}\n`));
   return true;

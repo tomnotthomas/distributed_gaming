@@ -88,7 +88,7 @@ if (command !== undefined) {
       env: errorTrackingEnv(env),
     }),
     system: linuxSystem(HARDWARE_FLOOR),
-    resume: fileResumeStore(config.stateDir),
+    resume: fileResumeStore(config.stateDir, PATHS.goLive),
     ...(config.state && {
       state: announcedUnlock(
         stateUnlock({
