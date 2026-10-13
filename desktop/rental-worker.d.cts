@@ -16,6 +16,8 @@ export type Windows = {
     requests: ({ get: string; guid: string } | { set: string; guid: string; data: Buffer | null })[],
   ): Promise<Record<string, Buffer | null>>;
   openDisk(number: number): Promise<WindowsDisk>;
+  /** This PC's TPM: one command in, its response out. */
+  tpm(): Promise<{ send(command: Buffer): Promise<Buffer>; close(): void }>;
   stateDir: string;
 };
 

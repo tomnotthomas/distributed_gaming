@@ -57,10 +57,13 @@ suites_for() { # path
 	swiff-os/streamer/vm/*) echo streamer ;;
 	swiff-os/streamer/*) echo selftest session streamer ;;
 	server/* | web/* | packages/*) echo session streamer ;;
-	desktop/vm/mok-* | desktop/vm/boot-vars.py | desktop/vm/apply-plan.cjs) echo rental mok ;;
+	desktop/vm/swtpm.cjs) echo session rental ;;
+	desktop/vm/apply-plan.cjs) echo session rental mok ;;
+	desktop/vm/mok-* | desktop/vm/boot-vars.py) echo rental mok ;;
 	desktop/vm/rental-*) echo rental ;;
 	desktop/vm/*) echo windows ;;
 	desktop/rental.cjs) echo rental mok windows ;;
+	desktop/provision.cjs | desktop/tpm-seal.cjs) echo session rental windows ;;
 	desktop/*.cjs) echo rental windows ;;
 	esac
 }

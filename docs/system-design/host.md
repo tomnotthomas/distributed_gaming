@@ -407,9 +407,11 @@ encrypted with Electron `safeStorage` (Windows DPAPI), and the renderer can only
 through two calls in `desktop/preload.cjs`. The server stores only its hash. See "Room
 access" in [`renter.md`](renter.md). Each time the app restarts the PC into Swiff OS (Go live,
 Start once), main reads the key from that store and hands it, with the server and the
-machine id, to its elevated installer, which writes them at the start of Swiff OS's keep
-partition; Swiff OS seals them to the PC's TPM at its next start and zeroes the record
-(`desktop/provision.cjs`, and "Provisioning" in [`swiff-os/README.md`](../../swiff-os/README.md)).
+machine id, to its elevated installer, which seals them to the PC's TPM so only a Lanterel OS
+boot of this PC can open them, and writes the sealed record at the start of Swiff OS's keep
+partition; Swiff OS opens it at its next start, seals it again for itself and zeroes the record
+(`desktop/provision.cjs`, `desktop/tpm-seal.cjs`, and "Provisioning" in
+[`swiff-os/README.md`](../../swiff-os/README.md)).
 
 During a renter's session the machine key stays with a background service outside the
 renter's Windows account; the streamer registers with a short-lived session key instead.

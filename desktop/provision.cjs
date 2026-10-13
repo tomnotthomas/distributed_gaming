@@ -2,36 +2,49 @@
 // the platform's address, the machine id and the machine key. The installer's
 // elevated worker writes it as one record, raw, at the start of Lanterel OS's
 // keep partition, each time it restarts the PC into Lanterel OS (Go live and
-// Start once, the plans' `provision` op). Lanterel OS reads it at its next start,
-// seals it to this PC's TPM so only a signed Lanterel OS boot of this PC can
-// open it, and zeroes the record (swiff-os/hostd/src/provision.ts, which reads
-// the same format):
+// Start once, the plans' `provision` op).
+//
+// The record is sealed on Windows before it touches the disk: its payload is
+// encrypted with a fresh AES-256-GCM key, and that key is sealed to this PC's
+// TPM (tpm-seal.cjs) under a policy only a Lanterel OS boot whose PCR 11
+// Lanterel's key signed, with no extras in PCRs 12 and 13, can satisfy. So it
+// never sits on the disk in the
+// clear, and nothing but Lanterel OS on this PC can open it. Lanterel OS
+// unseals it at its next start, seals what it holds again for itself, and
+// zeroes the record (swiff-os/hostd/src/provision.ts and handover.ts, which
+// read the same format):
 //
 //   offset  bytes
 //        0      8  "SWIFFPRV"
-//        8      4  version, 1 (big-endian)
-//       12      4  length of the payload (big-endian)
-//       16     32  SHA-256 of the payload
-//       48      …  the payload: JSON { "serverUrl", "machineId", "machineKey" }
-//                  then zeros, to 4096 bytes
+//        8      4  version, 2 (big-endian)
+//       12      4  length of the body (big-endian)
+//       16     32  SHA-256 of the body
+//       48      …  the body, then zeros, to 4096 bytes
+//
+// and the body:
+//
+//   TPM2B  the sealed key's TPMT_PUBLIC
+//   TPM2B  the sealed key's TPM2B_PRIVATE contents
+//      12  the AES-256-GCM nonce
+//      16  the AES-256-GCM tag
+//       …  the ciphertext of the payload: JSON { "serverUrl", "machineId", "machineKey" }
 //
 // The record carries data only: what Lanterel OS runs comes from its signed
 // image. The machine key is never shown in a plan, logged or kept anywhere else.
 //
-// Until that boot the record is the machine key in the clear on the disk: the
-// owner's accepted exception to the review rule against writing secrets to a
-// plain-text file, for that window only and with this wipe. So it is zeroed
-// (the plans' `unprovision` op) whenever it is left behind: a run that wrote
-// it and then failed, an uninstall, and, at this app's next start, a record no
-// Lanterel OS boot took in (fateOf). The app notes when it wrote one
-// (provisionStore), never what, to know that without administrator rights.
+// It is zeroed all the same (the plans' `unprovision` op) whenever it is left
+// behind: a run that wrote it and then failed, an uninstall, and, at this
+// app's next start, a record no Lanterel OS boot took in (fateOf). The app
+// notes when it wrote one (provisionStore), never what, to know that without
+// administrator rights.
 
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const { b2 } = require("./tpm-seal.cjs");
 
 const RECORD_MAGIC = Buffer.from("SWIFFPRV", "ascii");
-const RECORD_VERSION = 1;
+const RECORD_VERSION = 2;
 /** One 4 KiB block: whole sectors on any disk. */
 const RECORD_BYTES = 4096;
 const HEADER_BYTES = 48;
@@ -74,24 +87,42 @@ function machineKeyProblem(machineKey) {
 
 /**
  * The record for `provisioning` ({ serverUrl, machineId, machineKey }), as
- * Lanterel OS reads it: RECORD_BYTES bytes. Throws when a field is not one
- * Lanterel OS would take, never quoting the machine key.
+ * Lanterel OS reads it: RECORD_BYTES bytes, its payload encrypted with a fresh
+ * key that `seal` seals to this PC's TPM (tpm-seal.cjs sealKey), resolving
+ * with the sealed object's { public, private }. Throws when a field is not
+ * one Lanterel OS would take, never quoting the machine key.
  */
-function provisionRecord({ serverUrl, machineId, machineKey }) {
+async function provisionRecord({ serverUrl, machineId, machineKey }, seal) {
   const problem = machineProblem({ serverUrl, machineId });
   if (problem) throw new Error(problem);
   const keyProblem = machineKeyProblem(machineKey);
   if (keyProblem) throw new Error(keyProblem);
   const payload = Buffer.from(JSON.stringify({ serverUrl, machineId, machineKey }), "utf8");
-  if (payload.length > RECORD_BYTES - HEADER_BYTES) throw new Error("The provisioning is too long.");
-  const record = Buffer.alloc(RECORD_BYTES);
-  RECORD_MAGIC.copy(record, 0);
-  record.writeUInt32BE(RECORD_VERSION, 8);
-  record.writeUInt32BE(payload.length, 12);
-  crypto.createHash("sha256").update(payload).digest().copy(record, 16);
-  payload.copy(record, HEADER_BYTES);
-  payload.fill(0);
-  return record;
+  const key = crypto.randomBytes(32);
+  try {
+    const sealed = await seal(key);
+    const nonce = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv("aes-256-gcm", key, nonce);
+    const ciphertext = Buffer.concat([cipher.update(payload), cipher.final()]);
+    const body = Buffer.concat([
+      b2(sealed.public),
+      b2(sealed.private),
+      nonce,
+      cipher.getAuthTag(),
+      ciphertext,
+    ]);
+    if (body.length > RECORD_BYTES - HEADER_BYTES) throw new Error("The provisioning is too long.");
+    const record = Buffer.alloc(RECORD_BYTES);
+    RECORD_MAGIC.copy(record, 0);
+    record.writeUInt32BE(RECORD_VERSION, 8);
+    record.writeUInt32BE(body.length, 12);
+    crypto.createHash("sha256").update(body).digest().copy(record, 16);
+    body.copy(record, HEADER_BYTES);
+    return record;
+  } finally {
+    key.fill(0);
+    payload.fill(0);
+  }
 }
 
 /**

@@ -838,7 +838,7 @@ describe("the switch", () => {
     for (const kind of ["once", "start"] as const) {
       const provision = switchPlan(kind).steps.find((s) => s.id === "provision");
       expect(provision).toMatchObject({ id: "provision", ops: [{ op: "provision" }] });
-      expect(provision!.confirm).toMatch(/seals them to this PC's TPM/);
+      expect(provision!.confirm).toMatch(/sealed to this PC's TPM on Windows before they are written/);
       expect(provision!.commands.join("\n")).toMatch(/keep partition/);
     }
     expect(switchPlan("stop").steps.map((s) => s.id)).not.toContain("provision");

@@ -20,9 +20,11 @@
 //   firmware       Boot####, BootOrder, BootNext and shim's MOK requests
 //                  (efi.cjs), through SetFirmwareEnvironmentVariableEx
 //   provisioning   the record that hands Swiff OS this PC's server, machine id
-//                  and machine key (provision.cjs), written at the start of the
-//                  keep partition the install added, and read back; zeroed
-//                  again (unprovision) while no Lanterel OS boot has taken it in
+//                  and machine key (provision.cjs), sealed to this PC's TPM
+//                  through Windows' TPM Base Services (tpm-seal.cjs), written
+//                  at the start of the keep partition the install added, and
+//                  read back; zeroed again (unprovision) while no Lanterel OS
+//                  boot has taken it in
 //
 // It trusts nothing it is sent: an operation runs only if it matches the image
 // set and what the install recorded so far. Partitions it adds must be the
@@ -33,7 +35,7 @@
 //
 //   rental-worker.cjs <pipe> <token> <image-dir>     (also: Swiff Host --swiff-rental-worker ...)
 
-const { execFile } = require("node:child_process");
+const { execFile, spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const net = require("node:net");
@@ -54,6 +56,7 @@ const {
 } = require("./image-set.cjs");
 const { writeRootFile } = require("./esp-file.cjs");
 const { holdsRecord, provisionRecord, RECORD_BYTES } = require("./provision.cjs");
+const { sealKey, sealPolicy } = require("./tpm-seal.cjs");
 const {
   BOOT_PATH,
   BOOT_TITLE,
@@ -225,6 +228,168 @@ async function firmware(requests, dir = null) {
 }
 
 /**
+ * TPM 2.0 commands through Windows' TPM Base Services (tbs.dll, C# compiled by
+ * PowerShell): one TBS context, then one command per line of hex on stdin,
+ * its response a line of hex on stdout, until stdin ends or a line is empty.
+ * A TBS error goes to stderr as the call's name and its code, and ends it.
+ */
+const TBS = String.raw`
+Add-Type -TypeDefinition @'
+using System;
+using System.IO;
+using System.Runtime.InteropServices;
+public static class SwiffTbs {
+  [StructLayout(LayoutKind.Sequential)] public struct Params2 { public uint version; public uint flags; }
+  [DllImport("tbs.dll")] public static extern uint Tbsi_Context_Create(ref Params2 p, out IntPtr ctx);
+  [DllImport("tbs.dll")] public static extern uint Tbsip_Context_Close(IntPtr ctx);
+  [DllImport("tbs.dll")] public static extern uint Tbsip_Submit_Command(IntPtr ctx, uint locality, uint priority, byte[] cmd, uint cmdLen, byte[] rsp, ref uint rspLen);
+  public static int Serve() {
+    var p = new Params2 { version = 2, flags = 4 };
+    IntPtr ctx;
+    uint rc = Tbsi_Context_Create(ref p, out ctx);
+    if (rc != 0) { Console.Error.WriteLine("Tbsi_Context_Create 0x" + rc.ToString("x8")); return 2; }
+    try {
+      var input = new StreamReader(Console.OpenStandardInput());
+      var output = new StreamWriter(Console.OpenStandardOutput());
+      var rsp = new byte[8192];
+      string line;
+      while (!string.IsNullOrEmpty(line = input.ReadLine())) {
+        var cmd = new byte[line.Length / 2];
+        for (int i = 0; i < cmd.Length; i++) cmd[i] = Convert.ToByte(line.Substring(2 * i, 2), 16);
+        uint n = (uint)rsp.Length;
+        rc = Tbsip_Submit_Command(ctx, 0, 200, cmd, (uint)cmd.Length, rsp, ref n);
+        Array.Clear(cmd, 0, cmd.Length);
+        if (rc != 0) { Console.Error.WriteLine("Tbsip_Submit_Command 0x" + rc.ToString("x8")); return 3; }
+        output.Write(BitConverter.ToString(rsp, 0, (int)n).Replace("-", ""));
+        output.Write("\n");
+        output.Flush();
+      }
+      return 0;
+    } finally {
+      Tbsip_Context_Close(ctx);
+    }
+  }
+}
+'@
+exit [SwiffTbs]::Serve()
+`;
+
+const HEX = Buffer.from("0123456789abcdef", "ascii");
+
+/** `bytes` as one line of hex, in a Buffer, which can be zeroed, unlike a string. */
+function hexLine(bytes) {
+  const line = Buffer.alloc(bytes.length * 2 + 1);
+  for (let i = 0; i < bytes.length; i++) {
+    line[2 * i] = HEX[bytes[i] >> 4];
+    line[2 * i + 1] = HEX[bytes[i] & 15];
+  }
+  line[line.length - 1] = 0x0a;
+  return line;
+}
+
+/** What a TBS helper's stderr means to the owner. */
+function tbsProblem(stderr) {
+  const said = String(stderr).trim().split(/\r?\n/)[0] ?? "";
+  if (said.startsWith("Tbsi_Context_Create"))
+    return "This PC has no TPM 2.0 Windows lets Lanterel use: turn on the TPM in the BIOS, then go live again.";
+  return `Windows could not pass Lanterel's commands to this PC's TPM (${said || "its helper stopped"}): restart the PC, then go live again.`;
+}
+
+/**
+ * How long a TBS send may wait for its response: the first also waits for
+ * PowerShell to start and Add-Type to compile the helper.
+ */
+const TBS_TIMEOUT = 120_000;
+
+/**
+ * This PC's TPM, through one PowerShell that stays up (TBS): `send(command)`
+ * resolves with its response. The commands go over its stdin alone, never a
+ * command line, a file or the environment: TPM2_Create's carries a secret.
+ */
+function tbs() {
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    "try {",
+    TBS,
+    "} catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }",
+  ].join("\n");
+  const child = spawn(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-EncodedCommand",
+      Buffer.from(script, "utf16le").toString("base64"),
+    ],
+    { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] },
+  );
+  /** The sends waiting for their response, in order. */
+  const waiting = [];
+  let out = "";
+  let err = "";
+  let ended = null;
+  child.stdout.on("data", (chunk) => {
+    out += chunk.toString("ascii");
+    let at;
+    while ((at = out.indexOf("\n")) >= 0) {
+      const line = out.slice(0, at).trim();
+      out = out.slice(at + 1);
+      const w = waiting.shift();
+      if (!w) continue;
+      if (/^(?:[0-9a-f]{2}){10,}$/i.test(line)) w.resolve(Buffer.from(line, "hex"));
+      else w.reject(new Error(tbsProblem("its answer was not a TPM response")));
+    }
+  });
+  child.stderr.on("data", (chunk) => (err += chunk.toString()));
+  // Writes to a helper that has gone fail as its exit says.
+  child.stdin.on("error", () => {});
+  return new Promise((resolve, reject) => {
+    child.once("error", (error) => {
+      ended = new Error(tbsProblem(error.message));
+      reject(ended);
+      for (const w of waiting.splice(0)) w.reject(ended);
+    });
+    child.once("close", () => {
+      if (!ended) ended = new Error(tbsProblem(err));
+      for (const w of waiting.splice(0)) w.reject(ended);
+    });
+    child.once("spawn", () =>
+      resolve({
+        send: (command) =>
+          new Promise((resolveSend, rejectSend) => {
+            if (ended) return rejectSend(ended);
+            // A TPM or helper that does not answer ends the helper, and every send waiting on it.
+            const timer = setTimeout(() => {
+              ended = new Error(tbsProblem("the TPM did not answer in time"));
+              for (const w of waiting.splice(0)) w.reject(ended);
+              child.kill();
+            }, TBS_TIMEOUT);
+            timer.unref();
+            waiting.push({
+              resolve: (response) => {
+                clearTimeout(timer);
+                resolveSend(response);
+              },
+              reject: (error) => {
+                clearTimeout(timer);
+                rejectSend(error);
+              },
+            });
+            const line = hexLine(command);
+            child.stdin.write(line, () => line.fill(0));
+          }),
+        close() {
+          child.stdin.end();
+          setTimeout(() => child.kill(), 10_000).unref();
+        },
+      }),
+    );
+  });
+}
+
+/**
  * The whole of disk `number`, by the name Windows' object manager gives it.
  * Not \\.\PhysicalDriveN: the Node in Electron 33 (20.18) takes that for a
  * network share's root and opens \\.\PhysicalDriveN\ instead, which fails as
@@ -276,6 +441,7 @@ const WINDOWS = {
   powershell: (lines) => powershell(lines, { dir: STATE_DIR }),
   firmware: (requests) => firmware(requests, STATE_DIR),
   openDisk,
+  tpm: tbs,
   stateDir: STATE_DIR,
 };
 
@@ -1021,13 +1187,21 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
       case "provision": {
         const keep = s.partitions.find((p) => p.role === "keep");
         must(s.disk !== null && keep, "This Lanterel OS has no keep partition: install Lanterel OS again.");
-        const record = provisionRecord(op.record);
+        // Sealed before anything is written: a TPM that cannot seal stops Go live here, with no record.
+        // The key that signs Lanterel OS's PCR 11 policies is its Secure Boot certificate's.
+        const policy = sealPolicy(certificate());
+        const tpm = await win.tpm();
+        let record;
+        try {
+          record = await provisionRecord(op.record, (key) => sealKey(tpm, policy, key));
+        } finally {
+          tpm.close();
+        }
         try {
           await withDisk(s.disk, async (disk, gpt) => {
             // The keep the install added, where it was added: nothing else is written.
             must(keepOn(gpt, keep), "Lanterel OS's keep partition is not on the disk.");
-            // The machine key in the clear until the first Lanterel OS boot seals and zeroes it, or the app's
-            // unprovision does: the owner's accepted exception to the no-plaintext-secrets review rule.
+            // No secret in the clear: only Lanterel OS on this PC can unseal the record's key.
             disk.write([{ offset: keep.offset, bytes: record }]);
             const back = disk.read(keep.offset, record.length);
             const same = back.equals(record);

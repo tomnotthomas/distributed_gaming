@@ -24,10 +24,13 @@
 #   3. boot 0: shim shows MokManager, and the owner confirms Swiff's key with
 #      the install's code (mok-drive.py)
 #   4. start sharing (this PC's provisioning, its server, machine id and
-#      machine key, written at the start of the keep; Swiff OS first in
-#      BootOrder, BootNext), then boot 1: shim must start Swiff's systemd-boot and Swiff
-#      OS, which seals the provisioning to the TPM, zeroes the record and keeps
-#      it on its keep (swiff-provision), and runs its self-test
+#      machine key, sealed to the PC's TPM under Windows' storage root key,
+#      which swtpm.cjs makes as Windows does, for a boot whose PCR 11
+#      Lanterel's key signed, and written at the start of the keep; Swiff OS
+#      first in BootOrder, BootNext), then boot 1: shim must start Swiff's
+#      systemd-boot and Swiff OS, which opens the record with the TPM, seals
+#      the provisioning again, zeroes the record and keeps it on its keep
+#      (swiff-provision), and runs its self-test
 #   5. stop sharing (Windows first), then boot 2: the firmware must start
 #      Windows Boot Manager
 #
@@ -39,9 +42,10 @@
 # Needs the Swiff OS self-test build from swiff-os/vm/run-test.sh in
 # $SWIFF_OS_OUTPUT (default ~/.cache/swiff-os/output), which it makes an image
 # set of, and: node, curl (Ubuntu's shim), sudo (loop devices for the NTFS
-# tools, and QEMU when /dev/kvm is not writable), qemu-system-x86_64, swtpm,
-# OVMF with Microsoft's keys, mtools, mkfs.fat, ntfs-3g ($NTFS_BIN, default
-# /usr/sbin), sgdisk, and a Python with virt-firmware ($VIRT_FW_PYTHON).
+# tools, and QEMU when /dev/kvm is not writable), qemu-system-x86_64, swtpm
+# and swtpm_ioctl, OVMF with Microsoft's keys, mtools, mkfs.fat, ntfs-3g
+# ($NTFS_BIN, default /usr/sbin), sgdisk, and a Python with virt-firmware
+# ($VIRT_FW_PYTHON).
 # The VM gets 2 GiB and 4 vCPUs ($SWIFF_VM_CPUS), and starts through
 # swiff-os/vm/vm-run.py: it waits for room among this PC's test VMs.
 # Nothing here touches the host's disks, boot entries or UEFI variables: the
@@ -70,7 +74,7 @@ die() {
 	exit 1
 }
 
-for tool in node qemu-system-x86_64 swtpm mcopy mmd mkfs.fat sgdisk sfdisk; do
+for tool in node qemu-system-x86_64 swtpm swtpm_ioctl mcopy mmd mkfs.fat sgdisk sfdisk; do
 	command -v "$tool" > /dev/null || [ -x "/usr/sbin/$tool" ] || die "$tool not found"
 done
 for tool in mkntfs ntfsresize ntfsfix ntfslabel ntfscp ntfscat; do
@@ -224,8 +228,46 @@ boot_vm 0 300 "$code"
 
 # --- 4. start sharing, boot 1 -----------------------------------------------------------
 log "Start sharing"
+# Windows as start sharing finds it: swtpm serves the PC's TPM on TCP (the boots
+# use its socket in $run/tpm, never at the same time) with Windows' storage root
+# key in it (swtpm.cjs), and the start seals the provisioning to that TPM, for a
+# boot whose PCR 11 the image set's key signed.
+tpm_port=$(python3 -c 'import random, socket
+while True:
+    p = random.randrange(24000, 24800, 2)
+    try:
+        for q in (p, p + 1):
+            socket.socket().bind(("127.0.0.1", q))
+    except OSError:
+        continue
+    print(p)
+    break')
+swtpm socket --tpm2 --tpmstate dir="$run/tpm" \
+	--server type=tcp,port="$tpm_port",bindaddr=127.0.0.1 \
+	--ctrl type=tcp,port=$((tpm_port + 1)),bindaddr=127.0.0.1 \
+	--flags not-need-init,startup-clear \
+	--log file="$run/swtpm-windows.log" &
+tpm_pid=$!
+trap 'kill "$tpm_pid" 2> /dev/null || true' EXIT
+for _ in $(seq 50); do (: > "/dev/tcp/127.0.0.1/$tpm_port") 2> /dev/null && break; sleep 0.1; done
+node "$here/swtpm.cjs" srk "127.0.0.1:$tpm_port"
+export SWIFF_PROVISION_TPM=127.0.0.1:$tpm_port SWIFF_PROVISION_CERT=$set/swiffos-key.cer
 node "$here/apply-plan.cjs" switch start "$vars" "$disk"
+# swtpm saves the TPM's state as it stops.
+swtpm_ioctl --tcp "127.0.0.1:$((tpm_port + 1))" -s
+wait "$tpm_pid"
+trap - EXIT
 "$BOOT_VARS" show "$vars" | tee "$run/vars-started.log"
+# The keep as start sharing left it, before boot 1 takes the record in.
+read -r keep_start keep_sectors < <(sfdisk -J "$disk" | python3 -c 'import json,sys
+for p in json.load(sys.stdin)["partitiontable"]["partitions"]:
+    if p.get("name") == "swiff-keep": print(p["start"], p["size"])')
+keep_raw=$run/keep.raw
+dd if="$disk" of="$keep_raw" bs=512 skip="$keep_start" count="$keep_sectors" status=none
+record_on_keep=$(head -c 8 "$keep_raw" | tr -d '\0')
+key_on_keep=0
+grep -aqF "$(cat "$SWIFF_PROVISION_KEY_FILE")" "$keep_raw" && key_on_keep=1
+rm -f "$keep_raw"
 boot_vm 1 "$boot_timeout"
 "$BOOT_VARS" show "$vars" | tee "$run/vars-after-boot1.log"
 
@@ -274,12 +316,12 @@ print("same" if img == disk else f"image {img}\ndisk {disk}")
 EOF
 )
 expect partitions-as-image "8 Lanterel OS partitions after Windows' 4, as in the image" test "$compare" = same
+# The app's provisioning as start sharing wrote it: sealed on "Windows", so the
+# record is at the keep's start and the machine key is nowhere on it in the clear.
+expect provision-sealed-on-windows "Go live's record is sealed: the record is on the keep, the machine key is not" \
+	test "$record_on_keep:$key_on_keep" = SWIFFPRV:0
 # The app's provisioning, taken in at boot 1: sealed to the TPM and kept on the keep, now ext4,
 # with neither the record nor the machine key left in the clear anywhere on it.
-read -r keep_start keep_sectors < <(sfdisk -J "$disk" | python3 -c 'import json,sys
-for p in json.load(sys.stdin)["partitiontable"]["partitions"]:
-    if p.get("name") == "swiff-keep": print(p["start"], p["size"])')
-keep_raw=$run/keep.raw
 dd if="$disk" of="$keep_raw" bs=512 skip="$keep_start" count="$keep_sectors" status=none
 expect provision-sealed "Lanterel OS took the provisioning in: no record and no machine key in the clear on its keep" \
 	bash -c "! grep -aq SWIFFPRV '$keep_raw' && ! grep -aqF \"\$(cat '$SWIFF_PROVISION_KEY_FILE')\" '$keep_raw'"

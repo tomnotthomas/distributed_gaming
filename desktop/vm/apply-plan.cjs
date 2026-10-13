@@ -7,7 +7,8 @@
 //   label             ntfslabel
 //   write             the image set's file (image-set.cjs), at the plan's offset
 //   provision         the app's provisioning record (provision.cjs), at the start
-//                     of the keep partition, as the worker writes it
+//                     of the keep partition, as the worker writes it: sealed on
+//                     swtpm (swtpm.cjs) standing in for the PC's TPM
 //   boot-entry, boot-first, boot-next, mok-import
 //                     the VM's firmware variables, through boot-vars.py
 //   check, image-check, fast-startup-off, installed, restart
@@ -31,13 +32,19 @@
 // for Swiff's certificate (MOK_CERT) that the install enrols. What the
 // provisioning hands Swiff OS, as the app's Settings and its encrypted key
 // would: $SWIFF_PROVISION_SERVER, $SWIFF_PROVISION_MACHINE_ID, and the machine
-// key in the file $SWIFF_PROVISION_KEY_FILE.
+// key in the file $SWIFF_PROVISION_KEY_FILE. What it seals that with, as the
+// worker does with the image set's certificate and the PC's TPM: the
+// certificate whose key signs the image's PCR 11 policies, in the file
+// $SWIFF_PROVISION_CERT (PEM or DER), and swtpm's command channel at
+// $SWIFF_PROVISION_TPM (host:port), whose SRK `node swtpm.cjs srk` makes as
+// Windows would.
 //
 // NTFS tools run through sudo on a loop device over the partition; $NTFS_BIN
 // names their directory, $LD_LIBRARY_PATH reaches them, $BOOT_VARS is the
 // command that edits the firmware variables.
 
 const { execFileSync } = require("node:child_process");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { emptyGpt, gptWrites, readGpt, withPartitions, withResized } = require("../gpt.cjs");
@@ -45,6 +52,8 @@ const { downloadSet } = require("../image-download.cjs");
 const { fileOf, readImageSet, sourceOf, trustOf } = require("../image-set.cjs");
 const { provisionRecord } = require("../provision.cjs");
 const { MOK_CERT, TYPE, installPlan, mokRequest, mokSteps, rentalOf, switchPlan } = require("../rental.cjs");
+const { sealKey, sealPolicy } = require("../tpm-seal.cjs");
+const { tcpTransport } = require("./swtpm.cjs");
 
 const MiB = 1024 * 1024;
 const MSR = "e3c9e316-0b5c-4db8-817d-f92df00215ae";
@@ -243,8 +252,23 @@ function provisioning() {
   return { serverUrl, machineId, machineKey: fs.readFileSync(keyFile, "utf8").trim() };
 }
 
+/** What the provisioning is sealed with, from the environment (see the top of this file). */
+function sealing() {
+  const { SWIFF_PROVISION_CERT: certFile, SWIFF_PROVISION_TPM: tpm } = process.env;
+  const at = /^(.+):(\d+)$/.exec(tpm ?? "");
+  if (!certFile || !at)
+    throw new Error(
+      "provisioning is sealed: it needs SWIFF_PROVISION_CERT (the certificate whose key signs the image's PCR 11 policies) and SWIFF_PROVISION_TPM (swtpm's command channel, host:port)",
+    );
+  return {
+    policy: sealPolicy(new crypto.X509Certificate(fs.readFileSync(certFile)).publicKey),
+    host: at[1],
+    port: Number(at[2]),
+  };
+}
+
 /** Carries out one plan operation on the VM's disk image and firmware variables, as the worker would on Windows. */
-function apply(op, ctx) {
+async function apply(op, ctx) {
   const say = (line) => console.log(`  ${op.op}: ${line}`);
   switch (op.op) {
     case "check":
@@ -294,11 +318,19 @@ function apply(op, ctx) {
     case "provision": {
       // With ctx.record, the disk is only read (the session test's cached build, under its overlay):
       // the record goes to that file, for the caller to write at the offset said.
+      const given = provisioning();
+      const { policy, host, port } = sealing();
       const disk = openDisk(ctx.file, ctx.record ? "r" : "r+");
       const gpt = readGpt(disk.read, { diskBytes: disk.bytes });
       const keep = gpt.entries.find((e) => e.name === "swiff-keep" && e.type === TYPE.linux);
       if (!keep) throw new Error("no keep partition on the disk");
-      const record = provisionRecord(provisioning());
+      const tpm = await tcpTransport(host, port);
+      let record;
+      try {
+        record = await provisionRecord(given, (key) => sealKey(tpm, policy, key));
+      } finally {
+        tpm.close();
+      }
       if (ctx.record) fs.writeFileSync(ctx.record, record, { mode: 0o600 });
       else disk.write([{ offset: keep.first * 512, bytes: record }]);
       disk.close();
@@ -356,11 +388,17 @@ function apply(op, ctx) {
 }
 
 /** Carry out a plan's steps in order, printing each step's title. */
-function run(plan, ctx) {
+async function run(plan, ctx) {
   for (const step of plan.steps) {
     console.log(`- ${step.title}`);
-    for (const op of step.ops) apply(op, ctx);
+    for (const op of step.ops) await apply(op, ctx);
   }
+}
+
+/** Exit 1 with `error`'s message: what a command that failed prints. */
+function die(error) {
+  console.error(error.message);
+  process.exit(1);
 }
 
 const [cmd, ...args] = process.argv.slice(2);
@@ -378,13 +416,7 @@ else if (cmd === "download") {
       const line = `${phase} ${total ? Math.floor((done / total) * 10) * 10 : 0}% of ${total} bytes`;
       if (line !== shown) console.log((shown = line));
     },
-  }).then(
-    (version) => console.log(`Downloaded Lanterel OS ${version} into ${dir}`),
-    (error) => {
-      console.error(error.message);
-      process.exit(1);
-    },
-  );
+  }).then((version) => console.log(`Downloaded Lanterel OS ${version} into ${dir}`), die);
 } else if (cmd === "install") {
   const [file, dir, factsFile, vars] = args;
   const set = readImageSet(dir, { trust: trustOf({ dev: true }) });
@@ -393,25 +425,27 @@ else if (cmd === "download") {
     layout: set.layout,
     ...(process.env.SWIFF_MOK_CODE ? { code: process.env.SWIFF_MOK_CODE } : {}),
   });
-  run(plan, { file, set, vars });
+  run(plan, { file, set, vars }).catch(die);
 } else if (cmd === "switch") {
   // Without the disk, the provisioning is left out: the firmware's part alone.
   const plan = switchPlan(args[0]);
   run(args[2] ? plan : { ...plan, steps: plan.steps.filter((s) => s.id !== "provision") }, {
     vars: args[1],
     file: args[2],
-  });
+  }).catch(die);
 } else if (cmd === "provision") {
   // What the app writes before each restart into Swiff OS, alone: the session test's disk is the image's own.
   run(
     { steps: switchPlan("start").steps.filter((s) => s.id === "provision") },
     { file: args[0], record: args[1] },
-  );
+  ).catch(die);
 } else if (cmd === "mok") {
   const [vars, cert, code] = args;
   // The request alone: this VM boots its ESP as the firmware's own disk entry, with no Swiff OS entry for BootNext.
   const [mok] = mokSteps(code);
-  run({ steps: [{ ...mok, ops: mok.ops.filter((op) => op.op === "mok-import") }] }, { vars, cert });
+  run({ steps: [{ ...mok, ops: mok.ops.filter((op) => op.op === "mok-import") }] }, { vars, cert }).catch(
+    die,
+  );
 } else {
   console.error("usage: apply-plan.cjs windows|facts|download|install|switch|provision|mok ...");
   process.exit(2);

@@ -12,10 +12,12 @@
 # Ignition, plays the game on the path ICE picks, reloads, reconnects and ends the
 # session; swiff-hostd restarts the PC clean, attests again, reopens the same
 # state and offers it again; booted once more with a kernel command line from
-# outside its signed UKI, the PC is refused attestation and never offered. Each
-# step is reported PASS or FAIL. The server trusts this build's boot: PCR 11 as
-# systemd-measure (vm/measure-uki.py, in the build's tools tree) predicts it
-# for the UKI.
+# outside its signed UKI, the TPM does not open the record Go live sealed, so
+# swiff-hostd never starts, attests or offers the PC; that record opens neither
+# on another PC (a fresh TPM) nor in a modified Lanterel OS (a UKI with one
+# section changed). Each step is reported PASS or FAIL. The server trusts this
+# build's boot: PCR 11 as systemd-measure (vm/measure-uki.py, in the build's
+# tools tree) predicts it for the UKI.
 #
 # Steam (no account, no network here) and gamescope (no GPU) are stood in for
 # (vm/sessiontest/); everything else is the shipped image's.
@@ -40,7 +42,7 @@
 #
 # Needs: sudo (mkosi 20 builds as root), qemu-system-x86_64 with /dev/kvm usable
 # by this user, swtpm and swtpm-tools (swtpm_setup, swtpm_localca, gnutls's
-# certtool), OVMF (/usr/share/OVMF), unshare (user and network
+# certtool, swtpm_ioctl), qemu-io, bwrap, OVMF (/usr/share/OVMF), unshare (user and network
 # namespaces), mkfs.ext4, coturn's turnserver (TURNSERVER=path, else on PATH)
 # and Playwright's Chromium (PLAYWRIGHT_BROWSERS_PATH, or npx playwright install
 # chromium-headless-shell). The VM gets 2 GiB of RAM and 4 vCPUs ($SWIFF_VM_CPUS)
@@ -83,7 +85,7 @@ for arg in "$@"; do
 	esac
 done
 
-for tool in qemu-system-x86_64 qemu-img swtpm swtpm_setup swtpm_localca mkosi unshare; do
+for tool in qemu-system-x86_64 qemu-img qemu-io swtpm swtpm_setup swtpm_localca swtpm_ioctl mkosi unshare bwrap; do
 	command -v "$tool" > /dev/null || die "$tool not found"
 done
 [ -w /dev/kvm ] || die "/dev/kvm is not usable by $(id -un)"
@@ -113,6 +115,8 @@ export SWIFF_SESSION_IMAGE
 
 # What PCR 11 holds once the UKI has booted to `ready`: the release's in the boot policy.
 tools=$out/ubuntu-tools
+# The harness rebuilds a modified UKI in it.
+export SWIFF_SESSION_TOOLS=$tools
 SWIFF_SESSION_PCR11=$(bwrap --ro-bind "$tools/usr" /usr \
 	--symlink usr/bin /bin --symlink usr/sbin /sbin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
 	--ro-bind "$uki" /uki.efi --ro-bind "$here/measure-uki.py" /measure-uki.py \
