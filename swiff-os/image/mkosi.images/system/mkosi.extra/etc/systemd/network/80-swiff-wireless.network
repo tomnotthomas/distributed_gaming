@@ -1,0 +1,14 @@
+# The Wi-Fi network iwd joins (the one the owner's app handed over); a cable,
+# when there is one too, carries the traffic.
+[Match]
+Type=wlan
+
+[Network]
+DHCP=yes
+IgnoreCarrierLoss=3s
+
+[DHCPv4]
+RouteMetric=2048
+
+[IPv6AcceptRA]
+RouteMetric=2048
