@@ -413,9 +413,9 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   passphrase of 8 to 63 printable ASCII characters, or for `psk` the key as 64 hex digits; none
   for `open`), sealed with the rest. `swiff-provision` writes it at every boot as iwd's network
   file (`iwd.network(5)`, named and escaped as iwd reads it) into `/var/lib/iwd`, root's 0700 on
-  the tmpfs, the file 0600; nothing logs it. For `psk` the file holds only the key derived from
-  the passphrase and the SSID (PBKDF2-HMAC-SHA1, IEEE 802.11 Annex M), never the passphrase, and
-  iwd joins with WPA2; for `sae` it holds the passphrase, which iwd needs for WPA3. Nobody at the PC changes it: there is no settings UI, and iwd's D-Bus answers root
+  the tmpfs, the file 0600; nothing logs it. It holds the passphrase as given, for `psk` too:
+  iwd takes WPA3 (SAE) whenever the network offers it, a WPA2/WPA3 network as well, and SAE
+  needs the passphrase. Nobody at the PC changes it: there is no settings UI, and iwd's D-Bus answers root
   alone (the renter is in no group). An enterprise (802.1X) or captive-portal network is not
   supported: the payload cannot carry one, and such a PC needs a cable. The image
   carries the firmware of the common Wi-Fi chips: Intel (`iwlwifi`), MediaTek (`mt76`, such as

@@ -32,7 +32,7 @@ iw phy "$ap" set netns name ap
 dev=$(ip netns exec ap iw dev | awk '$1 == "Interface" { print $2; exit }')
 ssid=$(cat "$fix/ssid-hex")
 # The key hostapd checks the PC against: derived from the passphrase here, so
-# it matches only if swiff-provision derived iwd's key from the passphrase as it was given.
+# it matches only if iwd read the passphrase swiff-provision wrote as it was given.
 psk=$(python3 -c 'import hashlib, sys
 print(hashlib.pbkdf2_hmac("sha1", open(sys.argv[1], "rb").read(), bytes.fromhex(sys.argv[2]), 4096, 32).hex())' \
 	"$fix/passphrase" "$ssid")

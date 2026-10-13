@@ -37,7 +37,7 @@
 // anything. The payload is never logged, and the plaintext record lives on the
 // disk only from the owner's restart into Lanterel OS to its first boot.
 
-import { createHash, pbkdf2Sync } from "node:crypto";
+import { createHash } from "node:crypto";
 import { access, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { checkServerUrl, parseConfig } from "./config.ts";
@@ -154,10 +154,10 @@ function checkWifi(raw: unknown): Wifi {
 /**
  * iwd's network file for a Wi-Fi network (iwd.network(5)): its name, from the
  * SSID as iwd itself names it (hex-encoded after "=" unless the SSID is all
- * letters, digits, spaces, "-" and "_"), and its contents. A WPA2 network
- * gets only its PreSharedKey: given as 64 hex digits, or derived from the
- * passphrase and the SSID (IEEE 802.11 Annex M), so the passphrase is never
- * written. A WPA3 (SAE) network gets the passphrase, which iwd needs.
+ * letters, digits, spaces, "-" and "_"), and its contents. A passphrase is
+ * written as it was given: iwd takes WPA3 (SAE) whenever the network offers it,
+ * a WPA2/WPA3 network as well, and SAE needs the passphrase. Only a WPA2 key
+ * given as 64 hex digits is a PreSharedKey.
  */
 export function iwdNetwork(wifi: Wifi): { name: string; contents: string } {
   const stem = /^[A-Za-z0-9 _-]+$/.test(wifi.ssid)
@@ -165,17 +165,11 @@ export function iwdNetwork(wifi: Wifi): { name: string; contents: string } {
     : `=${Buffer.from(wifi.ssid, "utf8").toString("hex")}`;
   const settings = "[Settings]\nAutoConnect=true\n";
   if (wifi.security === "open") return { name: `${stem}.open`, contents: settings };
-  const security =
-    wifi.security === "sae"
-      ? // ell's escapes: a value's leading spaces and every backslash.
-        `Passphrase=${wifi.passphrase.replace(/\\/g, "\\\\").replace(/^ +/, (lead) => "\\s".repeat(lead.length))}`
-      : `PreSharedKey=${PSK.test(wifi.passphrase) ? wifi.passphrase.toLowerCase() : wpaKey(wifi.passphrase, wifi.ssid)}`;
+  const security = PSK.test(wifi.passphrase)
+    ? `PreSharedKey=${wifi.passphrase.toLowerCase()}`
+    : // ell's escapes: a value's leading spaces and every backslash.
+      `Passphrase=${wifi.passphrase.replace(/\\/g, "\\\\").replace(/^ +/, (lead) => "\\s".repeat(lead.length))}`;
   return { name: `${stem}.psk`, contents: `[Security]\n${security}\n\n${settings}` };
-}
-
-/** The WPA2 key of a passphrase on a network (IEEE 802.11 Annex M): PBKDF2-HMAC-SHA1 over the SSID, 4096 rounds, 32 bytes. */
-function wpaKey(passphrase: string, ssid: string): string {
-  return pbkdf2Sync(passphrase, Buffer.from(ssid, "utf8"), 4096, 32, "sha1").toString("hex");
 }
 
 /** The keep partition. */
