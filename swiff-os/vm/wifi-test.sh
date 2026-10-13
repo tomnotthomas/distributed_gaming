@@ -26,7 +26,7 @@
 # Usage: vm/wifi-test.sh [--no-build|--rebuild]
 #
 # The image is built by vm/build-image.sh only when what goes into it changed;
-# --rebuild builds it anyway, and --no-build takes the last build as it is.
+# --rebuild builds it anyway, and --no-build takes the newest stored build.
 # Build output, caches and the VM's files go to $SWIFF_OS_BUILD_DIR (default
 # ~/.cache/swiff-os), the run in wifi-vm/.
 #
@@ -41,7 +41,6 @@ set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
 build_dir=${SWIFF_OS_BUILD_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/swiff-os}
-out=$build_dir/output
 run=$build_dir/wifi-vm
 
 ovmf_code=/usr/share/OVMF/OVMF_CODE_4M.secboot.fd
@@ -91,14 +90,14 @@ flock -n 9 || die "another wifi-test.sh is running"
 
 # --- Build -------------------------------------------------------------------
 if [ "$build" = 0 ]; then
-	disk_src=$out/swiffos-wifitest.raw
+	disk_src=$(ls -t "$build_dir"/images/wifitest-*.raw 2> /dev/null | head -n1)
 else
 	log "The Wi-Fi test image (vm/build-image.sh wifitest)"
 	rebuild=()
 	[ "$build" = 2 ] && rebuild=(--rebuild)
 	disk_src=$("$here/build-image.sh" wifitest "${rebuild[@]}").raw
 fi
-[ -e "$disk_src" ] || die "$disk_src not built (run without --no-build)"
+[ -e "$disk_src" ] || die "no Wi-Fi test image built (run without --no-build)"
 
 # --- Prepare the VM ----------------------------------------------------------
 log "Preparing the VM in $run"

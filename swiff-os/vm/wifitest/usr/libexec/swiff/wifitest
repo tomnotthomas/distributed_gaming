@@ -25,7 +25,7 @@ say INFO network "$network"
 online_at=$(($(systemctl show -P ActiveEnterTimestampMonotonic network-online.target) / 1000000))
 check verdict-in-time "network-online.target reached ${online_at} s after boot" test "$online_at" -gt 0 -a "$online_at" -le 120
 failed=$(systemctl list-units --failed --no-legend --plain | awk '{ print $1 }' | paste -sd' ' -)
-check network-units-not-failed "failed units: ${failed:-none}" bash -c "! grep -Eq 'network|iwd|provision' <<< '$failed'"
+check units-not-failed "failed units: ${failed:-none}" test -z "$failed"
 check state-readable-by-renter "" as_renter cat /run/swiff/network
 
 case $phase in

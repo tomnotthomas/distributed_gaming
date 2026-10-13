@@ -51,7 +51,7 @@ ip netns exec ap ip link set lo up
 ip netns exec ap hostapd -B -P /run/hostapd.pid /run/hostapd.conf
 ip netns exec ap ip addr add 203.0.113.1/24 dev "$dev"
 ip netns exec ap dnsmasq --conf-file=/dev/null --user=root --no-resolv --no-hosts \
-	--interface="$dev" --bind-interfaces --pid-file=/run/dnsmasq.pid \
+	--interface="$dev" --bind-interfaces --pid-file=/run/dnsmasq.pid --dhcp-leasefile=/run/dnsmasq.leases \
 	--dhcp-range=203.0.113.10,203.0.113.50,255.255.255.0,1h \
 	--address=/wifitest.lanterel.example/203.0.113.1
 echo "SWIFF-WIFITEST INFO access-point $dev in netns ap"
