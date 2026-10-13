@@ -29,9 +29,10 @@ report() {
 wait_online() {
 	env -u NOTIFY_SOCKET /usr/lib/systemd/systemd-networkd-wait-online --any --operational-state=routable "$@"
 }
-# The medium of a link that is online, as networkd types it.
+# The medium that carries the traffic, as networkd types it: a cable when one is
+# online, as it has the lower route metric, Wi-Fi only otherwise.
 medium() {
-	networkctl list --no-legend --no-pager | awk '$4 == "routable" { print ($3 == "wlan" ? "wifi" : "ethernet"); exit }'
+	networkctl list --no-legend --no-pager | awk '$4 == "routable" { if ($3 != "wlan") m = "ethernet"; else if (m == "") m = "wifi" } END { if (m != "") print m }'
 }
 
 want=ethernet
