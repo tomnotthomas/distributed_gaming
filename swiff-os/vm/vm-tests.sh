@@ -5,6 +5,7 @@
 #
 # The suites:
 #   selftest  swiff-os/vm/run-test.sh                Lanterel OS's self-test, 12 boots
+#   lan       swiff-os/vm/lan-test.sh                in a home network: the internet, nothing of the LAN, 3 boots
 #   session   swiff-os/vm/session-test.sh            a renter's session, end to end
 #   streamer  swiff-os/streamer/vm/run-test.sh       the streamer in a VM of its own
 #   rental    desktop/vm/rental-install-test.sh      install and switch on a Windows-like disk
@@ -22,7 +23,7 @@ set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../.." && pwd)
-all="selftest session streamer rental mok windows"
+all="selftest lan session streamer rental mok windows"
 
 base=
 only=
@@ -48,11 +49,13 @@ suites_for() { # path
 	swiff-os/streamer/src/vmStatus.test.ts) echo streamer ;;
 	*.md | *.test.ts | *.test.tsx) ;;
 	swiff-os/vm/vm-run.py | swiff-os/vm/vm-tests.sh) echo "$all" ;;
-	swiff-os/vm/build-image.sh | swiff-os/vm/inputs-key.py) echo selftest session streamer ;;
-	swiff-os/image/*) echo selftest session rental windows ;;
+	swiff-os/vm/build-image.sh | swiff-os/vm/inputs-key.py) echo selftest lan session streamer ;;
+	swiff-os/image/*) echo selftest lan session rental windows ;;
 	swiff-os/hostd/* | swiff-os/steam/*) echo selftest session ;;
 	swiff-os/image-set.sh) echo rental windows ;;
 	swiff-os/vm/sessiontest/* | swiff-os/vm/session-*) echo session ;;
+	swiff-os/vm/lan-*) echo lan ;;
+	swiff-os/vm/selftest/*) echo selftest lan ;;
 	swiff-os/vm/*) echo selftest ;;
 	swiff-os/streamer/vm/*) echo streamer ;;
 	swiff-os/streamer/*) echo selftest session streamer ;;
@@ -103,6 +106,7 @@ fail=0
 for s in $suites; do
 	case $s in
 	selftest) cmd=("$here/run-test.sh" $build_arg) ;;
+	lan) cmd=("$here/lan-test.sh" $build_arg) ;;
 	session) cmd=("$here/session-test.sh" $build_arg) ;;
 	streamer) cmd=("$repo/swiff-os/streamer/vm/run-test.sh" $build_arg) ;;
 	rental) cmd=("$repo/desktop/vm/rental-install-test.sh") ;;

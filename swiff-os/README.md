@@ -363,7 +363,8 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
 - **The session is the whole UI.** `swiff-session.service` runs gamescope on tty1 as `renter`, with
   `NoNewPrivileges`, and gamescope runs the Steam sign-in agent (`steam/session`, below): Steam at
   its sign-in window, then the game the renter booked, never Steam's own UI. It starts only after
-  `nftables.service` has loaded the firewall and does not start at all if loading fails. There is no
+  `nftables.service` has loaded the firewall and `swiff-netguard-ready` has filled it (below), and
+  does not start at all if loading fails. There is no
   display manager, desktop, getty, serial console login or sshd.
 - **The rental-mode agents are in the image.** `swiff-hostd` (root, `swiff-hostd.service`), the
   streamer it starts for each renter as `swiff-stream`, and the Steam sign-in agent run on Ubuntu's
@@ -431,16 +432,35 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   until the next boot, so Ctrl+Alt+Fn, Alt+Fn and Alt+Left/Right do nothing, and neither does a
   program's or logind's `VT_ACTIVATE`. The session does not start without the lock. No getty runs on
   any VT. This stands behind the streamer's own key filter.
-- **The LAN is blocked.** nftables (`/etc/nftables.conf`) refuses traffic to RFC 1918, link-local,
-  multicast and broadcast addresses, their IPv6 counterparts, every on-link prefix and the prefix of
-  each of the host's own global addresses, so the LAN's global IPv6 addresses (even when the router
-  advertises the prefix without an on-link route) and non-RFC 1918 LANs (such as CGNAT 100.64.0.0/10)
-  are blocked too.
+- **The LAN is blocked.** nftables (`/etc/nftables.conf`, on the read-only root) refuses traffic to
+  RFC 1918, CGNAT (100.64.0.0/10), IETF special-purpose (192.0.0.0/24, where a DS-Lite router's WAN
+  side sits), link-local, multicast and broadcast addresses, their IPv6 counterparts, every on-link
+  prefix and the prefix of each of the host's own global addresses, so the LAN's global IPv6
+  addresses (even when the router advertises the prefix without an on-link route) and LANs in any
+  other range are blocked too. It applies to every program, root's included.
   Programs fail at once rather than waiting for a timeout (IPv4: "No route to host", IPv6:
-  "Permission denied"). It allows DHCP, IPv6
+  "Permission denied"), except toward a link-local IPv6 address, where they time out. It allows DHCP, IPv6
   neighbour discovery and multicast listener (MLD) reports, and DNS to the current gateway and DNS servers. `swiff-netguard` keeps the
-  gateway, DNS and on-link sets current. The gateway is reachable for DNS and ping only, not for its admin pages. Internet traffic
-  is allowed.
+  gateway, DNS and on-link sets current. The gateway is reachable for DHCP and DNS only, not for its
+  admin pages or anything else. Many routers serve their admin pages on the home's public address
+  too, so `swiff-netguard` also asks the stream's STUN servers (`/usr/lib/swiff/stun-servers`)
+  for the public IPv4 address and refuses all traffic to it. A router's public IPv6
+  address outside the PC's own prefix is not blocked. Discovery (mDNS, SSDP/UPnP, LLMNR, NetBIOS) goes to multicast and
+  broadcast addresses, so none of it leaves the PC, and nothing on it listens for discovery. Nothing on the LAN can
+  open a connection to the PC. Internet traffic is allowed, so a renter in the owner's own home
+  streams over the internet, never directly over the LAN. They share the PC's public address, so
+  their stream goes through the TURN relay.
+- **No network without the firewall.** `nftables.service` loads the rules early in boot, before
+  `network-pre.target`. systemd-networkd and iwd require it, so they configure no link before the
+  rules are in, and none at all if they fail to load. The initrd has no systemd-networkd and no
+  network generator, so nothing brings a link up before the root, where the rules are.
+- **Nothing the renter runs starts before the rules are filled.** `swiff-netguard-ready.service`
+  waits for a default route and runs `swiff-netguard` until it has filled every set, the public
+  address included, trying again after 1, 2, 4, 8 and then every 15 seconds. `swiff-hostd` and the
+  renter session require it. It has no time limit: after a slow router or a STUN outage, which the
+  stream needs as well, the agent and the session start late, once the public address is learned.
+  `multi-user.target` waits with the agent; the no-network screen, which comes before the session
+  and does not need the agent, still appears.
 - **The renter sees only verified games.** The owner's games library is never written by the renter.
   The renter sees a view of it at `/srv/games` that shows only verified files, and their writes go to
   a per-boot encrypted session layer. See [Stage 4](#stage-4-the-shared-games-library).
@@ -597,6 +617,7 @@ swiff-os/vm/vm-tests.sh             # the VM tests this branch's changes touch (
 swiff-os/vm/run-test.sh             # build the test image if its inputs changed, boot it twelve times, check everything
 swiff-os/vm/run-test.sh --no-build  # boot the last build again (--rebuild: build it anyway)
 swiff-os/vm/session-test.sh         # a renter plays on rental mode end to end (below)
+swiff-os/vm/lan-test.sh             # rental mode in a home network: the internet, nothing of the LAN (below)
 # the shipped image only, as swiffos.raw in the given output directory
 swiff-os/image/stage.sh ~/.cache/swiff-os/output
 sudo mkosi -C swiff-os/image --output-dir ~/.cache/swiff-os/output --cache-dir ~/.cache/swiff-os/cache build
@@ -624,7 +645,9 @@ machine's RAM, and needs about twice the root's size there: on a 10 GB machine s
 GEEKOM, a root of up to about 2.4 GB. The root is about 2.3 GB.
 
 `run-test.sh` builds the `selftest` profile. That is the shipped image plus a serial console and
-`swiff-selftest.service` (`vm/selftest/`). In the test build the session starts only after the
+`swiff-selftest.service` (`vm/selftest/`). Its first STUN server is a responder in the test build
+(`swiff-selftest-stun.service`, `vm/lan-fixture.py`'s), so `swiff-netguard` learns a public address
+without reaching the internet's STUN servers. In the test build the session starts only after the
 self-test, so sealing stays open, as it would until a game is launched. The test then boots the
 image twelve times in QEMU, with 2 GiB of RAM and 4 vCPUs, under OVMF with Secure Boot and swtpm:
 
@@ -828,6 +851,51 @@ the streamer's relayed one.
 passes only when the boot does not reach `ready` (`systemd-pcrphase.service` never runs),
 swiff-hostd logs its hardware-floor refusal (`not offered: …`), and the PC gets no state key and is
 never offered.
+
+### The LAN test
+
+`vm/lan-test.sh` puts the self-test build in a home network and checks that a renter reaches the
+internet and nothing of it. The network is a bridge in a user and network namespace, the VM on it
+through a tap device (`vm/lan-fixture.py` answers on it):
+
+- **The router** at 192.168.77.1, fe80::1 and 2001:db8:77::1. dnsmasq hands out the addresses
+  (DHCP and router advertisements) and answers DNS. Admin pages answer on 80 and 443, also on its
+  public address 203.0.113.7, and on 80 at 100.64.0.1 and 192.0.0.2, as on a CGNAT or DS-Lite
+  router's WAN side.
+- **Another device** at 192.168.77.50, fe80::50 and 2001:db8:77::50, in a namespace of its own. It
+  serves a page and answers mDNS, SSDP, LLMNR and NetBIOS.
+- **The internet** beyond the router, at 198.51.100.10 and 2001:db8:ffff::10 (TEST-NET, which the
+  firewall treats as the internet). It serves a page and echoes UDP, as a STUN server answers. The
+  stream's STUN servers resolve to 198.51.100.30, which reports the router's public address.
+  Every boot turns the test build's own STUN responder off (`swiff.selftest.stun=network`), so the
+  VM asks these.
+
+The in-image test (`vm/selftest/usr/libexec/swiff/selftest-lan`) probes a table of these, as the
+renter and as root, first with the firewall and then without it as the control. Each probe must
+be refused or go unanswered with the firewall, and answer without it. The device also connects to
+the VM, and the VM renews its lease. A probe of the internet that finds no route is tried again
+once the route is back: the IPv6 default route is sometimes gone for a few seconds after a router
+advertisement refreshes it, also with the firewall removed. The test boots three times:
+
+1. **Boot 1.** The VM gets its addresses from the router, `swiff-netguard` learns the public
+   address before `swiff-hostd` and the session may start, and nothing listens for discovery. With the firewall, the router's admin pages (IPv4,
+   IPv6, link-local and the public address, 80 and 443, also as root, and the CGNAT and DS-Lite
+   WAN addresses) and ping, the device's page
+   and every discovery query are refused or go unanswered, and the device cannot connect to the VM. DNS and the internet over TCP, UDP and ping, on IPv4 and IPv6, work.
+   The router answers the lease renewal. Without the firewall, everything answers, and once it is
+   loaded again the router is refused again.
+2. **Boot 2.** The ruleset fails to load (`swiff.selftest.firewall=broken` on the kernel command
+   line, through an SMBIOS string systemd-stub takes, makes `vm/selftest/`'s `nftables.service`
+   load a broken ruleset). systemd-networkd never starts, in the initrd or after it. The network
+   card stays down with no address or route, and the router never hears from the VM.
+3. **Boot 3.** The STUN servers answer late: only 20 seconds after the VM asked them three times
+   in vain. `swiff-netguard-ready` waits for them, with the gateway and on-link sets filled, and
+   `swiff-hostd` and the renter session start after it rather than failing on it.
+
+It needs dnsmasq (`DNSMASQ=path`, else on `PATH`; `dnsmasq-base` will do) and user and network
+namespaces, and runs as the calling user. `--no-build` takes the newest stored self-test build.
+The run's serial consoles, the router's log and what the device tried are in
+`$SWIFF_OS_BUILD_DIR/lan-vm`.
 
 ## Follow-ups
 
@@ -1133,7 +1201,7 @@ From a checkout the agent runs as TypeScript source on Node 22.18 or later, usin
 type stripping. The image's Node (Ubuntu's) is built without it, so the image runs one
 bundled file, `dist/swiff-hostd.mjs` (`npm run build -w @swiff/hostd`, which
 `image/stage.sh` runs), from `swiff-hostd.service`. The unit starts it once the firewall is
-up and the games are checked, and only when its config is there. It runs as root in a
+up and filled (`swiff-netguard-ready`) and the games are checked, and only when its config is there. It runs as root in a
 sandbox of its own (private `/tmp`, `/home` hidden, no new privileges, no kernel modules,
 logs or control groups); the streamer it starts inherits that and drops to its own user. The
 config format is in `hostd/hostd.example.json`, with the image's streamer. In the image

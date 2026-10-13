@@ -1,0 +1,16 @@
+# VM test build only: answers the self-test build's first STUN server
+# (vm/selftest/usr/lib/swiff/stun-servers) with 203.0.113.9 on loopback, so
+# swiff-netguard-ready needs no internet STUN. vm/lan-test.sh turns it off
+# (swiff.selftest.stun=network): its router answers STUN.
+[Unit]
+Description=Lanterel OS VM self-test: local STUN answer
+DefaultDependencies=no
+Before=swiff-netguard-ready.service swiff-netguard.service shutdown.target
+Conflicts=shutdown.target
+ConditionKernelCommandLine=!swiff.selftest.stun=network
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/libexec/swiff/lan-fixture stun 127.0.0.1 3478 203.0.113.9
+
+[Install]
+WantedBy=sysinit.target

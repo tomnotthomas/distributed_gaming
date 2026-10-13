@@ -1,16 +1,20 @@
 #!/bin/sh
 # Points the LAN exceptions in /etc/nftables.conf at the current default
-# gateways and DNS servers, and fills the on-link sets with the home network:
+# gateways and DNS servers, fills the on-link sets with the home network:
 # the prefixes the kernel reaches directly (no gateway) and the prefix of each
 # of the host's own global addresses (a SLAAC prefix advertised without the
-# on-link flag has no route), whatever their address range. Run by
+# on-link flag has no route), whatever their address range, and the wan4 set
+# with the home's public IPv4 address, as a STUN server sees it. Run by
 # swiff-netguard.path/.timer whenever the network configuration may have
 # changed. Flushing and refilling happens in one nft transaction, so there is
 # no window with stale or missing entries.
 set -eu
 
-gw4=$(ip -4 route show default | awk '$2 == "via" { print $3 }' | sort -u | paste -sd, -)
-gw6=$(ip -6 route show default | awk '$2 == "via" { print $3 }' | sort -u | paste -sd, -)
+# The word after "via": a route through a nexthop object ("default nhid N
+# via ...", as systemd-networkd adds a router advertisement's) has it further on.
+gateways() { ip "-$1" route show default | awk '{ for (i = 1; i < NF; i++) if ($i == "via") print $(i + 1) }' | sort -u | paste -sd, -; }
+gw4=$(gateways 4)
+gw6=$(gateways 6)
 # On-link routes are the ones whose second field is "dev": no "via", not
 # default, and not a typed route such as unreachable or multicast. Global
 # addresses exclude loopback (scope host).
@@ -75,3 +79,18 @@ dns6=$(printf '%s\n' "$dns" | grep ':' | sed 's/%.*//' | paste -sd, - || true)
 	[ -z "$onlink4" ] || echo "add element inet swiff onlink4 { $onlink4 }"
 	[ -z "$onlink6" ] || echo "add element inet swiff onlink6 { $onlink6 }"
 } | nft -f -
+
+# The router may serve its admin pages on the home's public address too. It is
+# learned last: a STUN failure fails the run only with --require-wan
+# (swiff-netguard-ready), as the sets above are in place either way, and keeps
+# the last address blocked rather than none. After the public address changes,
+# the new one is blocked from the next successful lookup, at most one timer
+# period (30 s) later.
+if ! wan4=$(/usr/libexec/swiff/wan4); then
+	[ "${1:-}" = --require-wan ] && exit 1
+	exit 0
+fi
+nft -f - << NFT
+flush set inet swiff wan4
+add element inet swiff wan4 { $wan4 }
+NFT

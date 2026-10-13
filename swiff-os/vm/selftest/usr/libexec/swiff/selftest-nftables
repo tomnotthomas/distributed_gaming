@@ -1,0 +1,10 @@
+#!/bin/sh
+# Loads the firewall, or, in vm/lan-test.sh's firewall-broken boot
+# (swiff.selftest.firewall=broken on the kernel command line), a ruleset nft
+# refuses: the boot must then bring up no network.
+if grep -qw swiff.selftest.firewall=broken /proc/cmdline; then
+	exec nft -f - << 'EOF'
+table inet swiff { chain output { type filter hook output priority filter; not-a-rule; } }
+EOF
+fi
+exec nft -f /etc/nftables.conf

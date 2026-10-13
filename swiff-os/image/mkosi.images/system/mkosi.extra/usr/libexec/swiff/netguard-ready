@@ -1,0 +1,12 @@
+#!/bin/sh
+# Holds swiff-hostd and the renter session until swiff-netguard has filled its
+# sets from a configured network, the home's public address included: waits
+# for a default route, then runs it until the public address is learned,
+# backing off up to 15 s between tries, for as long as it takes: the agent and
+# the session start late rather than not at all.
+delay=1
+until ip -4 route show default | grep -q . && /usr/libexec/swiff/netguard --require-wan; do
+	sleep "$delay"
+	[ "$delay" -ge 15 ] || delay=$((delay * 2))
+	[ "$delay" -le 15 ] || delay=15
+done

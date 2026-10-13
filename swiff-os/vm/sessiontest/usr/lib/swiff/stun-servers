@@ -1,0 +1,3 @@
+# VM session test build only: the STUN server here is the test's relay, which
+# also answers STUN, at an address the VM reaches as the internet.
+198.51.100.20 3478
