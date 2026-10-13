@@ -334,7 +334,12 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   A reboot is therefore a cryptographic erase. `/home` lives there, so the renter's Steam login and
   data are gone after a reboot.
 - **The renter user is unprivileged.** `renter` (uid 1000) has no password, no login shell, no sudo and
-  no supplementary groups. The root has no setuid or setgid programs at all.
+  no supplementary groups. The root has no setuid or setgid programs and no file capabilities at all
+  (`mkosi.finalize` strips both). No polkit daemon is installed, and the polkit rules packages ship are
+  removed, so systemd's D-Bus services, `run0` and `systemd-run` refuse every privileged call from the
+  renter. Device access (GPU, sound, game controllers) comes from logind's `uaccess`, only while the
+  session is active. Everything the renter can write is in RAM, on the scratch or in the games
+  library's session layer, so nothing they write outlives a restart.
 - **The session is the whole UI.** `swiff-session.service` runs gamescope on tty1 as `renter`, with
   `NoNewPrivileges`, and gamescope runs the Steam sign-in agent (`steam/session`, below): Steam at
   its sign-in window, then the game the renter booked, never Steam's own UI. It starts only after
@@ -411,6 +416,13 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   `systemd.import_credentials=no`. The last one means credentials and units cannot be injected from
   the ESP, SMBIOS or the firmware. Through sysctl it also runs with Yama `ptrace_scope=3`, kexec
   disabled and SysRq off.
+- **No process memory reaches a disk.** Core dumps are off (`kernel.core_pattern=|/bin/false`,
+  `fs.suid_dumpable=0`, `systemd-coredump.socket` masked). There is no swap: `swap.target` is masked,
+  so not even a swap partition `systemd-gpt-auto-generator` finds on the PC's disk is used. Hibernation
+  is off on the command line and its targets are masked. iwd, which holds the Wi-Fi passphrase once
+  the image has Wi-Fi, runs in a sandbox on top of Ubuntu's unit (`iwd.service.d/60-swiff-sandbox.conf`),
+  including `MemoryDenyWriteExecute`. The network it keeps lives in root's 0700 `/var/lib/iwd`, on
+  the tmpfs.
 
 ### Provisional settings for open decisions
 
@@ -633,8 +645,13 @@ host's view. Together they cover:
 - The UKI was measured, and PCR 11 equals the `systemd-measure` prediction.
 - The root is the verity device, bound to the UKI's root hash, and refuses writes. The booted slot is
   slot A, and slot B is present.
-- The renter user is unprivileged, with no shell and no password. Root is locked, and there is no
-  sudo and no setuid binary.
+- The renter user is unprivileged, with no shell and no password. Root is locked. There is no sudo,
+  doas, pkexec or polkit, no setuid binary and no file capability. As the renter, without
+  `NoNewPrivileges`, `sudo`, `doas`, `pkexec`, `su`, `run0` and `systemd-run` all fail, and nothing the
+  renter can write outlives a restart.
+- Core dumps, swap and hibernation are off, and signed modules still load under lockdown.
+- Once the image has Wi-Fi, iwd runs in its sandbox, and `/var/lib/iwd` is root's 0700 on the tmpfs
+  with only root's 0600 files in it.
 - The session is gamescope with the Steam sign-in agent as `renter`, and no login of any kind is
   offered.
 - The rental-mode agents: Node 22 with `fetch` and `WebSocket`, the three bundles root's and
