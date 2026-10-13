@@ -179,10 +179,12 @@ grep -q 'device ready' "$run/device.log" || die "the device's servers did not st
 
 # Watches a boot's serial log for selftest-lan's "LAN-INBOUND <round> <ipv4>
 # <ipv6> <port>" lines and connects to each address from the device, once per
-# round, into inbound.log.
-drive_inbound() { # serial-log
-	local serial=$1 seen=0 lines line round v4 v6 port addr
+# round, into inbound.log. Once the stop file exists it makes one last pass
+# over the log and returns.
+drive_inbound() { # serial-log, stop-file
+	local serial=$1 stop=$2 seen=0 last= lines line round v4 v6 port addr
 	while :; do
+		[ -e "$stop" ] && last=1
 		mapfile -t lines < <(sed -n 's/^.*SWIFF-SELFTEST LAN-INBOUND \(.*\)$/\1/p' "$serial" 2> /dev/null | tr -d '\r')
 		while [ "$seen" -lt "${#lines[@]}" ]; do
 			read -r round v4 v6 port <<< "${lines[$seen]}"
@@ -191,6 +193,7 @@ drive_inbound() { # serial-log
 			done
 			seen=$((seen + 1))
 		done
+		[ -z "$last" ] || return 0
 		sleep 0.5
 	done
 }
@@ -212,7 +215,8 @@ boot_vm() { # boot number, phase, QEMU arguments...
 		--log file="$run/swtpm-$n.log" &
 	local swtpm_pid=$!
 	for _ in $(seq 50); do [ -S "$run/tpm/sock" ] && break; sleep 0.1; done
-	drive_inbound "$serial" &
+	rm -f "$run/inbound.stop"
+	drive_inbound "$serial" "$run/inbound.stop" &
 	local inbound_pid=$!
 
 	"$here/vm-run.py" --name "lantest-boot$n" --timeout "$boot_timeout" \
@@ -235,7 +239,8 @@ boot_vm() { # boot number, phase, QEMU arguments...
 		-device virtio-net-pci,netdev=n0,mac="$mac" \
 		-display none -vga none -monitor none \
 		-serial "file:$serial" "$@" || rc=$?
-	kill "$swtpm_pid" "$inbound_pid" 2> /dev/null || true
+	touch "$run/inbound.stop"
+	kill "$swtpm_pid" 2> /dev/null || true
 	wait "$swtpm_pid" "$inbound_pid" 2> /dev/null || true
 	grep -q 'SWIFF-SELFTEST DONE' "$serial" || {
 		tail -n 40 "$serial" >&2
@@ -252,9 +257,18 @@ seen_before=$(wc -l < "$run/dnsmasq.log")
 # the UEFI firmware sends before that is not Lanterel OS's.
 python3 "$here/lan-fixture.py" sniff tap0 "$mac" > "$run/sniff-2.log" 2>&1 &
 pids+=($!)
+# The time of the last check that did not see it yet: frames sent between the
+# kernel starting and the check noticing it count.
 (
-	until grep -aq 'Linux version' "$run/serial-2.log" 2> /dev/null; do sleep 0.2; done
-	date +%s.%N > "$run/kernel-2.time"
+	before=$(date +%s.%N)
+	until
+		t=$(date +%s.%N)
+		grep -aq 'Linux version' "$run/serial-2.log" 2> /dev/null
+	do
+		before=$t
+		sleep 0.2
+	done
+	echo "$before" > "$run/kernel-2.time"
 ) &
 pids+=($!)
 for _ in $(seq 50); do grep -q 'sniff ready' "$run/sniff-2.log" && break; sleep 0.1; done
