@@ -14,6 +14,7 @@ import {
   measureNet,
   offOffer,
   playingFor,
+  RENTAL_CONTROLS,
   WAKE_MS,
   type Crew,
   type HostReporter,
@@ -445,7 +446,8 @@ export function useHost(): Host {
   const reportRental = async (net: Net | null): Promise<boolean> => {
     const machine = rentalCrew.current;
     if (!machine) return false;
-    const report = { ...latest.current.report, ...(net ? { net } : {}) };
+    // The renter plays on Lanterel OS, not Windows: its controls, not the ones Windows reads.
+    const report = { ...latest.current.report, controls: [...RENTAL_CONTROLS], ...(net ? { net } : {}) };
     const key = JSON.stringify([machine, report]);
     if (!net && key === rentalReported.current) return true;
     const ok = (await offOffer(machine, { report, timeoutMs: WAKE_MS })) !== null;
