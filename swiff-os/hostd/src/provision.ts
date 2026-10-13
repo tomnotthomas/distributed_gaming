@@ -283,8 +283,11 @@ async function writeDurably(path: string, data: Buffer): Promise<void> {
 /** The name the provisioning is sealed under. */
 const CREDENTIAL_NAME = "swiff-provision";
 
-/** SHA-256 PCRs 12 and 13 at zero: no extras from outside the UKI, as handover.ts binds them. */
-const NO_EXTRAS = `12:sha256=${"0".repeat(64)}+13:sha256=${"0".repeat(64)}`;
+/**
+ * PCRs 12 and 13 at their values now: systemd-creds takes only a mask and binds the
+ * current values, which are zero, since handover.ts opened the record only with them so.
+ */
+const NO_EXTRAS = "12+13";
 
 /**
  * Seal with systemd-creds under Swiff's signed PCR 11 policy, as the state's U

@@ -388,7 +388,8 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   it tries again with the new value. The payload is then checked (a `wss://` server, or
   `ws://` on this machine, a machine id and a machine key), sealed again with `systemd-creds`
   under Swiff's signed PCR 11 policy, as the state's U share is, and PCRs 12 and 13 at zero
-  (`--tpm2-pcrs=12:sha256=0…+13:sha256=0…`), so only a signed Swiff OS boot of this PC with no
+  (`--tpm2-pcrs=12+13`, which binds their values at that moment: zero, or the record would not
+  have opened), so only a signed Swiff OS boot of this PC with no
   extras opens it, and the record is zeroed; the keep is then formatted as ext4 and
   keeps that credential (`provision.cred`). A record it cannot take in (damaged, of another
   version, the plaintext version 1 among them, one the TPM does not open, or one it cannot

@@ -405,7 +405,7 @@ describe("the machine's side", () => {
         "--name=swiff-provision",
         "--with-key=tpm2-with-public-key",
         `--tpm2-public-key=${policy.publicKey}`,
-        `--tpm2-pcrs=12:sha256=${"0".repeat(64)}+13:sha256=${"0".repeat(64)}`,
+        "--tpm2-pcrs=12+13",
         "-",
         "-",
       ],
