@@ -70,7 +70,7 @@ const NO_AUTO = "0x800000000000000";
  * derived from the root hash.
  */
 const SWIFF_OS = {
-  version: "0.1.0",
+  version: "0.2.0",
   partitions: [
     { role: "esp", type: TYPE.esp, bytes: 1 * GiB, split: "esp", attrs: "0x0" },
     { role: "root-a", type: TYPE.root, bytes: 8 * GiB, split: "root-x86-64", attrs: READ_ONLY },
@@ -569,7 +569,7 @@ function imageLayout(gpt) {
 /** Without the image at hand: Swiff OS's layout with its ids and names still to be read from it. */
 const PREVIEW_LAYOUT = SWIFF_OS.partitions.map((p) => ({ ...p, id: null, name: null }));
 
-/** The image file a partition's contents come from: swiffos_0.1.0.esp.raw. */
+/** The image file a partition's contents come from: swiffos_0.2.0.esp.raw. */
 const splitFile = (split, version = SWIFF_OS.version) => `swiffos_${version}.${split}.raw`;
 
 // --- plans ------------------------------------------------------------------------------
@@ -787,8 +787,8 @@ function commandsOf(op) {
       ];
     case "provision":
       return [
-        "# Lanterel Host's provisioning record (provision.cjs): the server, this PC's machine id and its machine key, and without a network cable the connected Wi-Fi's name and password, written raw at the start of Lanterel OS's keep partition, then read back",
-        "#   Lanterel OS seals it to this PC's TPM at its next start and zeroes it there; the machine key and the Wi-Fi password are never shown or logged",
+        "# Lanterel Host's provisioning record (provision.cjs): the server, this PC's machine id and its machine key, and without a network cable the connected Wi-Fi's name and password, sealed to this PC's TPM, then written raw at the start of Lanterel OS's keep partition and read back",
+        "#   Only Lanterel OS on this PC can open it, and it zeroes the record at its next start; the machine key and the Wi-Fi password are never shown or logged",
       ];
     case "unprovision":
       return [
@@ -825,7 +825,7 @@ const provisionStep = () =>
     "provision",
     "Give Lanterel OS this PC's machine key",
     [{ op: "provision" }],
-    "Lanterel OS gets this PC's machine id and machine key, and the Wi-Fi's name and password on a PC without a network cable, on its own partition, and at its next start seals them to this PC's TPM, so only Lanterel OS on this PC can read them.",
+    "Lanterel OS gets this PC's machine id and machine key, and the Wi-Fi's name and password on a PC without a network cable, on its own partition, sealed to this PC's TPM on Windows before they are written, so only Lanterel OS on this PC can read them.",
   );
 
 /**

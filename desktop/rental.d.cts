@@ -265,7 +265,7 @@ export function readRental(options?: {
 }): Promise<RentalRead | null>;
 /** Swiff OS's partitions as an image's own GPT has them, in disk order; throws unless they are the ones SWIFF_OS expects. */
 export function imageLayout(gpt: Gpt): LayoutPartition[];
-/** The image file a partition's contents come from: swiffos_0.1.0.esp.raw. */
+/** The image file a partition's contents come from: swiffos_0.2.0.esp.raw. */
 export function splitFile(split: string, version?: string): string;
 /** A one-time code for the MOK confirmation: 8 random digits. */
 export function mokCode(random?: (max: number) => number): string;

@@ -1,13 +1,14 @@
-// The TPM 2.0 commands the attestation client sends (attest.ts), raw, with
-// Node's own crypto and nothing else: no tpm2-tools in the image. Ported from
-// the fixture recorder that the server's verifier tests replay
-// (server/scripts/tpm-fixtures.mjs), so a real TPM is driven exactly as the
-// recorded swtpm was. Names follow the TCG TPM 2.0 Library specification
-// (Part 2 Structures, Part 3 Commands): every structure is big-endian, every
-// TPM2B a 16-bit size followed by that many bytes.
+// The TPM 2.0 commands Lanterel OS sends, raw, with Node's own crypto and
+// nothing else: no tpm2-tools in the image. The attestation client (attest.ts)
+// quotes with them, ported from the fixture recorder that the server's verifier
+// tests replay (server/scripts/tpm-fixtures.mjs), so a real TPM is driven
+// exactly as the recorded swtpm was; the hand-over (handover.ts) unseals the
+// owner's provisioning with them. Names follow the TCG TPM 2.0 Library
+// specification (Part 2 Structures, Part 3 Commands): every structure is
+// big-endian, every TPM2B a 16-bit size followed by that many bytes.
 //
 // The kernel's resource manager (/dev/tpmrm0) flushes whatever a connection
-// leaves loaded when it closes, so a crash mid-attestation leaks nothing.
+// leaves loaded when it closes, so a crash midway leaks nothing.
 
 import { closeSync, openSync, readSync, writeSync } from "node:fs";
 import { randomBytes } from "node:crypto";
@@ -74,12 +75,12 @@ export async function tcpTransport(host: string, port: number): Promise<Transpor
 // --- Marshalling --------------------------------------------------------------
 
 const u8 = (n: number) => Buffer.from([n]);
-const u16 = (n: number) => {
+export const u16 = (n: number) => {
   const b = Buffer.alloc(2);
   b.writeUInt16BE(n);
   return b;
 };
-const u32 = (n: number) => {
+export const u32 = (n: number) => {
   const b = Buffer.alloc(4);
   b.writeUInt32BE(n >>> 0);
   return b;
@@ -100,23 +101,29 @@ export const ALG = {
 } as const;
 
 const TPM_RS_PW = 0x40000009;
+const TPM_RH_OWNER = 0x40000001;
 const TPM_RH_NULL = 0x40000007;
 export const TPM_RH_ENDORSEMENT = 0x4000000b;
 /** Where Windows and the TCG's provisioning guidance persist the RSA EK. */
 export const RSA_EK_HANDLE = 0x81010001;
 const TPM_SE_POLICY = 0x01;
 
-const CC = {
+export const CC = {
   CreatePrimary: 0x131,
   Create: 0x153,
   Load: 0x157,
   ActivateCredential: 0x147,
   PolicySecret: 0x151,
   Quote: 0x158,
+  Unseal: 0x15e,
   FlushContext: 0x165,
+  LoadExternal: 0x167,
+  PolicyAuthorize: 0x16a,
   ReadPublic: 0x173,
   StartAuthSession: 0x176,
+  VerifySignature: 0x177,
   PCR_Read: 0x17e,
+  PolicyPCR: 0x17f,
   PCR_Extend: 0x182,
 } as const;
 
@@ -265,8 +272,8 @@ export class Tpm {
     }
   }
 
-  /** A policy session satisfying the EK templates' PolicySecret(TPM_RH_ENDORSEMENT). */
-  async ekPolicy(): Promise<number> {
+  /** TPM2_StartAuthSession of a policy session, unbound and unsalted, with SHA-256: its handle. */
+  async policySession(): Promise<number> {
     const r = await this.run(CC.StartAuthSession, {
       handles: [TPM_RH_NULL, TPM_RH_NULL],
       params: Buffer.concat([
@@ -277,7 +284,12 @@ export class Tpm {
         u16(ALG.SHA256),
       ]),
     });
-    const session = r.u32();
+    return r.u32();
+  }
+
+  /** A policy session satisfying the EK templates' PolicySecret(TPM_RH_ENDORSEMENT). */
+  async ekPolicy(): Promise<number> {
+    const session = await this.policySession();
     try {
       await this.run(CC.PolicySecret, {
         handles: [TPM_RH_ENDORSEMENT, session],
@@ -337,6 +349,66 @@ export class Tpm {
       params: Buffer.concat([b2(priv), b2(pub)]),
     });
     return { handle: loaded.u32(), public: pub };
+  }
+
+  /** TPM2_Load of an object made under `parent`, which an empty password authorizes: its handle. */
+  async load(parent: number, priv: Buffer, pub: Buffer): Promise<number> {
+    const r = await this.run(CC.Load, {
+      handles: [parent],
+      auths: [pw()],
+      params: Buffer.concat([b2(priv), b2(pub)]),
+    });
+    return r.u32();
+  }
+
+  /**
+   * TPM2_LoadExternal of a public key alone (TPMT_PUBLIC `pub`): its handle and
+   * name. In the owner hierarchy, since a key loaded under TPM_RH_NULL earns
+   * only NULL tickets, which TPM2_PolicyAuthorize refuses.
+   */
+  async loadExternal(pub: Buffer): Promise<{ handle: number; name: Buffer }> {
+    const r = await this.run(CC.LoadExternal, {
+      params: Buffer.concat([b2(EMPTY), b2(pub), u32(TPM_RH_OWNER)]),
+    });
+    return { handle: r.u32(), name: r.b2() };
+  }
+
+  /**
+   * TPM2_VerifySignature by the key at `key` of an RSASSA SHA-256 `signature`
+   * over `digest`: the TPMT_TK_VERIFIED ticket the TPM issues for it, raw.
+   */
+  async verifySignature(key: number, digest: Buffer, signature: Buffer): Promise<Buffer> {
+    const r = await this.run(CC.VerifySignature, {
+      handles: [key],
+      params: Buffer.concat([b2(digest), u16(ALG.RSASSA), u16(ALG.SHA256), b2(signature)]),
+    });
+    const tag = r.u16();
+    const hierarchy = r.u32();
+    return Buffer.concat([u16(tag), u32(hierarchy), b2(r.b2())]);
+  }
+
+  /** TPM2_PolicyPCR: `session` holds only while SHA-256 PCRs `pcrs` keep their current values. */
+  async policyPcr(session: number, pcrs: readonly number[]): Promise<void> {
+    await this.run(CC.PolicyPCR, { handles: [session], params: Buffer.concat([b2(EMPTY), selection(pcrs)]) });
+  }
+
+  /**
+   * TPM2_PolicyAuthorize: `session`'s policy so far is `approved`, which the
+   * key named `keySign` signed (its VerifySignature `ticket`), with an empty
+   * policyRef.
+   */
+  async policyAuthorize(session: number, approved: Buffer, keySign: Buffer, ticket: Buffer): Promise<void> {
+    await this.run(CC.PolicyAuthorize, {
+      handles: [session],
+      params: Buffer.concat([b2(approved), b2(EMPTY), b2(keySign), ticket]),
+    });
+  }
+
+  /** TPM2_Unseal of the object at `object`, authorized by the policy session `session`, used once: its data. */
+  async unseal(object: number, session: number): Promise<Buffer> {
+    const r = await this.run(CC.Unseal, { handles: [object], auths: [policy(session)] });
+    r.u32(); // parameterSize
+    return r.b2();
   }
 
   /** TPM2_ActivateCredential: the credential the server wrapped to the EK, for the key at `object`. */

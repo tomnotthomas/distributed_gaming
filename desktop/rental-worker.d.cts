@@ -17,6 +17,8 @@ export type Windows = {
     requests: ({ get: string; guid: string } | { set: string; guid: string; data: Buffer | null })[],
   ): Promise<Record<string, Buffer | null>>;
   openDisk(number: number): Promise<WindowsDisk>;
+  /** This PC's TPM: one command in, its response out. */
+  tpm(): Promise<{ send(command: Buffer): Promise<Buffer>; close(): void }>;
   /** This PC's network read with the Wi-Fi's password (network.cjs readNetwork `withKey`). */
   network(): Promise<NetworkRead | null>;
   stateDir: string;

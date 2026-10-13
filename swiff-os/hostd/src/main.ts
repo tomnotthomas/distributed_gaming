@@ -18,6 +18,7 @@ import { createHostApi } from "./api.ts";
 import { DEFAULT_CONFIG_PATH, HARDWARE_FLOOR, loadConfig, OWNER_TAKEOVER, readMachineKey } from "./config.ts";
 import { COMMANDS, sendControl, serveControl, type Command } from "./control.ts";
 import { errorTrackingEnv, errorTrackingFile, hostdTracker, writeSessionEnv } from "./errors.ts";
+import { tpmOpen } from "./handover.ts";
 import { KEEP, linuxKeep, PATHS, provision, tpmSeal, tpmUnseal } from "./provision.ts";
 import { fileResumeStore } from "./resume.ts";
 import { openMachineSocket } from "./socket.ts";
@@ -60,6 +61,7 @@ if (command === "provision") {
   // Not provisioned is no failure: swiff-hostd simply does not start (its unit's condition).
   await provision({
     keep: linuxKeep(KEEP, run),
+    open: tpmOpen(),
     seal: tpmSeal(),
     unseal: tpmUnseal(),
     paths: PATHS,

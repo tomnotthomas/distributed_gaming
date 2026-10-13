@@ -22,7 +22,6 @@ import {
   holdsRecord,
   leftRecord,
   provisionEvent,
-  provisionRecord,
   provisionStore,
   RECORD_BYTES,
   wipeRecord,
@@ -45,7 +44,10 @@ import {
   type PlanOp,
   type RentalPlan,
 } from "../rental.cjs";
+import { sealPolicy } from "../tpm-seal.cjs";
 import ekChain from "./test/ek-chain.json";
+import { fakeTpm } from "./test/fakeTpm";
+import { GOLDEN_CERT } from "./test/goldenKey";
 
 const MiB = 1024 * 1024;
 const GiB = 1024 * MiB;
@@ -53,12 +55,13 @@ const DISK = 64 * GiB;
 const C_INDEX = 2;
 const MSR = "e3c9e316-0b5c-4db8-817d-f92df00215ae";
 const RECOVERY = "de94bba4-06d1-4d40-a16a-bfd50179d6ac";
-const CERT = Buffer.from("3082010a0282010100c0ffee", "hex");
+/** Lanterel's Secure Boot certificate: its key signs Lanterel OS's PCR 11 policies, which the record is sealed under. */
+const CERT = GOLDEN_CERT;
 const ID = (i: number) => `00000000-0000-4000-8000-00000000000${i}`;
 const NAMES = [
   "esp",
-  "swiffos_0.1.0",
-  "swiffos_0.1.0",
+  `swiffos_${SWIFF_OS.version}`,
+  `swiffos_${SWIFF_OS.version}`,
   "_empty",
   "_empty",
   "swiff-scratch",
@@ -90,7 +93,7 @@ function imageSet(dir: string, { key = SIGNER.privateKey, cert = CERT } = {}) {
   for (const p of layout.filter((p) => p.split))
     files[splitFile(p.split!)] = { bytes: p.bytes, sha256: "0".repeat(64) };
   files["swiffos-key.cer"] = { bytes: cert.length, sha256: sha256(cert) };
-  const manifest = Buffer.from(JSON.stringify({ version: "0.1.0", layout, files }));
+  const manifest = Buffer.from(JSON.stringify({ version: SWIFF_OS.version, layout, files }));
   fs.writeFileSync(path.join(dir, MANIFEST), manifest);
   fs.writeFileSync(path.join(dir, SIGNATURE), sign(null, manifest, key));
   fs.writeFileSync(path.join(dir, "swiffos-key.cer"), cert);
@@ -179,6 +182,8 @@ function fakeWindows(stateDir: string) {
   let hiberboot = "1";
   /** The TPM: ready, with its EK certificate in it and Windows' download of its maker's intermediate. */
   const tpm = { ready: true, certificates: [EK.ek, EK.intermediate] };
+  /** The same TPM as TPM Base Services reaches it: Windows' storage root key, and what it seals. */
+  const chip = fakeTpm();
   const shell: string[] = [];
   const win: Windows = {
     stateDir,
@@ -188,6 +193,9 @@ function fakeWindows(stateDir: string) {
     async openDisk(n) {
       if (n !== 0) throw new Error(`no disk ${n}`);
       return disk;
+    },
+    async tpm() {
+      return chip.transport();
     },
     async firmware(requests) {
       const out: Record<string, Buffer | null> = {};
@@ -258,6 +266,7 @@ function fakeWindows(stateDir: string) {
     shell,
     facts,
     tpm,
+    chip,
     cSize,
     label: () => label,
     hiberboot: () => hiberboot,
@@ -561,7 +570,8 @@ describe("the elevated worker", () => {
     expect(rentalOf(pc.facts()).installed).toBe(true);
 
     // Once: the TPM's EK certificate read again, the one the app registered, then this PC's provisioning
-    // at the start of the keep, for Lanterel OS to seal at its start, then BootNext alone.
+    // sealed to its TPM under the policy Lanterel's key signs and written at the start of the keep, then
+    // BootNext alone.
     pc.vars.delete(pc.key(efi.GLOBAL, "BootNext"));
     const once = await runPlan(switchPlan("once", { registered: EK.ek }), { apply: skipping(worker.apply) });
     expect(once).toMatchObject({ status: "done", done: ["ek", "provision", "once", "restart"] });
@@ -569,7 +579,12 @@ describe("the elevated worker", () => {
       { step: "ek", op: "ek", ek: { certificate: EK.ek, intermediates: [EK.intermediate] } },
       { step: "once" },
     ]);
-    expect(provisioned().equals(provisionRecord(MACHINE))).toBe(true);
+    expect(pc.chip.open(provisioned())).toEqual(MACHINE);
+    const [sealed] = [...pc.chip.sealed.values()];
+    expect(sealed!.policy.equals(sealPolicy(CERT))).toBe(true);
+    expect(provisioned().includes(Buffer.from(MACHINE.machineKey))).toBe(false);
+    expect(provisioned().includes(sealed!.key)).toBe(false);
+    expect(pc.chip.state.closed).toBe(pc.chip.state.opened);
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootNext")))).toEqual([1]);
     expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootOrder")))).toEqual([0, 1]);
     // Without the machine's provisioning, nothing is written.
@@ -753,9 +768,9 @@ describe("the elevated worker", () => {
 
       imageSet(image);
       if (kind === "test") {
-        expect(readImageSet(image, { trust }).version).toBe("0.1.0");
+        expect(readImageSet(image, { trust }).version).toBe(SWIFF_OS.version);
         // Past its signature and certificate, to its images, which this set leaves out.
-        await expect(check()).rejects.toThrow(/swiffos_0\.1\.0\.esp\.raw of the image set is not on this PC/);
+        await expect(check()).rejects.toThrow(`${splitFile("esp")} of the image set is not on this PC`);
       } else {
         expect(() => readImageSet(image, { trust })).toThrow(/Lanterel did not sign this image set/);
         await expect(check()).rejects.toThrow(/Lanterel did not sign this image set/);
@@ -1064,21 +1079,21 @@ describe("a provisioning record left on the disk", () => {
     expect(holdsRecord(head())).toBe(false);
     expect(store.read()).toBeNull();
     expect(await run(switchPlan("once"), skipping(worker.apply))).toMatchObject({ status: "done" });
-    expect(head().equals(provisionRecord(MACHINE))).toBe(true);
+    expect(pc.chip.open(head())).toEqual(MACHINE);
     expect(store.read()).not.toBeNull();
     return { pc, worker, store, onEvent, run, head, keep };
   }
   const zeroed = (block: Buffer) => block.every((b) => b === 0);
 
   it("is zeroed when the run that wrote it fails, and forgotten", async () => {
-    const { worker, store, run, head } = await provisioned();
+    const { pc, worker, store, run, head } = await provisioned();
     const failing = async (op: PlanOp) => {
       if (op.op === "boot-first") throw new Error("The firmware refused BootOrder.");
       return skipping(worker.apply)(op);
     };
     const outcome = await run(switchPlan("start"), failing);
     expect(outcome).toMatchObject({ status: "failed", failed: { step: "boot-order" } });
-    expect(head().equals(provisionRecord(MACHINE))).toBe(true);
+    expect(pc.chip.open(head())).toEqual(MACHINE);
     expect(leftRecord(outcome)).toBe(true);
     expect(await wipeRecord((op) => worker.apply(op as PlanOp), store)).toBe(true);
     expect(zeroed(head())).toBe(true);
@@ -1139,9 +1154,36 @@ describe("a provisioning record left on the disk", () => {
     expect(head().equals(formatted)).toBe(true);
   });
 
+  it("is never written when this PC's TPM cannot seal it: Go live stops at its provision step", async () => {
+    const { pc, worker, layout } = await setup();
+    const install = installPlan(rentalOf(pc.facts(), [{ letter: "C", games: 1 }]), {
+      layout,
+      code: "48217730",
+    });
+    expect(await runPlan(install, { apply: skipping(worker.apply) })).toMatchObject({ status: "done" });
+    const keep = pc.gpt().entries.find((e) => e.name === "swiff-keep")!;
+    for (const mode of ["absent", "signing"] as const) {
+      pc.chip.state.mode = mode;
+      expect(await runPlan(switchPlan("start"), { apply: skipping(worker.apply) })).toMatchObject({
+        status: "failed",
+        done: ["ek"],
+        failed: {
+          step: "provision",
+          error: expect.stringMatching(
+            /^Windows has not set up this PC's TPM for Lanterel OS yet: .*go live again\.$/,
+          ),
+        },
+      });
+      expect(zeroed(pc.disk.read(keep.first * 512, RECORD_BYTES))).toBe(true);
+    }
+    expect(pc.chip.sealed.size).toBe(0);
+    expect(pc.chip.state.closed).toBe(pc.chip.state.opened);
+    expect(efi.orderOf(pc.vars.get(pc.key(efi.GLOBAL, "BootOrder")))).toEqual([0, 1]);
+  });
+
   it("is zeroed when its magic alone is damaged", async () => {
     const { pc, worker, keep, head } = await provisioned();
-    const damaged = provisionRecord(MACHINE);
+    const damaged = head();
     damaged.fill(0, 0, 8);
     pc.disk.write([{ offset: keep.first * 512, bytes: damaged }]);
     await worker.apply({ op: "unprovision" });
@@ -1165,12 +1207,12 @@ describe("a provisioning record left on the disk", () => {
   const WINDOWS = { shim: false, loader: false, windowsAfterShim: false };
 
   it("stays for a finished Go live or Start once until its restart, and is zeroed when that restart did not take it in", async () => {
-    const { worker, store, run, head } = await provisioned();
+    const { pc, worker, store, run, head } = await provisioned();
     for (const kind of ["once", "start"] as const) {
       expect(await run(switchPlan(kind), skipping(worker.apply))).toMatchObject({ status: "done" });
       const note = store.read()!;
       expect(note).toMatchObject({ done: true });
-      expect(head().equals(provisionRecord(MACHINE))).toBe(true);
+      expect(pc.chip.open(head())).toEqual(MACHINE);
       // The app quit before the restart: BootNext still starts Lanterel OS, which takes the record in.
       expect(fateOf(note, note.at - 60_000, null)).toBe("wait");
       // A restart since with no trail, one older than the note, or none through shim (BootNext
