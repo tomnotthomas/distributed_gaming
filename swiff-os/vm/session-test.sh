@@ -12,12 +12,12 @@
 # Ignition, plays the game on the path ICE picks, reloads, reconnects and ends the
 # session; swiff-hostd restarts the PC clean, attests again, reopens the same
 # state and offers it again; booted once more with a kernel command line from
-# outside its signed UKI, the PC is refused attestation and never offered; the
-# record the owner's app sealed opens neither on another PC (a fresh TPM) nor
-# in a modified Lanterel OS (a UKI with one section changed). Each
-# step is reported PASS or FAIL. The server trusts this build's boot: PCR 11 as
-# systemd-measure (vm/measure-uki.py, in the build's tools tree) predicts it
-# for the UKI.
+# outside its signed UKI, the TPM does not open the record Go live sealed, so
+# swiff-hostd never starts, attests or offers the PC; that record opens neither
+# on another PC (a fresh TPM) nor in a modified Lanterel OS (a UKI with one
+# section changed). Each step is reported PASS or FAIL. The server trusts this
+# build's boot: PCR 11 as systemd-measure (vm/measure-uki.py, in the build's
+# tools tree) predicts it for the UKI.
 #
 # Steam (no account, no network here) and gamescope (no GPU) are stood in for
 # (vm/sessiontest/); everything else is the shipped image's.
