@@ -193,7 +193,10 @@ describe("swiff-hostd against the server", () => {
       expect(live).not.toHaveProperty("until");
       // The owner's share-until, as later terms of the offer.
       const shareUntil = Date.now() + 2 * HOUR;
-      await call("PUT", `/api/machines/${MACHINE}/availability`, HOST, { available: true, until: shareUntil });
+      await call("PUT", `/api/machines/${MACHINE}/availability`, HOST, {
+        available: true,
+        until: shareUntil,
+      });
 
       // A renter books and claims the PC.
       const booking = await call("POST", "/api/bookings", RENTER, { gameId: 730, minutes: 30 });
