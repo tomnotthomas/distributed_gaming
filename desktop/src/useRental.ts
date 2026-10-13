@@ -6,7 +6,7 @@ import type { EkResult } from "./ek";
 import { IDLE_RUN, type ImageDownload, type RentalRun, type RentalSetup, type WritePass } from "./model";
 import { meter } from "./progress";
 import { agreedWifi, networkReady } from "./network";
-import { endsInRestart, fileName, firmwareChecks, pcChecks, recoveryDue, writesOf } from "./rental";
+import { REPORT_FAILED, endsInRestart, fileName, firmwareChecks, pcChecks, recoveryDue, writesOf } from "./rental";
 import { loadMachineId, loadUrl, toSocketUrl } from "./settings";
 
 /**
@@ -263,7 +263,7 @@ export function useRental({
       .then(async (reported) =>
         reported
           ? { error: "Windows didn't restart.", ok: await host.restartRental().catch(() => false) }
-          : { error: "Lanterel couldn't report this PC to the server.", ok: false },
+          : { error: REPORT_FAILED, ok: false },
       )
       .then(({ ok, error }) => {
         if (!ok) setRun((r) => ({ ...r, status: "failed", failed: { step: "restart", error } }));

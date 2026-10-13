@@ -13,6 +13,7 @@ import {
   type Step,
 } from "./model";
 import { ArtContext } from "./ui/art";
+import { REPORT_FAILED } from "./rental";
 import { HOLD_MS } from "./ui/hold";
 import { useDemoHost } from "./useDemoHost";
 import {
@@ -1554,6 +1555,15 @@ describe("rental mode", () => {
     let acts = renderReal("live", off, failedAt("restart", "Windows did not start the restart."));
     expect(h1()).toHaveTextContent("The PC didn't restart");
     fireEvent.click(screen.getByRole("button", { name: "Restart now" }));
+    expect(acts.restartRental).toHaveBeenCalledOnce();
+    expect(acts.retryRental).not.toHaveBeenCalled();
+    cleanup();
+
+    // Go live's report didn't reach the server: nothing restarted, and Try again reports, then restarts.
+    acts = renderReal("live", off, failedAt("restart", REPORT_FAILED));
+    expect(h1()).toHaveTextContent("Lanterel couldn't reach the server");
+    expect(screen.queryByText(/key is queued/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(acts.restartRental).toHaveBeenCalledOnce();
     expect(acts.retryRental).not.toHaveBeenCalled();
     cleanup();

@@ -1002,6 +1002,9 @@ function ekFailure(setup: RentalSetup, error: string, stoppedAt: string): Failur
   return { ...base, title, why: line };
 }
 
+/** Go live's restart error when the server didn't take this PC's report: nothing restarted. */
+export const REPORT_FAILED = "Lanterel couldn't report this PC to the server.";
+
 /** Which failure this is, and everything it says. */
 export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "failed" }>): Failure {
   const { plan, step, error } = s;
@@ -1061,6 +1064,19 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
       far: "before the restart",
     };
   }
+  if (failedStep === "restart" && error === REPORT_FAILED)
+    return {
+      kind: "restart",
+      title: "Lanterel couldn't reach the server",
+      why: "This PC's report didn't reach the server, so Lanterel didn't restart it.",
+      changed: "The PC hasn't restarted. Check this PC's internet connection, then try again.",
+      action: "restart",
+      label: "Try again",
+      rail: "Server unreachable",
+      what: "Restart",
+      at: "Not started",
+      far: "not started",
+    };
   if (failedStep === "restart")
     return {
       kind: "restart",
