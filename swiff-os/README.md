@@ -806,7 +806,8 @@ network namespace of its own (hostapd, WPA2-PSK, with dnsmasq for DHCP and DNS).
 differ from the other profiles', so `vm/build-image.sh` keeps its package cache apart
 (`$SWIFF_OS_BUILD_DIR/cache-wifitest`). The VM has no network card. It boots three times through
 `vm/vm-run.py`, under OVMF with Secure Boot and swtpm, provisioned as the owner's app provisions a
-PC: a record written at the start of the keep partition.
+PC: a record sealed to the VM's TPM (`vm/wifi-provision.cjs`, which seals as `desktop/provision.cjs`
+does, the Wi-Fi network in its payload) and written at the start of the keep partition.
 
 1. **Boot 1.** The record holds a WPA2 network whose SSID iwd names hex-encoded and whose
    passphrase needs iwd's escapes (a leading space, a backslash); the access point checks the key

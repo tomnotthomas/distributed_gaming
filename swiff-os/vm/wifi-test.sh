@@ -8,7 +8,8 @@
 # under OVMF with Secure Boot and a software TPM, with no network card:
 #
 #   boot 1  provisioned as the owner's app provisions a PC on Wi-Fi: a record
-#           with a WPA2 network at the start of the keep partition, its access
+#           sealed to the VM's TPM, with a WPA2 network, at the start of the
+#           keep partition, its access
 #           point in reach (mac80211_hwsim, hostapd). Lanterel OS joins it, gets
 #           an address and a name resolved through it, keeps the network root's
 #           alone and iwd out of the renter's reach.
@@ -31,8 +32,8 @@
 # ~/.cache/swiff-os), the run in wifi-vm/.
 #
 # Needs: sudo (mkosi 20 builds as root), qemu-system-x86_64, qemu-img and
-# qemu-io, swtpm, OVMF (/usr/share/OVMF), /dev/kvm, mkfs.ext4. The VM gets
-# 2 GiB of RAM and 4 vCPUs ($SWIFF_VM_CPUS), and starts through vm/vm-run.py:
+# qemu-io, swtpm and swtpm_ioctl, node, OVMF (/usr/share/OVMF), /dev/kvm,
+# mkfs.ext4. The VM gets 2 GiB of RAM and 4 vCPUs ($SWIFF_VM_CPUS), and starts through vm/vm-run.py:
 # it waits for room among this PC's test VMs, and a boot is stopped when it
 # outlasts $BOOT_TIMEOUT (600 s) or its console is silent for $BOOT_STALL
 # seconds (300). Nothing here touches the host's disks, boot entries or UEFI
@@ -74,7 +75,7 @@ die() {
 	exit 1
 }
 
-for tool in qemu-system-x86_64 qemu-img qemu-io swtpm mkosi sfdisk mkfs.ext4; do
+for tool in qemu-system-x86_64 qemu-img qemu-io swtpm swtpm_ioctl node mkosi sfdisk mkfs.ext4; do
 	command -v "$tool" > /dev/null || [ -x "/usr/sbin/$tool" ] || die "$tool not found"
 done
 [ -r "$ovmf_code" ] && [ -r "$ovmf_vars" ] || die "OVMF Secure Boot firmware not found in /usr/share/OVMF"
@@ -114,17 +115,28 @@ for p in json.load(sys.stdin)["partitiontable"]["partitions"]:
 
 # Writes a provisioning record at the start of the keep partition, as the
 # owner's app does before the restart into Lanterel OS (desktop/provision.cjs):
-# with the Wi-Fi network for "wifi", without for "cable".
+# sealed to the VM's TPM for a boot whose PCR 11 the build's key signed (the
+# build's certificate stands in for the image set's), by wifi-provision.cjs on
+# swtpm's TCP command channel, with the Wi-Fi network for "wifi", without for
+# "cable".
 provision() { # wifi|cable
-	SSID=$ssid PASSPHRASE=$passphrase python3 - "$1" "$run/provision.rec" << 'PY'
-import hashlib, json, os, struct, sys
+	local port=$((24000 + RANDOM % 400 * 2))
+	swtpm socket --tpm2 --tpmstate dir="$run/tpm" --flags not-need-init,startup-clear \
+		--server type=tcp,port=$port,bindaddr=127.0.0.1 \
+		--ctrl type=tcp,port=$((port + 1)),bindaddr=127.0.0.1 \
+		--log file="$run/swtpm-provision.log" &
+	local swtpm_pid=$!
+	for _ in $(seq 50); do (: < /dev/tcp/127.0.0.1/$port) 2> /dev/null && break; sleep 0.1; done
+	SSID=$ssid PASSPHRASE=$passphrase python3 -c '
+import json, os, sys
 payload = {"serverUrl": "ws://127.0.0.1:8080", "machineId": "wifitest-pc", "machineKey": "wifitest-machine-key-0123456789"}
 if sys.argv[1] == "wifi":
     payload["wifi"] = {"ssid": os.environ["SSID"], "security": "psk", "passphrase": os.environ["PASSPHRASE"]}
-data = json.dumps(payload).encode()
-record = b"SWIFFPRV" + struct.pack(">II", 1, len(data)) + hashlib.sha256(data).digest() + data
-open(sys.argv[2], "wb").write(record.ljust(4096, b"\0"))
-PY
+print(json.dumps(payload))' "$1" |
+		node "$here/wifi-provision.cjs" "$run/provision.rec" "127.0.0.1:$port" "$here/../image/mkosi.crt" ||
+		{ kill "$swtpm_pid"; die "could not seal the provisioning record"; }
+	swtpm_ioctl --tcp "127.0.0.1:$((port + 1))" -s > /dev/null 2>&1 || kill "$swtpm_pid" 2> /dev/null || true
+	wait "$swtpm_pid" 2> /dev/null || true
 	qemu-io -f qcow2 "$run/disk.qcow2" -c "write -s $run/provision.rec $((keep_start * 512)) 4096" > /dev/null
 	rm -f "$run/provision.rec"
 }
