@@ -103,7 +103,12 @@ export function signingKey(pem: string): SigningKey {
 export function authorizedPolicy(name: Buffer): Buffer {
   const authorized = sha256(sha256(Buffer.concat([Buffer.alloc(32), u32(CC.PolicyAuthorize), name])));
   return sha256(
-    Buffer.concat([authorized, u32(CC.PolicyPCR), selection(EXTRAS), sha256(Buffer.alloc(32 * EXTRAS.length))]),
+    Buffer.concat([
+      authorized,
+      u32(CC.PolicyPCR),
+      selection(EXTRAS),
+      sha256(Buffer.alloc(32 * EXTRAS.length)),
+    ]),
   );
 }
 
