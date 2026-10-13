@@ -196,18 +196,24 @@ describe("the Wi-Fi network", () => {
     );
   });
 
-  it("is named as iwd names it, its passphrase escaped as iwd reads it", () => {
+  it("is named as iwd names it, a WPA3 passphrase escaped as iwd reads it", () => {
     expect(iwdNetwork({ ssid: "Home Net_5G-2", security: "sae", passphrase: "correct horse" })).toEqual({
       name: "Home Net_5G-2.psk",
       contents: "[Security]\nPassphrase=correct horse\n\n[Settings]\nAutoConnect=true\n",
     });
-    expect(iwdNetwork(ON_WIFI.wifi!)).toEqual({
+    expect(iwdNetwork({ ssid: "Café Wi-Fi", security: "sae", passphrase: " \\back slash" })).toEqual({
       name: "=436166c3a92057692d4669.psk",
       contents: "[Security]\nPassphrase=\\s\\\\back slash\n\n[Settings]\nAutoConnect=true\n",
     });
     expect(iwdNetwork({ ssid: "Home", security: "psk", passphrase: "AB".repeat(32) }).contents).toBe(
       `[Security]\nPreSharedKey=${"ab".repeat(32)}\n\n[Settings]\nAutoConnect=true\n`,
     );
+    // IEEE 802.11 Annex M's test vector: a WPA2 network gets the key derived from the passphrase, never the passphrase.
+    expect(iwdNetwork({ ssid: "IEEE", security: "psk", passphrase: "password" })).toEqual({
+      name: "IEEE.psk",
+      contents:
+        "[Security]\nPreSharedKey=f42c6fc52df0ebef9ebb4b90b38a5f902e83fe1b135a70e23aed762e9710a12e\n\n[Settings]\nAutoConnect=true\n",
+    });
     expect(iwdNetwork({ ssid: "Guest", security: "open" })).toEqual({
       name: "Guest.open",
       contents: "[Settings]\nAutoConnect=true\n",
@@ -322,9 +328,9 @@ describe("provisioning a boot", () => {
     expect(await m.run()).toBe(true);
     expect(m.sealed.map((p) => JSON.parse(p.toString()))).toEqual([ON_WIFI]);
     const network = join(m.paths.wifi, "=436166c3a92057692d4669.psk");
-    expect(await readFile(network, "utf8")).toBe(
-      "[Security]\nPassphrase=\\s\\\\back slash\n\n[Settings]\nAutoConnect=true\n",
-    );
+    expect(await readFile(network, "utf8")).toBe(iwdNetwork(ON_WIFI.wifi!).contents);
+    expect(await readFile(network, "utf8")).toMatch(/^\[Security\]\nPreSharedKey=[0-9a-f]{64}\n/);
+    expect(await readFile(network, "utf8")).not.toContain("back slash");
     expect((await stat(network)).mode & 0o777).toBe(0o600);
     expect(await readFile(m.paths.config, "utf8")).not.toContain("back slash");
     expect(m.logs.join("\n")).not.toContain("back slash");
@@ -333,7 +339,16 @@ describe("provisioning a boot", () => {
     await writeFile(network, "");
     m.disk.mounted = false;
     expect(await m.run()).toBe(true);
-    expect(await readFile(network, "utf8")).toContain("Passphrase=");
+    expect(await readFile(network, "utf8")).toBe(iwdNetwork(ON_WIFI.wifi!).contents);
+  });
+
+  it("leaves no temporary file behind when a file cannot be written", async () => {
+    const m = await machine(recordOf(ON_WIFI));
+    // A directory where the network file goes: the rename over it fails.
+    await mkdir(join(m.paths.wifi, "=436166c3a92057692d4669.psk"));
+    await expect(m.run()).rejects.toThrow();
+    expect(await readdir(m.paths.wifi)).toEqual(["=436166c3a92057692d4669.psk"]);
+    await expect(stat(m.paths.config)).rejects.toThrow();
   });
 
   it("writes no Wi-Fi network for a PC on a cable", async () => {

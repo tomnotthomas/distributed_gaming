@@ -50,6 +50,7 @@ wifi)
 	iwd_call=(busctl call net.connman.iwd / org.freedesktop.DBus.ObjectManager GetManagedObjects)
 	check root-reaches-iwd "" "${iwd_call[@]}"
 	check renter-cannot-reach-iwd "$(as_renter "${iwd_call[@]}" 2>&1 | head -c 120)" bash -c "! setpriv --reuid=renter --regid=renter --init-groups ${iwd_call[*]}"
+	check iwd-network-no-passphrase "" bash -c '! grep -qF -- "$(cat "$1")" "$2"' _ "$fix/passphrase" "$file"
 	logged=$(journalctl -b -o cat | grep -cF -- "$(cat "$fix/passphrase")")
 	check passphrase-not-logged "$logged journal lines" test "$logged" = 0
 	;;

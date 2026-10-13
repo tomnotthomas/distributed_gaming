@@ -43,7 +43,7 @@
 // device or a user comes from the image, so a record cannot make the agent run
 // anything. The payload is never logged.
 
-import { createHash } from "node:crypto";
+import { createHash, pbkdf2Sync } from "node:crypto";
 import { access, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { checkServerUrl, parseConfig } from "./config.ts";
@@ -160,9 +160,10 @@ function checkWifi(raw: unknown): Wifi {
 /**
  * iwd's network file for a Wi-Fi network (iwd.network(5)): its name, from the
  * SSID as iwd itself names it (hex-encoded after "=" unless the SSID is all
- * letters, digits, spaces, "-" and "_"), and its contents. iwd takes WPA3
- * (SAE) or WPA2 from what the network offers, the passphrase the same; only a
- * WPA2 key given as 64 hex digits is a PreSharedKey.
+ * letters, digits, spaces, "-" and "_"), and its contents. A WPA2 network
+ * gets only its PreSharedKey: given as 64 hex digits, or derived from the
+ * passphrase and the SSID (IEEE 802.11 Annex M), so the passphrase is never
+ * written. A WPA3 (SAE) network gets the passphrase, which iwd needs.
  */
 export function iwdNetwork(wifi: Wifi): { name: string; contents: string } {
   const stem = /^[A-Za-z0-9 _-]+$/.test(wifi.ssid)
@@ -170,11 +171,17 @@ export function iwdNetwork(wifi: Wifi): { name: string; contents: string } {
     : `=${Buffer.from(wifi.ssid, "utf8").toString("hex")}`;
   const settings = "[Settings]\nAutoConnect=true\n";
   if (wifi.security === "open") return { name: `${stem}.open`, contents: settings };
-  const security = PSK.test(wifi.passphrase)
-    ? `PreSharedKey=${wifi.passphrase.toLowerCase()}`
-    : // ell's escapes: a value's leading spaces and every backslash.
-      `Passphrase=${wifi.passphrase.replace(/\\/g, "\\\\").replace(/^ +/, (lead) => "\\s".repeat(lead.length))}`;
+  const security =
+    wifi.security === "sae"
+      ? // ell's escapes: a value's leading spaces and every backslash.
+        `Passphrase=${wifi.passphrase.replace(/\\/g, "\\\\").replace(/^ +/, (lead) => "\\s".repeat(lead.length))}`
+      : `PreSharedKey=${PSK.test(wifi.passphrase) ? wifi.passphrase.toLowerCase() : wpaKey(wifi.passphrase, wifi.ssid)}`;
   return { name: `${stem}.psk`, contents: `[Security]\n${security}\n\n${settings}` };
+}
+
+/** The WPA2 key of a passphrase on a network (IEEE 802.11 Annex M): PBKDF2-HMAC-SHA1 over the SSID, 4096 rounds, 32 bytes. */
+function wpaKey(passphrase: string, ssid: string): string {
+  return pbkdf2Sync(passphrase, Buffer.from(ssid, "utf8"), 4096, 32, "sha1").toString("hex");
 }
 
 /** The keep partition. */
@@ -329,12 +336,17 @@ async function writeDurably(path: string, data: Buffer): Promise<void> {
   await rm(tmp, { force: true });
   const file = await open(tmp, "wx", 0o600);
   try {
-    await file.writeFile(data);
-    await file.sync();
-  } finally {
-    await file.close();
+    try {
+      await file.writeFile(data);
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    await rename(tmp, path);
+  } catch (cause) {
+    await rm(tmp, { force: true });
+    throw cause;
   }
-  await rename(tmp, path);
   const dir = await open(dirname(path), "r");
   try {
     await dir.sync();
