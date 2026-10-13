@@ -154,8 +154,10 @@ PUT  /machines/:id/availability
   where swiff-hostd makes the offers, at once on its own; one that fails to save goes back
   to the last confirmed choice, with a note), and shows "Who does your PC play for?" while the owner is in a
   crew or the PC is crew-only. In rental mode the host app sends this call (`available:
-  false`, with or without `crews`) only from Windows, where the PC is already off offer,
-  so it never ends a session; Swiff OS's next offer applies the saved crew choice.
+  false`, with or without `crews`, or with the host report) only from Windows, where the
+  PC is already off offer, so it never ends a session; Swiff OS's next offer applies the
+  saved crew choice. swiff-hostd makes that offer itself in the boot the owner's Go live
+  restarted the PC into, once it is attested and ready.
   A crew-only PC that plays for no crew (its owner picked none, or left the crews it
   played for) matches nobody; the app says so and, when the owner is in no crew, points
   them to the web app's `/crews` page to start one; when they are in crews but the PC
@@ -302,8 +304,10 @@ section is optional: one that is sent replaces what the platform stored for it, 
 is left out keeps it. The host app sends every section it knows with the first
 availability call, then each section again only when it changes: `games` when a game is
 installed or removed (it watches the Steam libraries) or the owner offers or stops offering
-one, `net` once its figures move, and nothing more on a plain heartbeat. A body is at most
-32 KB.
+one, `net` once its figures move, and nothing more on a plain heartbeat. In rental mode
+Lanterel OS reports nothing, so the app reports the PC from Windows with its off-offer call
+whenever a section changes, and at Go live with `net` measured then over HTTP (round trips
+to `GET /api/ping` and one upload test), before the restart. A body is at most 32 KB.
 
 ```json
 {

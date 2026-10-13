@@ -361,7 +361,9 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   sealed with `systemd-creds` under Swiff's signed PCR 11 policy, as the state's U share is,
   so only a signed Swiff OS boot of this PC opens it, and zeroed; the keep is then formatted
   as ext4 and keeps the sealed record (`provision.cred`). A record it cannot take in (damaged,
-  of another version, or one the TPM cannot seal) is zeroed all the same. Every boot then
+  of another version, or one the TPM cannot seal) is zeroed all the same. A record taken in is
+  the owner's Go live: it leaves `/var/lib/swiff/go-live` for that boot, and swiff-hostd
+  offers the PC once it is attested and ready, then removes the note. Every boot then
   unseals it and writes swiff-hostd's config for that boot, `/var/lib/swiff/hostd.json`
   (0600, in root's 0700 `/var/lib/swiff`, on the tmpfs), from the image's own settings (`/usr/lib/swiff/hostd.json`) with this machine's
   server and id, and its machine key beside it. The record is data only: everything that
@@ -712,7 +714,8 @@ predicts it for the built UKI, PCRs 12 and 13 empty, and the boot applications a
 authorities the VM's first boot measured (its event log, read off the serial console before the
 server starts).
 
-1. The owner offers the PC with the machine key, registers its TPM's EK certificate
+1. The owner's app reports the PC off offer with its own report code (`desktop/src/report.ts`:
+   a GEEKOM's Windows probe and the network it measures), registers its TPM's EK certificate
    (`PUT /api/machines/:id/ek`), and provisions it as their app does before the PC restarts
    into rental mode: Go live's own provision step (`apply-plan.cjs provision` in
    `desktop/vm/`) writes the server, the machine id and the machine key at the start of the
@@ -722,8 +725,8 @@ server starts).
    keep. `swiff-hostd` attests with `swiff-attest`, formats its persistent state (the image's
    state partition) with U XOR V, V released only to that attested boot, and waits for the
    Steam client: the first boot installs it (the launcher's question answered) and keeps it on
-   the state, the renter unable to reach it there. Then it offers the PC on its machine-key
-   socket in rental mode.
+   the state, the renter unable to reach it there. Then it offers the PC itself, as the
+   owner's Go live asked, on its machine-key socket in rental mode.
 3. A renter on the hosted site (headless Chromium, signed in) sees the PC on the wall and holds
    Launch; Ignition waits on the PC. `swiff-hostd` hears the claim, starts the host session and
    the streamer, as `swiff-stream` with no capabilities, no other group and only its three
