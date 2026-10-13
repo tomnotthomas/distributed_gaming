@@ -14,6 +14,7 @@
 // Pure: platform.ts reads the rows, api.ts checks the request.
 
 import {
+  DEFAULT_MAX_RTT_MS,
   rank,
   sessionSpanMs,
   type Candidate,
@@ -26,6 +27,16 @@ import {
 } from "@swiff/rank";
 import { estimateLink, LIVENESS_MS, type OfferedMachine } from "./platform.js";
 import type { Requirements } from "./requirements.js";
+
+/**
+ * Gate E6's limit on a machine's round trip in ms, from SWIFF_MAX_RTT_MS: a
+ * positive whole number, or null when it is not one. Unset: rank()'s default.
+ */
+export function maxRttMsFromEnv(value: string | undefined): number | null {
+  if (value === undefined || value === "") return DEFAULT_MAX_RTT_MS;
+  const ms = Number(value);
+  return Number.isSafeInteger(ms) && ms > 0 ? ms : null;
+}
 
 /** Who is asking: their Steam id, their round trip to the server, and their settings. */
 export type RenterAsk = {
@@ -154,11 +165,13 @@ export function machinesFor(
   renter: RenterAsk,
   machines: OfferedMachine[],
   now: number,
+  maxRttMs = DEFAULT_MAX_RTT_MS,
 ): GameMachines {
   const byId = new Map(machines.map((m) => [m.host.id, m]));
   const result = rank(game, prefs(renter, minutes), candidatesFor(machines, renter), {
     now,
     heartbeatMaxAgeMs: LIVENESS_MS,
+    maxRttMs,
   });
   return {
     appid: game.appid,
@@ -210,13 +223,14 @@ export function availabilityFor(
   machines: OfferedMachine[],
   now: number,
   minutes = 0,
+  maxRttMs = DEFAULT_MAX_RTT_MS,
 ): GameAvailability[] {
   const byId = new Map(machines.map((m) => [m.host.id, m]));
   const candidates = candidatesFor(machines, renter);
   // How long the renter plays orders the list and says which are ready; it never decides who is on it.
   const renterPrefs = prefs(renter, minutes);
   return games.map((game) => {
-    const result = rank(game, renterPrefs, candidates, { now, heartbeatMaxAgeMs: LIVENESS_MS });
+    const result = rank(game, renterPrefs, candidates, { now, heartbeatMaxAgeMs: LIVENESS_MS, maxRttMs });
     const ready = result.hosts.filter((h) => h.coversSession);
     const first = ready[0];
     // Any machine coming back counts, whatever the session: the wall says when, not whether it fits.

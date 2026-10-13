@@ -18,6 +18,7 @@ import {
   verifyTicket,
   type Access,
 } from "../access.js";
+import { DEFAULT_MAX_RTT_MS } from "@swiff/rank";
 import { createApi } from "../api.js";
 import { DISCOVERY_BURST, DISCOVERY_REFILL_MS, RequestBudget } from "../budget.js";
 import { Platform, QUEUE_TIMEOUT_MS, RESET_HOLD_MS } from "../platform.js";
@@ -88,6 +89,8 @@ describe("booking and host API", () => {
   let wantedFirst: boolean;
   /** Each launch the API asked for: machine, session, game. */
   let launches: [string, string, number, string][];
+  /** Gate E6's limit the API is built with. */
+  let maxRttMs: number;
 
   before(async () => {
     access = {
@@ -127,6 +130,7 @@ describe("booking and host API", () => {
         sessionSecret: SESSION,
         publicOrigin: "http://localhost",
         fallbackOrigin: "http://localhost",
+        maxRttMs,
         games,
         profile,
         discovery,
@@ -160,6 +164,7 @@ describe("booking and host API", () => {
     wanted = [];
     wantedFirst = false;
     launches = [];
+    maxRttMs = DEFAULT_MAX_RTT_MS;
   });
 
   afterEach(() => platform.close());
@@ -1235,6 +1240,16 @@ describe("booking and host API", () => {
       assert.deepEqual(await ids(renter), ["pc-3", "pc-2"]);
       assert.deepEqual(await ids(renter, "&rtt=10"), ["pc-3"]);
       assert.deepEqual(await ids(as(signedIn(OWNER))), ["pc-2"]);
+    });
+
+    it("lists a machine that far once the latency gate is raised", async () => {
+      maxRttMs = 100;
+      await offer("pc-2", { available: true, ...REPORT, net: { rttMs: 75, jitterMs: 1, upMbps: 48 } });
+      const { body } = await renter("GET", "/api/games/730/machines?minutes=60&rtt=10");
+      assert.deepEqual(
+        body.machines.map((m: any) => m.id),
+        ["pc-2"],
+      );
     });
 
     it("leaves out a machine that lacks a control the renter plays with", async () => {
