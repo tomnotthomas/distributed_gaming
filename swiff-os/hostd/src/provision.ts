@@ -44,7 +44,7 @@
 // anything. The payload is never logged.
 
 import { createHash } from "node:crypto";
-import { access, open, readFile, rename, rm } from "node:fs/promises";
+import { access, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { checkServerUrl, parseConfig } from "./config.ts";
 import { PCR_POLICY, runBytes, runFilter, type RunBytes, type RunFilter } from "./state-key.ts";
@@ -305,6 +305,8 @@ export async function provision({
   await writeDurably(paths.machineKey, Buffer.from(`${given.machineKey}\n`));
   if (given.wifi) {
     const network = iwdNetwork(given.wifi);
+    // tmpfiles makes it root's alone: this only guards against its absence.
+    await mkdir(paths.wifi, { recursive: true, mode: 0o700 });
     await writeDurably(join(paths.wifi, network.name), Buffer.from(network.contents));
   }
   // Written last: the config is what starts swiff-hostd (ConditionPathExists).

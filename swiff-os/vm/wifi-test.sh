@@ -96,7 +96,7 @@ else
 	log "The Wi-Fi test image (vm/build-image.sh wifitest)"
 	rebuild=()
 	[ "$build" = 2 ] && rebuild=(--rebuild)
-	disk_src=$("$here/build-image.sh" wifitest "${rebuild[@]}").raw
+	disk_src=$("$here/build-image.sh" wifitest ${rebuild[@]+"${rebuild[@]}"}).raw
 fi
 [ -e "$disk_src" ] || die "no Wi-Fi test image built (run without --no-build)"
 
