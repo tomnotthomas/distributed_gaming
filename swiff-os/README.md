@@ -476,7 +476,8 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   file (`iwd.network(5)`, named and escaped as iwd reads it) into `/var/lib/iwd`, root's 0700 on
   the tmpfs, the file 0600; nothing logs it. It holds the passphrase as given, for `psk` too:
   iwd takes WPA3 (SAE) whenever the network offers it, a WPA2/WPA3 network as well, and SAE
-  needs the passphrase. Nobody at the PC changes it: there is no settings UI, and iwd's D-Bus answers root
+  needs the passphrase. A `psk` given as the 64-hex-digit key is written as iwd's `PreSharedKey`
+  and joins over WPA2 only: a WPA3-only network needs the passphrase. Nobody at the PC changes it: there is no settings UI, and iwd's D-Bus answers root
   alone (the renter is in no group). An enterprise (802.1X), captive-portal or hidden network
   (one that does not broadcast its SSID) is not supported: the payload cannot carry one, such a
   PC needs a cable, and the owner's app refuses it before Go live. The image
