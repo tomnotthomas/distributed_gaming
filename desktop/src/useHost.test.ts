@@ -409,6 +409,8 @@ describe("useHost", () => {
     let playing: string[];
     /** This PC's report as the app sent it off offer (report.ts), each a call of its own beside the crew's. */
     let pcReports: Record<string, unknown>[];
+    /** The platform's answers to those reports, in turn, as for the crew's. */
+    let pcAnswers: Answer[];
     /** Who may play, as the platform says it: crew-only, playing for Alex's crew or for none. */
     const crewOf = (plays: boolean) => ({
       only: true,
@@ -437,6 +439,7 @@ describe("useHost", () => {
       answers = [];
       playing = ["c1"];
       pcReports = [];
+      pcAnswers = [];
       vi.stubGlobal(
         "fetch",
         vi.fn(async (url: string, init: RequestInit) => {
@@ -444,8 +447,12 @@ describe("useHost", () => {
           if (path.endsWith("/demand")) throw new TypeError("no network in tests");
           if (path === "/api/pairings/mine") return pairedAnswer();
           const body = typeof init.body === "string" ? JSON.parse(init.body) : null;
+          if (path === "/api/ping") throw new TypeError("no ping in tests");
           if (body?.name !== undefined) {
             pcReports.push(body);
+            const answer = pcAnswers.shift() ?? "ok";
+            if (typeof answer === "function" && !(await new Promise<boolean>((land) => answer(land))))
+              throw new TypeError("offline");
             return Response.json({ crew: crewOf(playing.includes("c1")) });
           }
           calls.push({ method: init.method ?? "GET", path, body, keepalive: Boolean(init.keepalive) });
@@ -525,6 +532,38 @@ describe("useHost", () => {
       expect(pcReports[1]!.games).not.toContain(first);
       // Nothing offers this PC from Windows.
       expect(pcReports.some((r) => r.available !== false)).toBe(false);
+    });
+
+    it("sends this PC's reports one at a time, so the last the platform takes is the latest", async () => {
+      let land: (ok: boolean) => void = () => {};
+      pcAnswers.push((l) => (land = l));
+      const { result } = await ready();
+      expect(pcReports).toHaveLength(1);
+      const [first] = result.current.view.games.offered!;
+      act(() => result.current.actions.toggleOffer!(first!));
+      await settle();
+      // The games changed while the first report is on its way: the next waits for it.
+      expect(pcReports).toHaveLength(1);
+      land(true);
+      await settle();
+      expect(pcReports).toHaveLength(2);
+      expect(pcReports[1]!.games).not.toContain(first);
+    });
+
+    it("does not restart Go live when the network could not be measured", async () => {
+      const { result } = await ready();
+      const bridge = (window as { swiffHost?: HostBridge }).swiffHost!;
+      bridge.planRental = vi.fn(async () => ({ kind: "once", steps: [] }) as unknown as RentalPlan);
+      bridge.runRental = vi.fn(async () => ({ status: "done" as const, done: [], results: [] }));
+      bridge.restartRental = vi.fn(async () => true);
+      act(() => result.current.actions.goLiveRental());
+      await vi.waitFor(async () => {
+        await settle();
+        expect(result.current.view.rental.run.status).toBe("failed");
+      });
+      expect(bridge.runRental).toHaveBeenCalledOnce();
+      expect(bridge.restartRental).not.toHaveBeenCalled();
+      expect(result.current.view.rental.run.failed?.step).toBe("restart");
     });
 
     it("puts a choice that did not save back to the platform's, and says so", async () => {

@@ -442,21 +442,30 @@ export function useHost(): Host {
     return read !== null;
   };
   // Rental mode's report (report.ts): what the platform last took, sent again only once it changes.
+  // One report at a time, each read as it is when its turn comes, so the last one sent is the latest.
   const rentalReported = useRef<string | null>(null);
-  const reportRental = async (net: Net | null): Promise<boolean> => {
-    const machine = rentalCrew.current;
-    if (!machine) return false;
-    // The renter plays on Lanterel OS, not Windows: its controls, not the ones Windows reads.
-    const report = { ...latest.current.report, controls: [...RENTAL_CONTROLS], ...(net ? { net } : {}) };
-    const key = JSON.stringify([machine, report]);
-    if (!net && key === rentalReported.current) return true;
-    const ok = (await offOffer(machine, { report, timeoutMs: WAKE_MS })) !== null;
-    if (ok) rentalReported.current = key;
-    return ok;
+  const rentalReports = useRef<Promise<unknown>>(Promise.resolve());
+  const reportRental = (net: Net | null): Promise<boolean> => {
+    const send = async () => {
+      const machine = rentalCrew.current;
+      if (!machine) return false;
+      // The renter plays on Lanterel OS, not Windows: its controls, not the ones Windows reads.
+      const report = { ...latest.current.report, controls: [...RENTAL_CONTROLS], ...(net ? { net } : {}) };
+      const key = JSON.stringify([machine, report]);
+      if (!net && key === rentalReported.current) return true;
+      const ok = (await offOffer(machine, { report, timeoutMs: WAKE_MS })) !== null;
+      if (ok) rentalReported.current = key;
+      return ok;
+    };
+    const turn = rentalReports.current.then(send);
+    rentalReports.current = turn;
+    return turn;
   };
+  // Go live's report carries the network: renters are not matched to a PC without it.
   goLiveReport.current = async () => {
     const machine = rentalCrew.current;
-    return machine ? reportRental(await measureNet(machine)) : false;
+    const net = machine ? await measureNet(machine) : null;
+    return net ? reportRental(net) : false;
   };
   useEffect(() => {
     if (rentalMachine) void reportRental(null);

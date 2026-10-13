@@ -65,7 +65,7 @@ export function stepBytes(
  */
 export function useRental({
   registerEk = async () => ({ ok: false, error: "no-machine" }),
-  reportPc = async () => false,
+  reportPc = async () => true,
 }: {
   registerEk?: (ek: EkCertificate) => Promise<EkResult>;
   reportPc?: () => Promise<boolean>;
@@ -250,21 +250,23 @@ export function useRental({
       });
   };
 
-  /** Restart now, once `first` (Go live's report) is in: the screen says it restarts from the start. */
-  const restart = (first: Promise<unknown> = Promise.resolve()) => {
+  /**
+   * Restart now, once `first` (Go live's report) is in: the screen says it restarts from the start.
+   * Go live's own restart reports this PC again; one the platform did not take does not restart.
+   */
+  const restart = (first: Promise<boolean> = preview?.kind === "once" ? reportPc() : Promise.resolve(true)) => {
     const host = bridge();
     if (!host) return;
     setRun((r) => ({ ...r, status: "restarting", stepStartedAt: Date.now() }));
     void first
-      .then(() => host.restartRental())
       .catch(() => false)
-      .then((ok) => {
-        if (!ok)
-          setRun((r) => ({
-            ...r,
-            status: "failed",
-            failed: { step: "restart", error: "Windows didn't restart." },
-          }));
+      .then(async (reported) =>
+        reported
+          ? { error: "Windows didn't restart.", ok: await host.restartRental().catch(() => false) }
+          : { error: "Lanterel couldn't report this PC to the server.", ok: false },
+      )
+      .then(({ ok, error }) => {
+        if (!ok) setRun((r) => ({ ...r, status: "failed", failed: { step: "restart", error } }));
       });
   };
 

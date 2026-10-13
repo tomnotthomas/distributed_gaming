@@ -676,6 +676,31 @@ describe("useRental", () => {
     expect(host.restartRental).toHaveBeenCalledOnce();
   });
 
+  it("does not restart Go live when its report was not taken, and reports again on Restart now", async () => {
+    const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
+    host.runRental = vi.fn(async (): Promise<RunOutcome> => ({
+      status: "done",
+      done: ["ek", "once"],
+      results: [],
+    }));
+    host.restartRental = vi.fn(async () => true);
+    const reportPc = vi.fn(async () => false);
+    const { result } = renderHook(() => useRental({ reportPc }));
+    await act(async () => {});
+    act(() => result.current.goLive());
+    const once = plan("once", "once");
+    once.steps.push({ id: "restart", title: "Restart", confirm: "Restarts.", commands: [], ops: [{ op: "restart" }] });
+    await answer(0, once);
+    await act(async () => {});
+    expect(host.restartRental).not.toHaveBeenCalled();
+    expect(result.current.run).toMatchObject({ status: "failed", failed: { step: "restart" } });
+
+    reportPc.mockResolvedValue(true);
+    await act(async () => result.current.retry());
+    expect(reportPc).toHaveBeenCalledTimes(2);
+    expect(host.restartRental).toHaveBeenCalledOnce();
+  });
+
   it("takes up a download main already runs when it opens, and follows it to its end", async () => {
     const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
     let progress: Parameters<HostBridge["onImageProgress"]>[0] | null = null;
