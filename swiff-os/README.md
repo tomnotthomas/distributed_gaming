@@ -120,8 +120,10 @@ from its encrypted store as the step runs, never putting it in a plan, and the e
 writes one record (`SWIFFPRV`, a version, the length and SHA-256 of a JSON payload `{
 serverUrl, machineId, machineKey }`, padded to 4 KiB) at the start of the keep partition the
 install added, and reads it back. On a PC without a network cable the payload also carries `wifi:
-{ ssid, security, passphrase? }`, the Wi-Fi Windows is connected to (`desktop/network.cjs`, read
-as the step runs, with the owner's agreement on the Go live screen), so Swiff OS can get online. At its next start Swiff OS seals the record to the PC's TPM
+{ ssid, security, passphrase? }`, the Wi-Fi Windows is connected to and the owner agreed to on
+the Go live screen, so Swiff OS can get online: main names only that network, and the worker
+reads its password from Windows as the step runs (`desktop/network.cjs`), so it never passes
+through main. At its next start Swiff OS seals the record to the PC's TPM
 and zeroes it (below, **Provisioning** under "What runs"), so the plaintext key is on the disk
 only from the Windows run that writes it to that start: the owner's accepted exception to the
 review rule against secrets in plain-text files, for that window only and with the app's wipe.
