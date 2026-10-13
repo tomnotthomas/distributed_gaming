@@ -6,7 +6,8 @@
 # /run/swiff/network, readable by everyone, replaced whole at each change:
 #
 #   STATE=connecting|online|failed
-#   MEDIUM=wifi|ethernet   online: the link that is. Otherwise what it waits
+#   MEDIUM=wifi|ethernet   online: the link that carries the traffic, ethernet
+#                          when a cable is online. Otherwise what it waits
 #                          for: wifi when the owner's app handed over a Wi-Fi
 #                          network, ethernet when it did not.
 #   REASON=...             failed only:

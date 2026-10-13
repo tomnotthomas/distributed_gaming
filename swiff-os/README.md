@@ -491,7 +491,8 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   - `STATE`: `connecting`, then `online` or `failed`. A network that comes after `failed` still
     turns it `online`. `online` is not watched further: networkd's own state (`networkctl`)
     tells of a loss later.
-  - `MEDIUM`: when `online`, the link that is, `wifi` or `ethernet`. Otherwise what it waits
+  - `MEDIUM`: when `online`, the link that carries the traffic: `ethernet` when a cable is
+    online, else `wifi`. Otherwise what it waits
     for: `wifi` when a Wi-Fi network was handed over, else `ethernet`.
   - `REASON`, when `failed`: `wifi` (the network was not joined: out of reach, a changed
     passphrase, or no address from it), `no-wifi-adapter` (Wi-Fi was handed over, but this PC

@@ -338,7 +338,7 @@ describe("provisioning a boot", () => {
   });
 
   it("leaves no temporary file behind when a file cannot be written", async () => {
-    const m = await machine(recordOf(ON_WIFI));
+    const m = await machine(await sealedRecordOf(ON_WIFI));
     // A directory where the network file goes: the rename over it fails.
     await mkdir(join(m.paths.wifi, "=436166c3a92057692d4669.psk"));
     await expect(m.run()).rejects.toThrow();
