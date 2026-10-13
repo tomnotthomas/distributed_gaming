@@ -32,7 +32,7 @@
 #
 # This script adds what needs the network's view: the router answered the VM's
 # DHCP renewal, the device could not connect to the VM with the firewall and
-# could without it, and the router heard nothing from the VM in boot 2.
+# could without it, and the VM sent no frame at all once Linux ran in boot 2.
 #
 # Usage: vm/lan-test.sh [--no-build|--rebuild]
 #
@@ -244,9 +244,21 @@ boot_vm() { # boot number, phase, QEMU arguments...
 	[ "$rc" = 0 ] || die "boot $n: the VM did not power off cleanly (vm-run.py status $rc; serial log: $serial)"
 }
 
+touch "$run/inbound.log"
 boot_vm 1 lan
 # What the router logged from here on is boot 2's.
 seen_before=$(wc -l < "$run/dnsmasq.log")
+# Every frame from the VM's card in boot 2, and when its kernel started: what
+# the UEFI firmware sends before that is not Lanterel OS's.
+python3 "$here/lan-fixture.py" sniff tap0 "$mac" > "$run/sniff-2.log" 2>&1 &
+pids+=($!)
+(
+	until grep -aq 'Linux version' "$run/serial-2.log" 2> /dev/null; do sleep 0.2; done
+	date +%s.%N > "$run/kernel-2.time"
+) &
+pids+=($!)
+for _ in $(seq 50); do grep -q 'sniff ready' "$run/sniff-2.log" && break; sleep 0.1; done
+grep -q 'sniff ready' "$run/sniff-2.log" || die "the capture on tap0 did not start: $(cat "$run/sniff-2.log")"
 boot_vm 2 lan-firewall-broken -smbios "type=11,value=$broken"
 
 # --- Verdict -------------------------------------------------------------------
@@ -299,6 +311,16 @@ if [ "$heard" = 0 ]; then
 	result PASS boot2/router-heard-nothing "no DHCP from the VM while its firewall had not loaded"
 else
 	result FAIL boot2/router-heard-nothing "the router logged the VM's card $heard times"
+fi
+if [ -s "$run/kernel-2.time" ]; then
+	sent=$(awk -v t="$(cat "$run/kernel-2.time")" '$1 ~ /^[0-9.]+$/ && $1 >= t' "$run/sniff-2.log" | wc -l)
+	if [ "$sent" = 0 ]; then
+		result PASS boot2/vm-sent-nothing "no frame from $mac on tap0 once Linux started"
+	else
+		result FAIL boot2/vm-sent-nothing "$sent frames from $mac on tap0 once Linux started (sniff-2.log)"
+	fi
+else
+	result FAIL boot2/vm-sent-nothing "the kernel's start never showed on the serial console"
 fi
 
 echo

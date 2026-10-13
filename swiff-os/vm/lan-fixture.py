@@ -4,6 +4,7 @@
     lan-fixture.py router            the router's admin pages, the internet beyond it, STUN
     lan-fixture.py device IFACE      another device at home: a page, and discovery answers
     lan-fixture.py probe HOST PORT   connects as that device would; prints what came of it
+    lan-fixture.py sniff IFACE MAC   logs each frame from MAC on IFACE, with its time
 
 Every page and answer is one line naming what answered, which the VM's
 selftest-lan expects. Each datagram and connection is logged on stdout.
@@ -13,6 +14,7 @@ import socket
 import struct
 import sys
 import threading
+import time
 
 # The router: admin pages on the home network's side, on its public address
 # and on a CGNAT and a DS-Lite WAN address, a page and a UDP echo (as a STUN server answers) on the internet's.
@@ -59,16 +61,20 @@ def bound(kind, host, port, dual=False):
     if family == socket.AF_INET6:
         s.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0 if dual else 1)
     s.bind(address)
+    if kind == "tcp":
+        s.listen()
     return s
 
 
 def serve_tcp(s, answer):
-    s.listen()
     while True:
         conn, peer = s.accept()
         log(f"tcp {s.getsockname()[0]}:{s.getsockname()[1]} <- {peer[0]}")
-        with conn:
-            conn.sendall(f"{answer}\n".encode())
+        try:
+            with conn:
+                conn.sendall(f"{answer}\n".encode())
+        except OSError:
+            pass
 
 
 def serve_udp(s, answer):
@@ -83,7 +89,10 @@ def serve_stun(s):
     while True:
         data, peer = s.recvfrom(512)
         log(f"stun :{s.getsockname()[1]} <- {peer[0]}")
-        if len(data) < 20 or struct.unpack("!HHI", data[:8]) != (0x0001, 0, STUN_COOKIE):
+        if len(data) < 20:
+            continue
+        kind, length, cookie = struct.unpack("!HHI", data[:8])
+        if kind != 0x0001 or cookie != STUN_COOKIE or 20 + length > len(data):
             continue
         address = struct.unpack("!I", socket.inet_aton(PUBLIC))[0] ^ STUN_COOKIE
         attr = struct.pack("!HHBBHI", 0x0020, 8, 0, 0x01, peer[1] ^ (STUN_COOKIE >> 16), address)
@@ -126,10 +135,25 @@ def probe(host, port):
         return e.strerror or str(e)
 
 
+def sniff(iface, mac):
+    """Every frame (ETH_P_ALL) on iface; logs "<time> <ethertype>" for those from mac."""
+    s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0003))
+    s.bind((iface, 0))
+    source = bytes.fromhex(mac.replace(":", ""))
+    log("sniff ready")
+    while True:
+        frame = s.recv(65535)
+        if frame[6:12] == source:
+            log(f"{time.time():.3f} {frame[12:14].hex()}")
+
+
 def main():
     role = sys.argv[1]
     if role == "probe":
         print(probe(sys.argv[2], sys.argv[3]))
+        return
+    if role == "sniff":
+        sniff(sys.argv[2], sys.argv[3])
         return
     router() if role == "router" else device(sys.argv[2])
     log(f"{role} ready")
