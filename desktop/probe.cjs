@@ -64,7 +64,7 @@ public static class SwiffProbe {
         try {
           Desc1 d;
           if (Slot<GetDesc1>(adapter, 10)(adapter, out d) == 0 && (d.Flags & 2) == 0)
-            found.Add(new object[] { d.Description, (ulong)d.DedicatedVideoMemory });
+            found.Add(new object[] { d.Description, (ulong)d.DedicatedVideoMemory, d.VendorId, d.DeviceId });
         } finally { Marshal.Release(adapter); }
       }
     } finally { Marshal.Release(factory); }
@@ -86,7 +86,7 @@ public static class SwiffProbe {
   public static void Stop() { MFShutdown(); }
 }
 '@
-  $out.adapters = @([SwiffProbe]::Adapters() | ForEach-Object { @{ name = $_[0]; vram = $_[1] } })
+  $out.adapters = @([SwiffProbe]::Adapters() | ForEach-Object { @{ name = $_[0]; vram = $_[1]; vendor = $_[2]; device = $_[3] } })
   if ([SwiffProbe]::Start() -ge 0) {
     $out.encoders = [ordered]@{
 ${Object.entries(CODECS)
@@ -101,6 +101,30 @@ try { $out.cpus = @(Get-CimInstance Win32_Processor | ForEach-Object { @{ name =
 $out.vigem = Test-Path 'HKLM:\SYSTEM\CurrentControlSet\Services\ViGEmBus'
 $out | ConvertTo-Json -Compress -Depth 4
 `;
+
+/**
+ * The model of a graphics chip Windows names only by its maker ("AMD
+ * Radeon(TM) Graphics", a Ryzen's own), by its PCI vendor and device id: the
+ * platform scores a card by its model and would score the maker's name 0.
+ */
+const MODELS = {
+  "1002:1681": "AMD Radeon 680M",
+};
+
+/** A name that says only who made the chip: nothing left once the maker's words are taken out. */
+const makerOnly = (name) =>
+  !name
+    .replace(/\((R|TM)\)/gi, " ")
+    .replace(/\b(AMD|ATI|Radeon|Graphics)\b/gi, " ")
+    .trim();
+
+/** The card's name as the report gives it: its model where Windows gave only the maker's name and the id is known. */
+function cardModel({ name, vendor, device }) {
+  const id = [vendor, device]
+    .map((n) => (Number.isSafeInteger(n) ? n.toString(16).padStart(4, "0") : ""))
+    .join(":");
+  return (makerOnly(name) && MODELS[id]) || name.trim();
+}
 
 /** PowerShell's -EncodedCommand form of `script`: UTF-16LE, base64. */
 const encodeCommand = (script) => Buffer.from(script, "utf16le").toString("base64");
@@ -147,7 +171,7 @@ function parseProbe(stdout) {
       : null;
 
   return {
-    gpu: card ? card.name.trim() : null,
+    gpu: card ? cardModel(card) : null,
     vramMb: card ? Math.round((Number(card.vram) || 0) / 1024 ** 2) : null,
     ramMb: ram.length && ram.every(Number.isFinite) ? wholeMb(ram.reduce((a, b) => a + b, 0)) : null,
     cpu: typeof cpus[0]?.name === "string" && cpus[0].name.trim() ? cpus[0].name.trim() : null,
