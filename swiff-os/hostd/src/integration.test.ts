@@ -10,7 +10,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -134,6 +134,10 @@ function testStreamers() {
   return { seen, launch };
 }
 
+/** The agent's resume, and swiff-provision's Go live note beside its state. */
+const goLiveNote = (stateDir: string) => join(stateDir, "..", "go-live");
+const resumeIn = (stateDir: string) => fileResumeStore(stateDir, goLiveNote(stateDir));
+
 async function bootAgent(stateDir: string, launch: LaunchStreamer, bootId: string) {
   const system = { reboots: 0, windows: 0 };
   const agent = createAgent({
@@ -149,7 +153,7 @@ async function bootAgent(stateDir: string, launch: LaunchStreamer, bootId: strin
       steamClientReady: async () => true,
       closeSteamClient: async () => {},
     },
-    resume: fileResumeStore(stateDir),
+    resume: resumeIn(stateDir),
     ownerTakeover: "when-idle",
     log: () => {},
   });
@@ -172,18 +176,24 @@ describe("swiff-hostd against the server", () => {
     { timeout: 60_000 },
     async () => {
       const stateDir = join(await mkdtemp(join(tmpdir(), "swiff-hostd-")), "state");
-      const shareUntil = Date.now() + 2 * HOUR;
-      // The owner started sharing from Windows before the PC rebooted into rental mode.
-      const offered = await call("PUT", `/api/machines/${MACHINE}/availability`, HOST, {
-        available: true,
-        until: shareUntil,
+      // From Windows the host app reports the PC and leaves it off offer; Go live restarts it into rental mode.
+      const reported = await call("PUT", `/api/machines/${MACHINE}/availability`, HOST, {
+        available: false,
         ...REPORT,
       });
-      expect(offered.body).toMatchObject({ status: "available", until: shareUntil });
+      expect(reported.body).toMatchObject({ status: "idle" });
+      await writeFile(goLiveNote(stateDir), "");
 
+      // Lanterel OS offers it itself once it is up.
       const streamers = testStreamers();
       const first = await bootAgent(stateDir, streamers.launch, "boot-1");
       await until(() => first.agent.status().phase === "offered", "the offer");
+      const live = await machine();
+      expect(live).toMatchObject({ status: "available" });
+      expect(live).not.toHaveProperty("until");
+      // The owner's share-until, as later terms of the offer.
+      const shareUntil = Date.now() + 2 * HOUR;
+      await call("PUT", `/api/machines/${MACHINE}/availability`, HOST, { available: true, until: shareUntil });
 
       // A renter books and claims the PC.
       const booking = await call("POST", "/api/bookings", RENTER, { gameId: 730, minutes: 30 });
@@ -255,7 +265,7 @@ describe("swiff-hostd against the server", () => {
       const sessionId = claim.body!.sessionId as string;
 
       // A renter was served in this boot already: the agent resets again, as a reset hold.
-      await fileResumeStore(stateDir).markServed({ bootId: "boot-3", sessionId: "earlier" });
+      await resumeIn(stateDir).markServed({ bootId: "boot-3", sessionId: "earlier" });
       const streamers = testStreamers();
       const again = await bootAgent(stateDir, streamers.launch, "boot-3");
       expect(await again.running).toBe<Outcome>("reset");
