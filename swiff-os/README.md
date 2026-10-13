@@ -502,12 +502,11 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
 
   The verdict holds `multi-user.target` (`swiff-hostd` waits for it).
 
-  This side writes iwd's network file and `/run/swiff/network`; two planned follow-up changes,
-  not yet landed, consume them: the owner's host app will hand over the Wi-Fi network and check
-  for a network before Go live (telling the owner when a cable is needed), and Lanterel's status
-  screen will show `/run/swiff/network`, waiting for neither `network-online.target` nor
-  `multi-user.target`. Until the host app hands a Wi-Fi network over, a PC without a cable stays
-  offline (`REASON=no-network`).
+  The owner's host app hands the Wi-Fi network over at Go live (`desktop/network.cjs`,
+  `desktop/provision.cjs`) and checks for a network before it: Ethernet, or a Wi-Fi it can hand
+  over, refusing enterprise, captive-portal and hidden Wi-Fi (a cable is needed). Lanterel's
+  status screen, a planned follow-up, will show `/run/swiff/network`, waiting for neither
+  `network-online.target` nor `multi-user.target`.
 
 - **The renter sees only verified games.** The owner's games library is never written by the renter.
   The renter sees a view of it at `/srv/games` that shows only verified files, and their writes go to
@@ -810,8 +809,8 @@ network namespace of its own (hostapd, WPA2-PSK, with dnsmasq for DHCP and DNS).
 differ from the other profiles', so `vm/build-image.sh` keeps its package cache apart
 (`$SWIFF_OS_BUILD_DIR/cache-wifitest`). The VM has no network card. It boots three times through
 `vm/vm-run.py`, under OVMF with Secure Boot and swtpm, provisioned as the owner's app provisions a
-PC: a record sealed to the VM's TPM (`vm/wifi-provision.cjs`, which seals as `desktop/provision.cjs`
-does, the Wi-Fi network in its payload) and written at the start of the keep partition.
+PC: a record sealed to the VM's TPM (`vm/wifi-provision.cjs`, by the app's own `desktop/provision.cjs`
+encoder, the Wi-Fi network in its payload) and written at the start of the keep partition.
 
 1. **Boot 1.** The record holds a WPA2 network whose SSID iwd names hex-encoded and whose
    passphrase needs iwd's escapes (a leading space, a backslash); the access point checks the key

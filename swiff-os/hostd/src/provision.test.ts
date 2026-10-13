@@ -3,7 +3,7 @@
 // keep partition, and this boot's swiff-hostd config written from it. The
 // TPM's part of the hand-over is handover.test.ts's.
 
-import { createCipheriv, createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -20,7 +20,6 @@ import {
   ProvisionError,
   RECORD_BYTES,
   RECORD_MAGIC,
-  RECORD_VERSION,
   tpmSeal,
   tpmUnseal,
   type Keep,
@@ -50,33 +49,6 @@ const standIn = {
   },
 };
 const sealedRecord = (p: Provisioning) => provisionRecord(p, standIn.seal);
-
-/**
- * Any payload sealed and framed as desktop/provision.cjs seals and frames it,
- * for a field the app's encoder does not hand over yet (the Wi-Fi network).
- */
-async function sealedRecordOf(payload: object): Promise<Buffer> {
-  const key = randomBytes(32);
-  const sealed = await standIn.seal(key);
-  const nonce = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", key, nonce);
-  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(payload)), cipher.final()]);
-  const tpm2b = (b: Buffer) => Buffer.concat([Buffer.from([b.length >> 8, b.length & 0xff]), b]);
-  const body = Buffer.concat([
-    tpm2b(sealed.public),
-    tpm2b(sealed.private),
-    nonce,
-    cipher.getAuthTag(),
-    ciphertext,
-  ]);
-  const record = Buffer.alloc(RECORD_BYTES);
-  RECORD_MAGIC.copy(record);
-  record.writeUInt32BE(RECORD_VERSION, 8);
-  record.writeUInt32BE(body.length, 12);
-  createHash("sha256").update(body).digest().copy(record, 16);
-  body.copy(record, 48);
-  return record;
-}
 
 /** A version 1 record, as the owner's app wrote one before it sealed them: the payload in the clear. */
 function plaintextRecord(p: Provisioning): Buffer {
@@ -316,7 +288,7 @@ describe("provisioning a boot", () => {
   });
 
   it("seals the Wi-Fi network with the rest and writes it for iwd, root's alone, never logging it", async () => {
-    const record = await sealedRecordOf(ON_WIFI);
+    const record = await sealedRecord(ON_WIFI);
     expect(record.includes("back slash")).toBe(false);
     const m = await machine(record);
     expect(await m.run()).toBe(true);
@@ -338,7 +310,7 @@ describe("provisioning a boot", () => {
   });
 
   it("leaves no temporary file behind when a file cannot be written", async () => {
-    const m = await machine(await sealedRecordOf(ON_WIFI));
+    const m = await machine(await sealedRecord(ON_WIFI));
     // A directory where the network file goes: the rename over it fails.
     await mkdir(join(m.paths.wifi, "=436166c3a92057692d4669.psk"));
     await expect(m.run()).rejects.toThrow();
