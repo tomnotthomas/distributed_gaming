@@ -32,7 +32,10 @@
 //                    Windows ran. A record it cannot take in (damaged, of
 //                    another version, the plaintext version 1 among them, one
 //                    the TPM does not open or cannot seal) is zeroed all the
-//                    same: the owner's next Go live writes a fresh one.
+//                    same: the owner's next Go live writes a fresh one. A
+//                    record taken in is the owner's Go live: the note it
+//                    leaves for this boot (go-live) tells swiff-hostd to
+//                    offer the PC.
 //   none             mount the keep.
 //
 // then unseal provision.cred and write this boot's swiff-hostd config (the
@@ -212,6 +215,8 @@ export type ProvisionPaths = {
   machineKey: string;
   /** iwd's network files: the Wi-Fi network the owner's PC is on goes there. */
   wifi: string;
+  /** Left in the boot a fresh record came with: the owner went live (resume.ts). */
+  goLive: string;
 };
 
 export const PATHS: ProvisionPaths = {
@@ -220,6 +225,7 @@ export const PATHS: ProvisionPaths = {
   config: "/var/lib/swiff/hostd.json",
   machineKey: "/var/lib/swiff/machine-key",
   wifi: "/var/lib/iwd",
+  goLive: "/var/lib/swiff/go-live",
 };
 
 /** The keep partition and where it is mounted. */
@@ -309,6 +315,7 @@ export async function provision({
     await mkdir(paths.wifi, { recursive: true, mode: 0o700 });
     await writeDurably(join(paths.wifi, network.name), Buffer.from(network.contents));
   }
+  if (fresh) await writeDurably(paths.goLive, Buffer.alloc(0));
   // Written last: the config is what starts swiff-hostd (ConditionPathExists).
   await writeDurably(paths.config, Buffer.from(`${JSON.stringify(config, null, 2)}\n`));
   return true;
