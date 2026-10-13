@@ -120,12 +120,12 @@ suid=$(find / -xdev -type f -perm /6000 2> /dev/null | head -n5 | paste -sd' ' -
 check no-setuid-binaries "${suid:-none}" test -z "$suid"
 caps=$(find / -xdev -type f -exec python3 -c '
 import os, sys
-def caps(p):
+for p in sys.argv[1:]:
     try:
-        return "security.capability" in os.listxattr(p)
-    except OSError:
-        return False
-print(*(p for p in sys.argv[1:] if caps(p)))' {} + 2> /dev/null | xargs | cut -c1-200)
+        if "security.capability" in os.listxattr(p):
+            print(p)
+    except OSError as e:
+        print(f"{p}(unreadable: {e.strerror})")' {} + 2> /dev/null | xargs | cut -c1-200)
 check no-file-capabilities "${caps:-none}" test -z "$caps"
 polkit=$(ls -d /usr/lib/polkit-1/polkitd /usr/libexec/polkitd /usr/share/polkit-1/rules.d/* /etc/polkit-1/rules.d/* 2> /dev/null | paste -sd' ' -)
 check no-polkit "polkitd or rules: ${polkit:-none}" test -z "$polkit"
