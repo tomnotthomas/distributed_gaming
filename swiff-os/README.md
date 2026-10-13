@@ -440,10 +440,14 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   "Permission denied"), except toward a link-local IPv6 address, where they time out. It allows DHCP, IPv6
   neighbour discovery and multicast listener (MLD) reports, and DNS to the current gateway and DNS servers. `swiff-netguard` keeps the
   gateway, DNS and on-link sets current. The gateway is reachable for DHCP and DNS only, not for its
-  admin pages or anything else. Discovery (mDNS, SSDP/UPnP, LLMNR, NetBIOS) goes to multicast and
+  admin pages or anything else. Many routers serve their admin pages on the home's public address
+  too, so `swiff-netguard` also asks the stream's STUN servers for the public IPv4 address and
+  refuses all traffic to it; until one answers, that set stays as it was. A router's public IPv6
+  address outside the PC's own prefix is not blocked. Discovery (mDNS, SSDP/UPnP, LLMNR, NetBIOS) goes to multicast and
   broadcast addresses, so none of it leaves the PC, and nothing on it listens for discovery. Nothing on the LAN can
   open a connection to the PC. Internet traffic is allowed, so a renter in the owner's own home
-  streams over the internet, never directly over the LAN.
+  streams over the internet, never directly over the LAN. They share the PC's public address, so
+  their stream goes through the TURN relay.
 - **No network without the firewall.** `nftables.service` loads the rules early in boot, before
   `network-pre.target`. systemd-networkd and iwd require it, so they configure no link before the
   rules are in, and none at all if they fail to load. The initrd has no systemd-networkd and no
@@ -844,11 +848,13 @@ internet and nothing of it. The network is a bridge in a user and network namesp
 through a tap device (`vm/lan-fixture.py` answers on it):
 
 - **The router** at 192.168.77.1, fe80::1 and 2001:db8:77::1. dnsmasq hands out the addresses
-  (DHCP and router advertisements) and answers DNS. Admin pages answer on 80 and 443.
+  (DHCP and router advertisements) and answers DNS. Admin pages answer on 80 and 443, also on its
+  public address 203.0.113.7.
 - **Another device** at 192.168.77.50, fe80::50 and 2001:db8:77::50, in a namespace of its own. It
   serves a page and answers mDNS, SSDP, LLMNR and NetBIOS.
 - **The internet** beyond the router, at 198.51.100.10 and 2001:db8:ffff::10 (TEST-NET, which the
-  firewall treats as the internet). It serves a page and echoes UDP, as a STUN server answers.
+  firewall treats as the internet). It serves a page and echoes UDP, as a STUN server answers. The
+  stream's STUN servers resolve to 198.51.100.30, which reports the router's public address.
 
 The in-image test (`vm/selftest/usr/libexec/swiff/selftest-lan`) probes a table of these, as the
 renter and as root, first with the firewall and then without it as the control. Each probe must
@@ -857,10 +863,10 @@ the VM, and the VM renews its lease. A probe of the internet that finds no route
 once the route is back: the IPv6 default route is sometimes gone for a few seconds after a router
 advertisement refreshes it, also with the firewall removed. The test boots twice:
 
-1. **Boot 1.** The VM gets its addresses from the router, and nothing listens for discovery. With
-   the firewall, the router's admin pages (IPv4, IPv6 and link-local, 80 and 443, also as root) and
-   ping, the device's page and every discovery query are refused or go unanswered, and the device
-   cannot connect to the VM. DNS and the internet over TCP, UDP and ping, on IPv4 and IPv6, work.
+1. **Boot 1.** The VM gets its addresses from the router, `swiff-netguard` learns the public
+   address, and nothing listens for discovery. With the firewall, the router's admin pages (IPv4,
+   IPv6, link-local and the public address, 80 and 443, also as root) and ping, the device's page
+   and every discovery query are refused or go unanswered, and the device cannot connect to the VM. DNS and the internet over TCP, UDP and ping, on IPv4 and IPv6, work.
    The router answers the lease renewal. Without the firewall, everything answers, and once it is
    loaded again the router is refused again.
 2. **Boot 2.** The ruleset fails to load (`swiff.selftest.firewall=broken` on the kernel command

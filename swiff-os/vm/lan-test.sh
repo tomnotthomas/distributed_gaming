@@ -9,13 +9,16 @@
 #
 #   the router    192.168.77.1, fe80::1, 2001:db8:77::1. dnsmasq hands out
 #                 the addresses (DHCP, router advertisements) and answers DNS;
-#                 admin pages on 80 and 443.
+#                 admin pages on 80 and 443, also on its public address
+#                 203.0.113.7.
 #   a device      192.168.77.50, fe80::50, 2001:db8:77::50, in a network
 #                 namespace of its own: a page, and answers to mDNS, SSDP,
 #                 LLMNR and NetBIOS.
 #   the internet  198.51.100.10 and 2001:db8:ffff::10 behind the router
 #                 (TEST-NET, which the firewall treats as the internet): a page
-#                 and a UDP echo, as a STUN server answers.
+#                 and a UDP echo, as a STUN server answers. The stream's STUN
+#                 servers resolve to 198.51.100.30, which tells the VM it is at
+#                 the router's public address.
 #
 #   boot 1  the in-image test (selftest-lan lan) probes all of it, as the
 #           renter and as root, with the firewall and then without it as the
@@ -121,6 +124,8 @@ trap 'kill "${pids[@]}" 2> /dev/null || true' EXIT
 
 ip link set lo up
 ip addr add 198.51.100.10/32 dev lo
+ip addr add 198.51.100.30/32 dev lo
+ip addr add 203.0.113.7/32 dev lo
 ip addr add 2001:db8:ffff::10/128 dev lo
 # The router's side: its only link-local address is fe80::1, the source of
 # its router advertisements and so the VM's IPv6 gateway.
@@ -155,6 +160,7 @@ nsenter -t "$device" -n sh -c '
 	--dhcp-host="$mac,192.168.77.10" --dhcp-leasefile="$run/dnsmasq.leases" \
 	--enable-ra --dhcp-range=::,constructor:br0,ra-only,64,1h \
 	--address=/internet.lanterel.test/198.51.100.10 --address=/internet.lanterel.test/2001:db8:ffff::10 \
+	--address=/stun.l.google.com/stun1.l.google.com/stun.cloudflare.com/198.51.100.30 \
 	--log-dhcp --log-queries --log-facility="$run/dnsmasq.log" > /dev/null 2>&1 &
 pids+=($!)
 python3 "$here/lan-fixture.py" router > "$run/router.log" 2>&1 &

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """What answers in vm/lan-test.sh's home network, run in its namespaces:
 
-    lan-fixture.py router            the router's admin pages and the internet beyond it
+    lan-fixture.py router            the router's admin pages, the internet beyond it, STUN
     lan-fixture.py device IFACE      another device at home: a page, and discovery answers
     lan-fixture.py probe HOST PORT   connects as that device would; prints what came of it
 
@@ -10,14 +10,17 @@ selftest-lan expects. Each datagram and connection is logged on stdout.
 """
 
 import socket
+import struct
 import sys
 import threading
 
-# The router: admin pages on the home network's side, a page and a UDP echo
-# (as a STUN server answers) on the internet's.
+# The router: admin pages on the home network's side and on its public
+# address, a page and a UDP echo (as a STUN server answers) on the internet's.
 ROUTER = [
     ("tcp", "192.168.77.1", 80, "swiff-router-admin"),
     ("tcp", "192.168.77.1", 443, "swiff-router-admin"),
+    ("tcp", "203.0.113.7", 80, "swiff-router-admin"),
+    ("tcp", "203.0.113.7", 443, "swiff-router-admin"),
     ("tcp", "2001:db8:77::1", 80, "swiff-router-admin"),
     ("tcp", "fe80::1%br0", 80, "swiff-router-admin"),
     ("tcp", "198.51.100.10", 80, "swiff-internet"),
@@ -25,6 +28,11 @@ ROUTER = [
     ("udp", "198.51.100.10", 3478, "swiff-internet-udp"),
     ("udp", "2001:db8:ffff::10", 3478, "swiff-internet-udp"),
 ]
+# The STUN servers the stream uses, as dnsmasq resolves their names: they see
+# every client at the router's public address.
+STUN = ("198.51.100.30", (19302, 3478))
+PUBLIC = "203.0.113.7"
+STUN_COOKIE = 0x2112A442
 # Another device: a page on every address, and what discovery asks on its
 # multicast groups (or broadcast, for NetBIOS).
 DEVICE_PAGE = "swiff-lan-device"
@@ -68,6 +76,18 @@ def serve_udp(s, answer):
         s.sendto(answer.encode(), peer)
 
 
+def serve_stun(s):
+    """Answers each binding request with XOR-MAPPED-ADDRESS = PUBLIC."""
+    while True:
+        data, peer = s.recvfrom(512)
+        log(f"stun :{s.getsockname()[1]} <- {peer[0]}")
+        if len(data) < 20 or struct.unpack("!HHI", data[:8]) != (0x0001, 0, STUN_COOKIE):
+            continue
+        address = struct.unpack("!I", socket.inet_aton(PUBLIC))[0] ^ STUN_COOKIE
+        attr = struct.pack("!HHBBHI", 0x0020, 8, 0, 0x01, peer[1] ^ (STUN_COOKIE >> 16), address)
+        s.sendto(struct.pack("!HHI", 0x0101, len(attr), STUN_COOKIE) + data[8:20] + attr, peer)
+
+
 def start(target, *args):
     threading.Thread(target=target, args=args, daemon=True).start()
 
@@ -75,6 +95,8 @@ def start(target, *args):
 def router():
     for kind, host, port, answer in ROUTER:
         start(serve_tcp if kind == "tcp" else serve_udp, bound(kind, host, port), answer)
+    for port in STUN[1]:
+        start(serve_stun, bound("udp", STUN[0], port))
 
 
 def device(iface):
