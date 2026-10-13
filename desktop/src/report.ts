@@ -63,6 +63,12 @@ export type ReportHardware = {
 
 export type Net = { rttMs: number; jitterMs: number; upMbps: number };
 
+/**
+ * The controls a renter has in rental mode: Lanterel OS's streamer injects
+ * keyboard, mouse and gamepads itself (uinput), whatever Windows has installed.
+ */
+export const RENTAL_CONTROLS: readonly Control[] = ["kb", "mouse", "pad"];
+
 /** The report's sections. A section left out keeps what the platform has for it. */
 export type HostReport = {
   name?: string;

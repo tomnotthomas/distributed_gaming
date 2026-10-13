@@ -510,6 +510,8 @@ describe("useHost", () => {
       expect(pcReports[0]!.games).toEqual(result.current.view.games.offered);
       expect(pcReports[0]).not.toHaveProperty("net");
       expect(pcReports[0]).not.toHaveProperty("crews");
+      // Windows reads no gamepad here, but Lanterel OS gives the renter one.
+      expect(pcReports[0]!.controls).toEqual(["kb", "mouse", "pad"]);
 
       // Checked again with nothing changed: not sent again.
       act(() => result.current.actions.checkRental());
