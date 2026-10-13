@@ -204,12 +204,14 @@ function parseNetwork(stdout) {
 /**
  * The payload's security for a profile's authentication (and 802.1X), or
  * "enterprise" for a work or school sign-in, or null for what Lanterel OS
- * does not join: WEP, WPA (the first one), Enhanced Open, a raw key.
+ * does not join: WEP, WPA (the first one), Enhanced Open, a raw key other
+ * than WPA2-Personal's (64 hex digits, which passphraseProblem checks).
  */
 function securityOf({ authentication, encryption, oneX, keyType }) {
   const auth = authentication.toUpperCase();
   if (oneX || ["WPA", "WPA2", "WPA3", "WPA3ENT", "WPA3ENT192"].includes(auth)) return "enterprise";
   if (auth === "OPEN") return encryption.toUpperCase() === "NONE" ? "open" : null;
+  if (auth === "WPA2PSK" && keyType === "networkKey") return "psk";
   if (keyType !== "passPhrase") return null;
   return { WPA2PSK: "psk", WPA3SAE: "sae" }[auth] ?? null;
 }

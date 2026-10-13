@@ -227,12 +227,13 @@ describe("securityOf", () => {
     expect(of("WPA2PSK", { oneX: true })).toBe("enterprise");
   });
 
-  it("joins no WEP, first WPA, Enhanced Open or raw key", () => {
+  it("joins no WEP, first WPA, Enhanced Open or raw key but WPA2-Personal's", () => {
     expect(of("open", { encryption: "WEP", keyType: "networkKey" })).toBeNull();
     expect(of("shared", { encryption: "WEP", keyType: "networkKey" })).toBeNull();
     expect(of("WPAPSK", { encryption: "TKIP" })).toBeNull();
     expect(of("OWE", { keyType: null })).toBeNull();
-    expect(of("WPA2PSK", { keyType: "networkKey" })).toBeNull();
+    expect(of("WPA3SAE", { keyType: "networkKey" })).toBeNull();
+    expect(of("WPA2PSK", { keyType: "networkKey" })).toBe("psk");
   });
 });
 
@@ -365,9 +366,22 @@ describe("wifiToHand", () => {
     expect(stop(WIFI({ authentication: "WPA3SAE", key: "a".repeat(64) }), "Brammiball")).toBe("password");
   });
 
-  it("hands over a WPA2 key given as 64 hex digits", () => {
+  it("hands over a WPA2 key Windows saved as 64 hex digits, and stops on any other raw key", () => {
     const key = "0123456789abcdef".repeat(4);
-    expect(wifiToHand(WIFI({ key }), "Brammiball")).toEqual({
+    const saved = (key: string) =>
+      parseNetwork(
+        printed({
+          wired: false,
+          wifi: {
+            network: "Brammiball",
+            ipv4: "Internet",
+            ipv6: "NoTraffic",
+            profiles: [profileXml({ authentication: "WPA2PSK", keyType: "networkKey", key })],
+          },
+        }),
+      );
+    expect(stop(saved(`${key}0`), "Brammiball")).toBe("password");
+    expect(wifiToHand(saved(key), "Brammiball")).toEqual({
       ssid: "Brammiball",
       security: "psk",
       passphrase: key,
