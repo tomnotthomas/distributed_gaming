@@ -603,7 +603,9 @@ async function ownerGoesLive() {
   const machine = { url: `ws://127.0.0.1:${PORT}`, machineId: MACHINE, machineKey: MACHINE_KEY };
   const net = await app.measureNet(machine);
   const crew = await app.offOffer(machine, {
-    report: { ...report, ...(net && { net }) },
+    // As rental mode's report does (desktop/src/useHost.ts): the renter plays on
+    // Lanterel OS, whose controls these are, whatever Windows read.
+    report: { ...report, controls: [...app.RENTAL_CONTROLS], ...(net && { net }) },
     timeoutMs: app.WAKE_MS,
   });
   const view = await (
