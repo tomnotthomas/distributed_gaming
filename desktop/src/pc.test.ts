@@ -373,6 +373,17 @@ describe("the Windows probe", () => {
     });
   });
 
+  it("names a Ryzen's own Radeon by its model where Windows gives only the maker's name", () => {
+    // A GEEKOM with a Ryzen 7 6800H, as its probe prints it: PCI 1002:1681.
+    const geekom = (name: string, device = 0x1681) =>
+      parseProbe(JSON.stringify({ adapters: [{ name, vram: 536_870_912, vendor: 0x1002, device }] }))?.gpu;
+    expect(geekom("AMD Radeon(TM) Graphics")).toBe("AMD Radeon 680M");
+    // An id it does not know, or a name that already says the model, is left as Windows gave it.
+    expect(geekom("AMD Radeon(TM) Graphics", 0x15bf)).toBe("AMD Radeon(TM) Graphics");
+    expect(geekom("AMD Radeon RX 6600M")).toBe("AMD Radeon RX 6600M");
+    expect(parseProbe(PRINTED)?.gpu).toBe("NVIDIA GeForce RTX 4070 Laptop GPU");
+  });
+
   it("leaves unread what the probe could not read", () => {
     expect(parseProbe('{"ram":[8589934592],"vigem":false}')).toEqual({
       gpu: null,
