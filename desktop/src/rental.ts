@@ -13,6 +13,7 @@ import type { LastLive, PlanStep, RentalPlan, RentalRead, RentalTarget } from ".
 import type { RemovalCheck } from "../rental-removal.cjs";
 import type { RentalRun, RentalSetup, WritePass } from "./model";
 import { clock, shortGpu } from "./format";
+import { isNetworkStop, networkStop } from "./network";
 
 /**
  *   ok       ready
@@ -827,7 +828,17 @@ export function rentalLine(setup: RentalSetup): string {
 // to do next. Windows' own words wait behind "What happened, in detail".
 
 export type FailureKind =
-  "admin" | "bios" | "write" | "space" | "removal" | "restart" | "image" | "recovery" | "ek" | "unknown";
+  | "admin"
+  | "bios"
+  | "write"
+  | "space"
+  | "removal"
+  | "restart"
+  | "image"
+  | "recovery"
+  | "ek"
+  | "network"
+  | "unknown";
 
 export type Failure = {
   kind: FailureKind;
@@ -1033,6 +1044,23 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
       at: "Not started",
       far: "not started",
     };
+  if (failedStep === "network" || (failedStep === "provision" && isNetworkStop(error))) {
+    // Main checked the network as the run started (main.cjs rental:run), or the worker as it read the
+    // Wi-Fi's password, before it wrote anything.
+    const stop = networkStop(error);
+    return {
+      kind: "network",
+      title: stop.title,
+      why: stop.why,
+      changed: "Nothing on this PC has changed.",
+      action: "check",
+      label: stop.label,
+      rail: stop.rail,
+      what: "Network",
+      at: "Not started",
+      far: "before the restart",
+    };
+  }
   if (failedStep === "restart")
     return {
       kind: "restart",

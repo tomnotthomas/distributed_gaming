@@ -187,6 +187,9 @@ function fakeWindows(stateDir: string) {
   const shell: string[] = [];
   const win: Windows = {
     stateDir,
+    async network() {
+      return { wired: true, wifi: [] };
+    },
     async openDisk(n) {
       if (n !== 0) throw new Error(`no disk ${n}`);
       return disk;
@@ -1095,6 +1098,46 @@ describe("a provisioning record left on the disk", () => {
     expect(await wipeRecord((op) => worker.apply(op as PlanOp), store)).toBe(true);
     expect(zeroed(head())).toBe(true);
     expect(store.read()).toBeNull();
+  });
+
+  it("holds a Wi-Fi PC's network, read with its password by the worker, in the same record, zeroed with it", async () => {
+    const { pc, worker, store, head } = await provisioned();
+    const profile = {
+      ssid: "Brammiball",
+      hidden: false,
+      authentication: "WPA3SAE",
+      encryption: "AES",
+      oneX: false,
+      keyType: "passPhrase",
+      key: "correct horse 15" as string | null,
+    };
+    const onWifi = (key: string | null) => async () => ({
+      wired: false,
+      wifi: [{ network: "Brammiball", ipv4: "Internet", ipv6: "NoTraffic", profiles: [{ ...profile, key }] }],
+    });
+    const before = head();
+    pc.win.network = onWifi(null);
+    await expect(worker.apply({ op: "provision", record: MACHINE, wifi: "Brammiball" })).rejects.toThrow(
+      "unreadable",
+    );
+    await expect(worker.apply({ op: "provision", record: MACHINE, wifi: "Nachbar" })).rejects.toThrow(
+      "changed",
+    );
+    for (const key of ["Grüße2024!", "x".repeat(64)]) {
+      pc.win.network = onWifi(key);
+      await expect(worker.apply({ op: "provision", record: MACHINE, wifi: "Brammiball" })).rejects.toThrow(
+        /^password$/,
+      );
+    }
+    expect(head().equals(before)).toBe(true);
+
+    pc.win.network = onWifi("correct horse 15");
+    await worker.apply({ op: "provision", record: MACHINE, wifi: "Brammiball" });
+    const wifi = { ssid: "Brammiball", security: "sae" as const, passphrase: "correct horse 15" };
+    expect(pc.chip.open(head())).toEqual({ ...MACHINE, wifi });
+    expect(head().includes(Buffer.from(wifi.passphrase))).toBe(false);
+    expect(await wipeRecord((op) => worker.apply(op as PlanOp), store)).toBe(true);
+    expect(zeroed(head())).toBe(true);
   });
 
   it("counts a run stopped or failed at or after its provision step, not one that ended or stopped before it", () => {

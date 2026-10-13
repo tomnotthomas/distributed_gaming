@@ -4,6 +4,7 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Network } from "../network.cjs";
 import type { RunEvent, RunOutcome } from "../rental-exec.cjs";
 import type { RentalPlan, RentalRead } from "../rental.cjs";
 import type { HostBridge } from "./bridge";
@@ -125,6 +126,8 @@ describe("useRental", () => {
   });
 
   it("stops getting a plan ready when Go live plans afresh over it", async () => {
+    const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
+    host.readRental = vi.fn(async () => ({ facts: { checked: null }, network: { kind: "wired" } }) as never);
     const { result } = renderHook(() => useRental());
     await act(async () => {});
     act(() => result.current.plan("uninstall"));
@@ -256,6 +259,7 @@ describe("useRental", () => {
       reads: typeof A | null | (typeof A | null)[],
       registerEk: (ek: typeof A) => Promise<EkResult> = async () => ({ ok: true, registered: "now" }),
       held: Promise<void> = Promise.resolve(),
+      network: Network = { kind: "wired" },
     ) {
       const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
       const order: string[] = [];
@@ -268,6 +272,7 @@ describe("useRental", () => {
           facts: {
             checked: record ? { ek: true, ...record } : { ek: false, certificate: null, intermediates: [] },
           },
+          network,
         } as unknown as RentalRead;
       });
       host.planRental = vi.fn(async (ask) => ((asked = ask.registered), ONCE));
@@ -303,6 +308,32 @@ describe("useRental", () => {
       await act(async () => {});
       return { result, order, register, host };
     }
+
+    it("hands over the Wi-Fi the screen showed, by name, and asks nothing while Lanterel OS would have no network", async () => {
+      const wifi = await goLive(A, A, undefined, undefined, {
+        kind: "wifi",
+        ssid: "Brammiball",
+        security: "sae",
+      });
+      expect(wifi.order).toEqual(["register QUFB", "run", "restart"]);
+      expect(wifi.host.planRental).toHaveBeenCalledWith({
+        kind: "once",
+        machine,
+        wifi: "Brammiball",
+        registered: "QUFB",
+      });
+
+      for (const network of [
+        { kind: "enterprise", ssid: "eduroam" },
+        { kind: "none" },
+        { kind: "unread" },
+      ] as const) {
+        const refused = await goLive(A, A, undefined, undefined, network);
+        expect(refused.order).toEqual([]);
+        expect(refused.register).not.toHaveBeenCalled();
+        expect(refused.host.planRental).not.toHaveBeenCalled();
+      }
+    });
 
     it("registers the EK the check read before anything is set to start Lanterel OS, and only once", async () => {
       const { order, register, host } = await goLive(A, A);
@@ -600,6 +631,7 @@ describe("useRental", () => {
       results: [{ step: "ek", op: "ek", ek: { certificate: "QUFB", intermediates: [] } }],
     }));
     host.restartRental = vi.fn(async () => true);
+    host.readRental = vi.fn(async () => ({ facts: { checked: null }, network: { kind: "wired" } }) as never);
     const { result } = renderHook(() =>
       useRental({ registerEk: async () => ({ ok: true, registered: "already" }) }),
     );

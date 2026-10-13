@@ -88,7 +88,12 @@ function serve(dir: string) {
       resolve({
         url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/swiffos-${SWIFF_OS.version}/`,
         state,
-        close: () => new Promise((done) => server.close(() => done())),
+        // Drop the idle keep-alive sockets the download left open, or close waits on them.
+        close: () =>
+          new Promise((done) => {
+            server.close(() => done());
+            server.closeAllConnections();
+          }),
       }),
     ),
   );

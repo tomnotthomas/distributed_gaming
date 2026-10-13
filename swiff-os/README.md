@@ -118,8 +118,11 @@ machine key, and the image carries none of them. Before each restart into Swiff 
 starting it once) the app hands them over (`desktop/provision.cjs`): main reads the machine key
 from its encrypted store as the step runs, never putting it in a plan, and the elevated worker
 seals them to this PC's TPM before anything touches the disk (`desktop/tpm-seal.cjs`). It
-encrypts the JSON payload (`{ serverUrl, machineId, machineKey }`, and whatever the app hands
-over besides) with a fresh AES-256-GCM key, and seals that key with `TPM2_Create` under the
+encrypts the JSON payload (`{ serverUrl, machineId, machineKey }`, and on a PC without a network
+cable `wifi: { ssid, security, passphrase? }`, the Wi-Fi Windows is connected to and the owner
+agreed to on the Go live screen, so Lanterel OS can get online: main names only that network, and
+the worker reads its password from Windows as the step runs, `desktop/network.cjs`, so it never
+passes through main) with a fresh AES-256-GCM key, and seals that key with `TPM2_Create` under the
 storage root key Windows keeps at `0x81000001`, through Windows' TPM Base Services (one
 PowerShell that compiles a few lines of C# over `tbs.dll`; the commands go over its stdin only,
 never a command line, a file or a log). The sealed key's policy is `PolicyAuthorize` by the

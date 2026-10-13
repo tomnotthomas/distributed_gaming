@@ -110,6 +110,7 @@ export const DEMO_RENTAL_READ: RentalRead = {
     checked: null,
   },
   need: 25_367_150_592,
+  network: { kind: "wired" },
   targets: [
     {
       id: "shrink:C",

@@ -1,6 +1,7 @@
 // Types for rental-worker.cjs, so the installer's tests can drive it with a stand-in for Windows.
 
 import type { Trust } from "./image-set.cjs";
+import type { NetworkRead } from "./network.cjs";
 import type { PlanOp } from "./rental.cjs";
 
 export type WindowsDisk = {
@@ -18,6 +19,8 @@ export type Windows = {
   openDisk(number: number): Promise<WindowsDisk>;
   /** This PC's TPM: one command in, its response out. */
   tpm(): Promise<{ send(command: Buffer): Promise<Buffer>; close(): void }>;
+  /** This PC's network read with the Wi-Fi's password (network.cjs readNetwork `withKey`). */
+  network(): Promise<NetworkRead | null>;
   stateDir: string;
 };
 

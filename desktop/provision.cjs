@@ -1,5 +1,6 @@
 // What this app hands Lanterel OS so its agent (swiff-hostd) can offer the PC:
-// the platform's address, the machine id and the machine key. The installer's
+// the platform's address, the machine id and the machine key, and on a PC
+// without a network cable the Wi-Fi it is connected to (network.cjs). The installer's
 // elevated worker writes it as one record, raw, at the start of Lanterel OS's
 // keep partition, each time it restarts the PC into Lanterel OS (Go live and
 // Start once, the plans' `provision` op).
@@ -27,10 +28,16 @@
 //   TPM2B  the sealed key's TPM2B_PRIVATE contents
 //      12  the AES-256-GCM nonce
 //      16  the AES-256-GCM tag
-//       …  the ciphertext of the payload: JSON { "serverUrl", "machineId", "machineKey" }
+//       …  the ciphertext of the payload: JSON { "serverUrl", "machineId", "machineKey" },
+//          and "wifi": { "ssid", "security", "passphrase" } only on a PC that
+//          goes online over Wi-Fi
+//
+// `security` is "open", "psk" (WPA2-Personal) or "sae" (WPA3-Personal);
+// `passphrase` is there for psk and sae only.
 //
 // The record carries data only: what Lanterel OS runs comes from its signed
-// image. The machine key is never shown in a plan, logged or kept anywhere else.
+// image. The machine key and the Wi-Fi password are never shown in a plan,
+// logged or kept anywhere else.
 //
 // It is zeroed all the same (the plans' `unprovision` op) whenever it is left
 // behind: a run that wrote it and then failed, an uninstall, and, at this
@@ -85,19 +92,75 @@ function machineKeyProblem(machineKey) {
   return "This PC has no machine key Lanterel OS can use: pair it with your Steam account again, in the Account step.";
 }
 
+/** The Wi-Fi securities Lanterel OS joins, and whether each takes a passphrase. */
+const WIFI_SECURITY = { open: false, psk: true, sae: true };
+/** An SSID Lanterel OS takes: no control characters or lone surrogates. */
+const SSID = /^[^\p{Cc}\p{Cs}]+$/u;
+/** A WPA passphrase: 8 to 63 printable ASCII characters. */
+const PASSPHRASE = /^[\x20-\x7e]{8,63}$/;
+/** A WPA2-Personal key itself, in place of a passphrase: 64 hex digits. */
+const PSK_HEX = /^[0-9a-fA-F]{64}$/;
+
+/** Why `ssid` is not one Lanterel OS can join, or null when it is: 1 to 32 bytes, no control characters. */
+function ssidProblem(ssid) {
+  const bytes = typeof ssid === "string" ? Buffer.byteLength(ssid, "utf8") : 0;
+  return bytes >= 1 && bytes <= 32 && SSID.test(ssid)
+    ? null
+    : "The Wi-Fi's name is not one Lanterel OS can join.";
+}
+
 /**
- * The record for `provisioning` ({ serverUrl, machineId, machineKey }), as
- * Lanterel OS reads it: RECORD_BYTES bytes, its payload encrypted with a fresh
- * key that `seal` seals to this PC's TPM (tpm-seal.cjs sealKey), resolving
- * with the sealed object's { public, private }. Throws when a field is not
- * one Lanterel OS would take, never quoting the machine key.
+ * Why `passphrase` is not one Lanterel OS can use for a Wi-Fi of `security`
+ * (psk or sae), or null when it is: 8 to 63 printable ASCII characters, or
+ * for psk the key as 64 hex digits. Never quotes the passphrase.
  */
-async function provisionRecord({ serverUrl, machineId, machineKey }, seal) {
+function passphraseProblem(security, passphrase) {
+  if (
+    typeof passphrase === "string" &&
+    (PASSPHRASE.test(passphrase) || (security === "psk" && PSK_HEX.test(passphrase)))
+  )
+    return null;
+  return "The Wi-Fi's password is not one Lanterel OS can use.";
+}
+
+/**
+ * Why `wifi` cannot be provisioned, or null when it can: an SSID ssidProblem
+ * takes, a security Lanterel OS joins, and a passphrase exactly when it takes
+ * one. Never quotes the passphrase.
+ */
+function wifiProblem(wifi) {
+  if (!wifi || typeof wifi !== "object") return "The Wi-Fi is not one Lanterel OS can join.";
+  const { ssid, security, passphrase } = wifi;
+  const nameIssue = ssidProblem(ssid);
+  if (nameIssue) return nameIssue;
+  if (!Object.hasOwn(WIFI_SECURITY, security)) return "The Wi-Fi's security is not one Lanterel OS can join.";
+  if (!WIFI_SECURITY[security]) return passphrase === undefined ? null : "An open Wi-Fi has no password.";
+  return passphraseProblem(security, passphrase);
+}
+
+/**
+ * The record for `provisioning` ({ serverUrl, machineId, machineKey, wifi? }),
+ * as Lanterel OS reads it: RECORD_BYTES bytes, its payload encrypted with a
+ * fresh key that `seal` seals to this PC's TPM (tpm-seal.cjs sealKey),
+ * resolving with the sealed object's { public, private }. Throws when a field
+ * is not one Lanterel OS would take, never quoting the machine key or the
+ * Wi-Fi password.
+ */
+async function provisionRecord({ serverUrl, machineId, machineKey, wifi }, seal) {
   const problem = machineProblem({ serverUrl, machineId });
   if (problem) throw new Error(problem);
   const keyProblem = machineKeyProblem(machineKey);
   if (keyProblem) throw new Error(keyProblem);
-  const payload = Buffer.from(JSON.stringify({ serverUrl, machineId, machineKey }), "utf8");
+  const wifiIssue = wifi === undefined ? null : wifiProblem(wifi);
+  if (wifiIssue) throw new Error(wifiIssue);
+  const fields = { serverUrl, machineId, machineKey };
+  if (wifi !== undefined)
+    fields.wifi = {
+      ssid: wifi.ssid,
+      security: wifi.security,
+      ...(wifi.passphrase === undefined ? {} : { passphrase: wifi.passphrase }),
+    };
+  const payload = Buffer.from(JSON.stringify(fields), "utf8");
   const key = crypto.randomBytes(32);
   try {
     const sealed = await seal(key);
@@ -242,6 +305,9 @@ module.exports = {
   provisionEvent,
   provisionRecord,
   provisionStore,
+  passphraseProblem,
+  ssidProblem,
+  wifiProblem,
   wipeRecord,
   wipesAtStart,
 };

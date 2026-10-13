@@ -1,6 +1,9 @@
 // Types for provision.cjs, so the tests can use it.
 
-export type Provisioning = { serverUrl: string; machineId: string; machineKey: string };
+/** The Wi-Fi Lanterel OS joins: a passphrase for psk (WPA2-Personal) and sae (WPA3-Personal), none for open. */
+export type Wifi =
+  { ssid: string; security: "open" } | { ssid: string; security: "psk" | "sae"; passphrase: string };
+export type Provisioning = { serverUrl: string; machineId: string; machineKey: string; wifi?: Wifi };
 
 export const RECORD_BYTES: number;
 export const RECORD_MAGIC: Buffer;
@@ -13,6 +16,7 @@ export function provisionRecord(
   provisioning: Provisioning,
   seal: (key: Buffer) => Promise<Sealed>,
 ): Promise<Buffer>;
+export function wifiProblem(wifi: unknown): string | null;
 export function holdsRecord(block: Buffer): boolean;
 
 export type ProvisionNote = { at: number; done: boolean };
