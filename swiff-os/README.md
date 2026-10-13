@@ -421,7 +421,8 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   so not even a swap partition `systemd-gpt-auto-generator` finds on the PC's disk is used. Hibernation
   is off on the command line and its targets are masked. iwd, which holds the Wi-Fi passphrase once
   the image has Wi-Fi, runs in a sandbox on top of Ubuntu's unit (`iwd.service.d/60-swiff-sandbox.conf`),
-  including `MemoryDenyWriteExecute`.
+  including `MemoryDenyWriteExecute`. The network it keeps lives in root's 0700 `/var/lib/iwd`, on
+  the tmpfs.
 
 ### Provisional settings for open decisions
 
@@ -649,6 +650,8 @@ host's view. Together they cover:
   `NoNewPrivileges`, `sudo`, `doas`, `pkexec`, `su`, `run0` and `systemd-run` all fail, and nothing the
   renter can write outlives a restart.
 - Core dumps, swap and hibernation are off, and signed modules still load under lockdown.
+- Once the image has Wi-Fi, iwd runs in its sandbox, and `/var/lib/iwd` is root's 0700 on the tmpfs
+  with only root's 0600 files in it.
 - The session is gamescope with the Steam sign-in agent as `renter`, and no login of any kind is
   offered.
 - The rental-mode agents: Node 22 with `fetch` and `WebSocket`, the three bundles root's and
