@@ -7,7 +7,12 @@ export const RECORD_MAGIC: Buffer;
 export const RECORD_VERSION: number;
 export function machineProblem(machine: { serverUrl: string; machineId: string }): string | null;
 export function machineKeyProblem(machineKey: unknown): string | null;
-export function provisionRecord(provisioning: Provisioning): Buffer;
+/** What tpm-seal.cjs sealKey makes of a key: the sealed object's TPMT_PUBLIC and TPM2B_PRIVATE contents. */
+export type Sealed = { public: Buffer; private: Buffer };
+export function provisionRecord(
+  provisioning: Provisioning,
+  seal: (key: Buffer) => Promise<Sealed>,
+): Promise<Buffer>;
 export function holdsRecord(block: Buffer): boolean;
 
 export type ProvisionNote = { at: number; done: boolean };

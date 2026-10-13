@@ -787,8 +787,8 @@ function commandsOf(op) {
       ];
     case "provision":
       return [
-        "# Lanterel Host's provisioning record (provision.cjs): the server, this PC's machine id and its machine key, written raw at the start of Lanterel OS's keep partition, then read back",
-        "#   Lanterel OS seals it to this PC's TPM at its next start and zeroes it there; the machine key is never shown or logged",
+        "# Lanterel Host's provisioning record (provision.cjs): the server, this PC's machine id and its machine key, sealed to this PC's TPM, then written raw at the start of Lanterel OS's keep partition and read back",
+        "#   Only Lanterel OS on this PC can open it, and it zeroes the record at its next start; the machine key is never shown or logged",
       ];
     case "unprovision":
       return [
@@ -823,7 +823,7 @@ const provisionStep = () =>
     "provision",
     "Give Lanterel OS this PC's machine key",
     [{ op: "provision" }],
-    "Lanterel OS gets this PC's machine id and machine key on its own partition, and at its next start seals them to this PC's TPM, so only Lanterel OS on this PC can read them.",
+    "Lanterel OS gets this PC's machine id and machine key on its own partition, sealed to this PC's TPM on Windows before they are written, so only Lanterel OS on this PC can read them.",
   );
 
 /**
