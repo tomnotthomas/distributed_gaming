@@ -188,7 +188,9 @@ drive_inbound() { # serial-log, stop-file
 	local serial=$1 stop=$2 seen=0 last= lines line round v4 v6 port addr
 	while :; do
 		[ -e "$stop" ] && last=1
-		mapfile -t lines < <(sed -n 's/^.*SWIFF-SELFTEST LAN-INBOUND \(.*\)$/\1/p' "$serial" 2> /dev/null | tr -d '\r')
+		# Complete lines only: QEMU may have written half of the last one.
+		mapfile -t lines < <(head -n "$(wc -l < "$serial" 2> /dev/null || echo 0)" "$serial" 2> /dev/null |
+			sed -n 's/^.*SWIFF-SELFTEST LAN-INBOUND \(.*\)$/\1/p' | tr -d '\r')
 		while [ "$seen" -lt "${#lines[@]}" ]; do
 			read -r round v4 v6 port <<< "${lines[$seen]}"
 			for addr in "$v4" "$v6"; do

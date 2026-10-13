@@ -6,9 +6,15 @@ when none does.
 """
 
 import os
+import signal
 import socket
 import struct
 import sys
+
+# The whole lookup, name resolution included (which no socket timeout bounds),
+# gives up after 10 s, so a slow resolver cannot hold swiff-netguard.
+signal.signal(signal.SIGALRM, lambda *_: sys.exit(1))
+signal.alarm(10)
 
 SERVERS = [(host, int(port)) for host, port in (line.split() for line in open("/usr/lib/swiff/stun-servers") if line.strip() and not line.startswith("#"))]
 COOKIE = 0x2112A442
