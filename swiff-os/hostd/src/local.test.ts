@@ -1,6 +1,7 @@
 // The agent's local pieces against the real OS: the control socket, the
 // streamer process and the resume file.
 
+import { existsSync } from "node:fs";
 import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -111,16 +112,17 @@ describe("the streamer", () => {
 describe("the resume file", () => {
   it("notes the boot a renter was served in, and their session, until it is forgotten", async () => {
     const stateDir = join(await dir(), "state");
-    const store = fileResumeStore(stateDir);
+    const goLive = join(await dir(), "go-live");
+    const store = fileResumeStore(stateDir, goLive);
     expect(await store.servedBoot()).toBeNull();
     await store.markServed({ bootId: "boot-1", sessionId: "s1" });
-    expect(await fileResumeStore(stateDir).servedBoot()).toEqual({ bootId: "boot-1", sessionId: "s1" });
+    expect(await fileResumeStore(stateDir, goLive).servedBoot()).toEqual({ bootId: "boot-1", sessionId: "s1" });
     await store.forgetServed();
     expect(await store.servedBoot()).toBeNull();
   });
 
   it("is kept until cleared", async () => {
-    const store = fileResumeStore(join(await dir(), "state"));
+    const store = fileResumeStore(join(await dir(), "state"), join(await dir(), "go-live"));
     expect(await store.read()).toBeNull();
     await store.save({ until: 1_700_000_000_000 });
     expect(await store.read()).toEqual({ until: 1_700_000_000_000 });
@@ -129,5 +131,16 @@ describe("the resume file", () => {
     expect(await store.read()).toBeNull();
     await store.save({ until: null });
     expect(await store.read()).toEqual({ until: null });
+  });
+
+  it("finds swiff-provision's Go live note, and forgets it with the resume", async () => {
+    const goLive = join(await dir(), "go-live");
+    const store = fileResumeStore(join(await dir(), "state"), goLive);
+    expect(await store.wentLive()).toBe(false);
+    await writeFile(goLive, "");
+    expect(await store.wentLive()).toBe(true);
+    await store.clear();
+    expect(await store.wentLive()).toBe(false);
+    expect(existsSync(goLive)).toBe(false);
   });
 });
