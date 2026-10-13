@@ -413,10 +413,11 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   passphrase of 8 to 63 printable ASCII characters, or for `psk` the key as 64 hex digits; none
   for `open`), sealed with the rest. `swiff-provision` writes it at every boot as iwd's network
   file (`iwd.network(5)`, named and escaped as iwd reads it) into `/var/lib/iwd`, root's 0700 on
-  the tmpfs, the file 0600; nothing logs it. iwd takes WPA3 (SAE) or WPA2 from what the network
-  offers. Nobody at the PC changes it: there is no settings UI, and iwd's D-Bus answers root
+  the tmpfs, the file 0600; nothing logs it. For `psk` the file holds only the key derived from
+  the passphrase and the SSID (PBKDF2-HMAC-SHA1, IEEE 802.11 Annex M), never the passphrase, and
+  iwd joins with WPA2; for `sae` it holds the passphrase, which iwd needs for WPA3. Nobody at the PC changes it: there is no settings UI, and iwd's D-Bus answers root
   alone (the renter is in no group). An enterprise (802.1X) or captive-portal network is not
-  supported: the owner's app says so before Go live, as a cable is needed then. The image
+  supported: the payload cannot carry one, and such a PC needs a cable. The image
   carries the firmware of the common Wi-Fi chips: Intel (`iwlwifi`), MediaTek (`mt76`, such as
   the MT7921 and MT7922) and Realtek (`rtw88`, `rtw89`), and the regulatory database.
 - **The network's state, for the status screen.** `swiff-network.service`
@@ -436,9 +437,12 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
     has no Wi-Fi adapter Lanterel OS drives) or `no-network` (no Wi-Fi was handed over, and no
     cable gave an address).
 
-  The verdict holds `multi-user.target` (`swiff-hostd` waits for it), so what shows the state
-  must wait for neither.
-  Two parts outside Lanterel OS consume this: the owner's host app, which hands over the Wi-Fi network and checks for a network before Go live, and the status screen, which shows `/run/swiff/network`.
+  The verdict holds `multi-user.target` (`swiff-hostd` waits for it).
+
+  This side writes iwd's network file and `/run/swiff/network`; two separate changes consume them:
+  the owner's host app, which hands over the Wi-Fi network and checks for a network before Go
+  live (telling the owner when a cable is needed), and Lanterel's status screen, which shows
+  `/run/swiff/network` and so must wait for neither `network-online.target` nor `multi-user.target`.
 
 - **The renter sees only verified games.** The owner's games library is never written by the renter.
   The renter sees a view of it at `/srv/games` that shows only verified files, and their writes go to
