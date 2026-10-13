@@ -519,7 +519,7 @@ describe("useHost", () => {
       expect(pcReports).toHaveLength(1);
 
       const [first] = result.current.view.games.offered!;
-      act(() => result.current.actions.toggleOffer(first!));
+      act(() => result.current.actions.toggleOffer!(first!));
       await settle();
       expect(pcReports).toHaveLength(2);
       expect(pcReports[1]!.games).not.toContain(first);
