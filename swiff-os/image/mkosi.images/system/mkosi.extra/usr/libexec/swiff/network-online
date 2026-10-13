@@ -24,21 +24,22 @@ timeout=60
 report() {
 	printf '%s\n' "$@" > "$state.new" && mv "$state.new" "$state"
 }
-# Waits for a routable address on any link, at most --timeout=S seconds (0: for ever).
+# Waits for a routable address on any link, at most --timeout=S seconds (0: for
+# ever). Without the notify socket: it would tell systemd it is ready as it starts.
 wait_online() {
-	/usr/lib/systemd/systemd-networkd-wait-online --any --operational-state=routable "$@"
+	env -u NOTIFY_SOCKET /usr/lib/systemd/systemd-networkd-wait-online --any --operational-state=routable "$@"
 }
 # The medium of a link that is online, as networkd types it.
 medium() {
 	networkctl list --no-legend --no-pager | awk '$4 == "routable" { print ($3 == "wlan" ? "wifi" : "ethernet"); exit }'
 }
 
-if ls /var/lib/iwd/*.psk /var/lib/iwd/*.open > /dev/null 2>&1; then
+want=ethernet reason=no-network
+for network in /var/lib/iwd/*.psk /var/lib/iwd/*.open; do
+	[ -e "$network" ] || continue
 	want=wifi
 	if [ -n "$(ls /sys/class/ieee80211 2> /dev/null)" ]; then reason=wifi; else reason=no-wifi-adapter; fi
-else
-	want=ethernet reason=no-network
-fi
+done
 
 report STATE=connecting MEDIUM=$want
 if ! wait_online --timeout=$timeout; then
