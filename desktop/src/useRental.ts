@@ -58,11 +58,17 @@ export function stepBytes(
  * for the screen; running it is main's (rental-exec.cjs), which runs every
  * step by itself after the owner's one OK and tells how each goes. A restart
  * waits for the owner's Restart now. Go live registers the TPM's EK with the
- * server first, with `registerEk` (ek.ts).
+ * server first, with `registerEk` (ek.ts), and reports this PC to the server
+ * with `reportPc` while it runs, waited for before the restart: Lanterel OS
+ * offers the PC, and renters are matched on what the app reported.
  */
 export function useRental({
   registerEk = async () => ({ ok: false, error: "no-machine" }),
-}: { registerEk?: (ek: EkCertificate) => Promise<EkResult> } = {}): RentalSetup & {
+  reportPc = async () => false,
+}: {
+  registerEk?: (ek: EkCertificate) => Promise<EkResult>;
+  reportPc?: () => Promise<boolean>;
+} = {}): RentalSetup & {
   check(): void;
   choose(id: string): void;
   plan(kind: RentalPlan["kind"], options?: { key?: boolean }): void;
@@ -243,12 +249,13 @@ export function useRental({
       });
   };
 
-  const restart = () => {
+  /** Restart now, once `first` (Go live's report) is in: the screen says it restarts from the start. */
+  const restart = (first: Promise<unknown> = Promise.resolve()) => {
     const host = bridge();
     if (!host) return;
     setRun((r) => ({ ...r, status: "restarting", stepStartedAt: Date.now() }));
-    void host
-      .restartRental()
+    void first
+      .then(() => host.restartRental())
       .catch(() => false)
       .then((ok) => {
         if (!ok)
@@ -305,6 +312,7 @@ export function useRental({
         ? { certificate: r.facts.checked.certificate, intermediates: r.facts.checked.intermediates }
         : null;
     void (async () => {
+      const reported = reportPc();
       let registered = checked(read);
       for (let again = false; ; again = true) {
         if (registered)
@@ -325,7 +333,7 @@ export function useRental({
         }
         const outcome = await runPlan(plan);
         if (n !== plans.current || !outcome) return;
-        if (outcome.status === "done") return restart();
+        if (outcome.status === "done") return restart(reported);
         if (outcome.failed?.step !== "ek" || again) return;
         // The TPM step stopped before any boot change: its read is recorded. A certificate other than
         // the one registered is this TPM's, to register before going live again; none, or the same one,
@@ -408,7 +416,7 @@ export function useRental({
       if (!preview || busy) return;
       void runPlan(preview);
     },
-    restart,
+    restart: () => restart(),
     seenLive: () => {
       const to = read?.lastLive?.to ?? null;
       if (to === null) return;

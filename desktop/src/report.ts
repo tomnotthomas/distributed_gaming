@@ -7,6 +7,12 @@
 //   who can play     PUT  availability { available: true, until, crews }
 //   pause or stop    PUT  availability { available: false }
 //   rental mode      PUT  availability { available: false, crews }   (offOffer)
+//                    PUT  availability { available: false, ...report }
+//
+// In rental mode Lanterel OS offers the PC (swiff-hostd) and says nothing about
+// it, so the app reports it from Windows, off offer: whenever the report
+// changes, and at Go live with `net` measured then (measureNet), over HTTP as
+// there is no socket: round trips to the server's ping and one upload test.
 //
 // The open signaling socket is the PC's presence. The beat keeps it fresh for
 // the platform's liveness gate (E1, 15 s) all the same, also while the room is
@@ -158,6 +164,66 @@ function noise(bytes: number): Uint8Array<ArrayBuffer> {
 
 export type Machine = { url: string; machineId: string; machineKey: string };
 
+/** The Host API route for `action` on `machine`. */
+const routeOf = (machine: Machine, action: string) =>
+  `${httpOrigin(machine.url)}/api/machines/${encodeURIComponent(machine.machineId)}/${action}`;
+
+const headersOf = (machine: Machine) => ({
+  authorization: `Bearer ${machine.machineKey}`,
+  "content-type": "application/json",
+});
+
+/** One upload test's speed in Mbit/s; throws when it did not finish. */
+async function timeUpload(machine: Machine, fetch: typeof globalThis.fetch, clock: () => number) {
+  const body = noise(UPLOAD_TEST_BYTES);
+  const start = clock();
+  const res = await fetch(routeOf(machine, "upload-test"), {
+    method: "POST",
+    headers: headersOf(machine),
+    body,
+    signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+  });
+  const seconds = (clock() - start) / 1000;
+  if (res.status !== 204 || seconds <= 0) throw new Error(`upload test answered ${res.status}`);
+  return (UPLOAD_TEST_BYTES * 8) / 1e6 / seconds;
+}
+
+/** Round trips measureNet times; the first wakes the server and opens the connection, and is left out. */
+export const NET_PINGS = 6;
+/**
+ * How long anything waits on a server that may be asleep: Lanterel's wakes in
+ * up to a minute when nobody used it for a while (ek.ts).
+ */
+export const WAKE_MS = 60_000;
+
+/**
+ * The network section, measured now over HTTP: the round trips of NET_PINGS
+ * pings, then one upload test. Null when the server could not be reached.
+ */
+export async function measureNet(
+  machine: Machine,
+  fetch: typeof globalThis.fetch = (...args) => globalThis.fetch(...args),
+  clock: () => number = () => performance.now(),
+): Promise<Net | null> {
+  const rtts: number[] = [];
+  try {
+    const origin = httpOrigin(machine.url);
+    for (let i = 0; i < NET_PINGS; i++) {
+      const start = clock();
+      // The server's ping allows no other origin: an opaque answer still times the round trip.
+      await fetch(`${origin}/api/ping?n=${i}.${Date.now()}`, {
+        mode: "no-cors",
+        cache: "no-store",
+        signal: AbortSignal.timeout(i ? BEAT_TIMEOUT_MS : WAKE_MS),
+      });
+      if (i) rtts.push(clock() - start);
+    }
+    return netOf(rtts, await timeUpload(machine, fetch, clock));
+  } catch {
+    return null;
+  }
+}
+
 /**
  * A crew this PC's owner is in: its id (null from a server too old to pick it
  * by), whose (their Steam name, when known), its own name, whether it is
@@ -268,10 +334,8 @@ export function createHostReporter(
     clock = () => performance.now(),
   }: ReporterOptions,
 ): HostReporter {
-  /** The Host API route for `action` on this machine. */
-  const route = (action: string) =>
-    `${httpOrigin(machine.url)}/api/machines/${encodeURIComponent(machine.machineId)}/${action}`;
-  const headers = { authorization: `Bearer ${machine.machineKey}`, "content-type": "application/json" };
+  const route = (action: string) => routeOf(machine, action);
+  const headers = headersOf(machine);
 
   let latest = report;
   /** What the platform has: the sections, the net figures and the terms (until when, for whom) it accepted. */
@@ -300,17 +364,7 @@ export function createHostReporter(
   const uploadTest = async () => {
     uploading = true;
     try {
-      const body = noise(UPLOAD_TEST_BYTES);
-      const start = clock();
-      const res = await fetch(route("upload-test"), {
-        method: "POST",
-        headers,
-        body,
-        signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
-      });
-      const seconds = (clock() - start) / 1000;
-      if (res.status !== 204 || seconds <= 0) throw new Error(`upload test answered ${res.status}`);
-      upMbps = (UPLOAD_TEST_BYTES * 8) / 1e6 / seconds;
+      upMbps = await timeUpload(machine, fetch, clock);
       nextUploadAt = clock() + UPLOAD_TEST_EVERY_MS;
       if (!stopped) onUpload?.(tenth(upMbps));
     } catch {
@@ -435,25 +489,27 @@ export function createHostReporter(
 
 /**
  * Rental mode, from Windows: Swiff OS offers this PC, so here it is off offer.
- * Says so, with the owner's choice of the crews it plays for when they made one, and
+ * Says so, with the owner's choice of the crews it plays for when they made one,
+ * and the sections of `report` (this PC as the platform matches it), and
  * returns who may play as the platform answers; null when it cannot be reached
  * or says nothing that reads.
  */
 export async function offOffer(
   machine: Machine,
-  crews?: string[],
+  {
+    crews,
+    report = {},
+    timeoutMs = BEAT_TIMEOUT_MS,
+  }: { crews?: string[]; report?: HostReport; timeoutMs?: number } = {},
   fetch: typeof globalThis.fetch = (...args) => globalThis.fetch(...args),
 ): Promise<Crew | null> {
   try {
-    const res = await fetch(
-      `${httpOrigin(machine.url)}/api/machines/${encodeURIComponent(machine.machineId)}/availability`,
-      {
-        method: "PUT",
-        headers: { authorization: `Bearer ${machine.machineKey}`, "content-type": "application/json" },
-        body: JSON.stringify({ available: false, ...(crews === undefined ? {} : { crews }) }),
-        signal: AbortSignal.timeout(BEAT_TIMEOUT_MS),
-      },
-    );
+    const res = await fetch(routeOf(machine, "availability"), {
+      method: "PUT",
+      headers: headersOf(machine),
+      body: JSON.stringify({ available: false, ...(crews === undefined ? {} : { crews }), ...report }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
     return res.ok ? crewOf(await res.json().catch(() => null)) : null;
   } catch {
     return null;
