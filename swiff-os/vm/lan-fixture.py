@@ -10,6 +10,7 @@ Every page and answer is one line naming what answered, which the VM's
 selftest-lan expects. Each datagram and connection is logged on stdout.
 """
 
+import os
 import socket
 import struct
 import sys
@@ -85,9 +86,14 @@ def serve_udp(s, answer):
 
 
 def serve_stun(s):
-    """Answers each binding request with XOR-MAPPED-ADDRESS = PUBLIC."""
+    """Answers each binding request with XOR-MAPPED-ADDRESS = PUBLIC, unless the
+    file $SWIFF_LAN_STUN_OFF exists: then the STUN servers are unreachable."""
+    off = os.environ.get("SWIFF_LAN_STUN_OFF", "")
     while True:
         data, peer = s.recvfrom(512)
+        if off and os.path.exists(off):
+            log(f"stun :{s.getsockname()[1]} <- {peer[0]} unanswered")
+            continue
         log(f"stun :{s.getsockname()[1]} <- {peer[0]}")
         if len(data) < 20:
             continue

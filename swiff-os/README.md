@@ -442,8 +442,8 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   neighbour discovery and multicast listener (MLD) reports, and DNS to the current gateway and DNS servers. `swiff-netguard` keeps the
   gateway, DNS and on-link sets current. The gateway is reachable for DHCP and DNS only, not for its
   admin pages or anything else. Many routers serve their admin pages on the home's public address
-  too, so `swiff-netguard` also asks the stream's STUN servers for the public IPv4 address and
-  refuses all traffic to it; until one answers, that set stays as it was. A router's public IPv6
+  too, so `swiff-netguard` also asks the stream's STUN servers (`/usr/lib/swiff/stun-servers`)
+  for the public IPv4 address and refuses all traffic to it. A router's public IPv6
   address outside the PC's own prefix is not blocked. Discovery (mDNS, SSDP/UPnP, LLMNR, NetBIOS) goes to multicast and
   broadcast addresses, so none of it leaves the PC, and nothing on it listens for discovery. Nothing on the LAN can
   open a connection to the PC. Internet traffic is allowed, so a renter in the owner's own home
@@ -453,6 +453,11 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   `network-pre.target`. systemd-networkd and iwd require it, so they configure no link before the
   rules are in, and none at all if they fail to load. The initrd has no systemd-networkd and no
   network generator, so nothing brings a link up before the root, where the rules are.
+- **Nothing the renter runs starts before the rules are filled.** `swiff-netguard-ready.service`
+  waits for a default route and runs `swiff-netguard` until it has filled every set, the public
+  address included, trying again after 1, 2, 4, 8 and then every 15 seconds. `swiff-hostd` and the
+  renter session require it. Without a STUN answer, which the stream needs as well, it gives up
+  after 90 seconds, and the PC is not offered.
 - **The renter sees only verified games.** The owner's games library is never written by the renter.
   The renter sees a view of it at `/srv/games` that shows only verified files, and their writes go to
   a per-boot encrypted session layer. See [Stage 4](#stage-4-the-shared-games-library).
@@ -863,10 +868,10 @@ renter and as root, first with the firewall and then without it as the control. 
 be refused or go unanswered with the firewall, and answer without it. The device also connects to
 the VM, and the VM renews its lease. A probe of the internet that finds no route is tried again
 once the route is back: the IPv6 default route is sometimes gone for a few seconds after a router
-advertisement refreshes it, also with the firewall removed. The test boots twice:
+advertisement refreshes it, also with the firewall removed. The test boots three times:
 
 1. **Boot 1.** The VM gets its addresses from the router, `swiff-netguard` learns the public
-   address, and nothing listens for discovery. With the firewall, the router's admin pages (IPv4,
+   address before `swiff-hostd` and the session may start, and nothing listens for discovery. With the firewall, the router's admin pages (IPv4,
    IPv6, link-local and the public address, 80 and 443, also as root, and the CGNAT and DS-Lite
    WAN addresses) and ping, the device's page
    and every discovery query are refused or go unanswered, and the device cannot connect to the VM. DNS and the internet over TCP, UDP and ping, on IPv4 and IPv6, work.
@@ -876,6 +881,9 @@ advertisement refreshes it, also with the firewall removed. The test boots twice
    line, through an SMBIOS string systemd-stub takes, makes `vm/selftest/`'s `nftables.service`
    load a broken ruleset). systemd-networkd never starts, in the initrd or after it. The network
    card stays down with no address or route, and the router never hears from the VM.
+3. **Boot 3.** The STUN servers do not answer. `swiff-netguard-ready` gives up, systemd fails
+   `swiff-hostd`'s and the renter session's start on it, and the rest of the firewall is filled all
+   the same.
 
 It needs dnsmasq (`DNSMASQ=path`, else on `PATH`; `dnsmasq-base` will do) and user and network
 namespaces, and runs as the calling user. `--no-build` takes the newest stored self-test build.

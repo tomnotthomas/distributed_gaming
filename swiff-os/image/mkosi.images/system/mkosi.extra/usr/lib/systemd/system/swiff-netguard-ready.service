@@ -1,0 +1,14 @@
+# The LAN firewall's sets are filled before anything a renter runs, or the agent
+# that offers the PC, can start: swiff-hostd and swiff-session require this.
+# Without the home's public address (no STUN answer, which the stream needs as
+# well) it fails, and the PC is not offered.
+[Unit]
+Description=Lanterel LAN firewall: wait for the first complete fill
+After=nftables.service systemd-networkd.service systemd-resolved.service
+Requires=nftables.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/swiff/netguard-ready
+TimeoutStartSec=90

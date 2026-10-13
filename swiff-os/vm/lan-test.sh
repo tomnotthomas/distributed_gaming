@@ -29,10 +29,14 @@
 #           on the kernel command line, through an SMBIOS string systemd-stub
 #           takes): systemd-networkd never starts, initrd included, no network
 #           comes up, and the router never hears from the VM.
+#   boot 3  the STUN servers do not answer: the public address is never
+#           learned, swiff-netguard-ready gives up, and with it swiff-hostd and
+#           the renter session, while the rest of the firewall is filled.
 #
 # This script adds what needs the network's view: the router answered the VM's
 # DHCP renewal, the device could not connect to the VM with the firewall and
-# could without it, and the VM sent no frame at all once Linux ran in boot 2.
+# could without it, the VM sent no frame at all once Linux ran in boot 2, and
+# it asked STUN in boot 3 and got no answer.
 #
 # Usage: vm/lan-test.sh [--no-build|--rebuild]
 #
@@ -111,7 +115,7 @@ if [ "${SWIFF_LAN_INSIDE:-}" != 1 ]; then
 	[ -e "$disk_src" ] || die "no self-test image built (run without --no-build)"
 
 	log "Preparing the VM in $run"
-	rm -rf "$run/tpm" "$run/fixtures" "$run"/*.log "$run"/*.qcow2 "$run"/*.fd "$run"/*.img "$run"/*.leases
+	rm -rf "$run/tpm" "$run/fixtures" "$run/stun-off" "$run"/*.log "$run"/*.qcow2 "$run"/*.fd "$run"/*.img "$run"/*.leases
 	qemu-img create -q -f qcow2 -b "$disk_src" -F raw "$run/disk.qcow2"
 	cp "$ovmf_vars" "$run/vars.fd"
 	mkdir -p "$run/tpm"
@@ -166,7 +170,7 @@ nsenter -t "$device" -n sh -c '
 	--address=/stun.l.google.com/stun1.l.google.com/stun.cloudflare.com/198.51.100.30 \
 	--log-dhcp --log-queries --log-facility="$run/dnsmasq.log" > /dev/null 2>&1 &
 pids+=($!)
-python3 "$here/lan-fixture.py" router > "$run/router.log" 2>&1 &
+SWIFF_LAN_STUN_OFF=$run/stun-off python3 "$here/lan-fixture.py" router > "$run/router.log" 2>&1 &
 pids+=($!)
 nsenter -t "$device" -n python3 "$here/lan-fixture.py" device dev1 > "$run/device.log" 2>&1 &
 pids+=($!)
@@ -256,7 +260,8 @@ seen_before=$(wc -l < "$run/dnsmasq.log")
 # Every frame from the VM's card in boot 2, and when its kernel started: what
 # the UEFI firmware sends before that is not Lanterel OS's.
 python3 "$here/lan-fixture.py" sniff tap0 "$mac" > "$run/sniff-2.log" 2>&1 &
-pids+=($!)
+sniff=$!
+pids+=("$sniff")
 # The time of the last check that did not see it yet: frames sent between the
 # kernel starting and the check noticing it count.
 (
@@ -274,6 +279,12 @@ pids+=($!)
 for _ in $(seq 50); do grep -q 'sniff ready' "$run/sniff-2.log" && break; sleep 0.1; done
 grep -q 'sniff ready' "$run/sniff-2.log" || die "the capture on tap0 did not start: $(cat "$run/sniff-2.log")"
 boot_vm 2 lan-firewall-broken -smbios "type=11,value=$broken"
+# Boot 2's frames only: boot 3 brings its network up.
+kill "$sniff" 2> /dev/null || true
+wait "$sniff" 2> /dev/null || true
+seen_after=$(wc -l < "$run/dnsmasq.log")
+touch "$run/stun-off"
+boot_vm 3 lan-no-stun
 
 # --- Verdict -------------------------------------------------------------------
 log "Results"
@@ -284,7 +295,7 @@ result() { # PASS|FAIL name detail
 	[ "$1" = PASS ] || fail=1
 }
 
-for n in 1 2; do
+for n in 1 2 3; do
 	rows=$(sed -n 's/^.*SWIFF-SELFTEST \(PASS\|FAIL\) /\1 /p' "$run/serial-$n.log" | tr -d '\r')
 	[ -n "$rows" ] || result FAIL "boot$n/results" "the in-image test reported nothing"
 	while read -r status name detail; do
@@ -320,7 +331,7 @@ if [ "$started" = 0 ]; then
 else
 	result FAIL boot2/networkd-never-started "systemd-networkd started $started times"
 fi
-heard=$(tail -n +"$((seen_before + 1))" "$run/dnsmasq.log" | grep -c "$mac" || true)
+heard=$(sed -n "$((seen_before + 1)),${seen_after}p" "$run/dnsmasq.log" | grep -c "$mac" || true)
 if [ "$heard" = 0 ]; then
 	result PASS boot2/router-heard-nothing "no DHCP from the VM while its firewall had not loaded"
 else
@@ -335,6 +346,12 @@ if [ -s "$run/kernel-2.time" ]; then
 	fi
 else
 	result FAIL boot2/vm-sent-nothing "the kernel's start never showed on the serial console"
+fi
+unanswered=$(grep -c "<- 192.168.77.10 unanswered" "$run/router.log" || true)
+if [ "$unanswered" -ge 1 ]; then
+	result PASS boot3/stun-asked-unanswered "the VM asked STUN $unanswered times, unanswered"
+else
+	result FAIL boot3/stun-asked-unanswered "the VM never asked STUN in boot 3"
 fi
 
 echo

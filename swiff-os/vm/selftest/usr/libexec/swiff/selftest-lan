@@ -4,6 +4,7 @@ home network vm/lan-test.sh puts the VM in:
 
     selftest-lan lan                  the renter reaches the internet, nothing of the home network
     selftest-lan lan-firewall-broken  the firewall did not load: no network comes up
+    selftest-lan lan-no-stun          no STUN answer: the agent and the session never start
     selftest-lan probe                (as the renter) runs the probes on stdin, prints their outcomes
 
 Every result is a SWIFF-SELFTEST line on the serial console, as from selftest.
@@ -225,6 +226,11 @@ def elements(name):
     return text.split("elements = {", 1)[1].split("}", 1)[0].strip() if "elements = {" in text else "-"
 
 
+def held(unit):
+    """Whether systemd failed the unit's start for a required unit that failed."""
+    return "Dependency failed" in run("journalctl", "-b", "-o", "cat", f"UNIT={unit}")
+
+
 def network_ready():
     """DHCP and the router advertisement are in, a route leads to the internet,
     and swiff-netguard has filled its sets from them."""
@@ -247,6 +253,8 @@ def lan():
         time.sleep(1)
     say("INFO", "netguard", " / ".join(f"{s}: {elements(s)}" for s in ("gateway4", "dns4", "onlink4", "gateway6", "onlink6", "wan4")))
     check("public-address-learned", elements("wan4") == PUBLIC, f"wan4: {elements('wan4')}")
+    ready = run("systemctl", "is-active", "swiff-netguard-ready.service")
+    check("filled-before-agent-and-session", ready == "active" and not held("swiff-session.service") and not held("swiff-hostd.service"), f"swiff-netguard-ready {ready}")
     check("firewall-loaded", run("systemctl", "is-active", "nftables.service") == "active", "nftables.service " + run("systemctl", "is-active", "nftables.service"))
     lease = run("sh", "-c", f"ip -4 -o addr show dev {link} | awk '{{ print $4 }}'") if link else ""
     check("dhcp-from-router", lease.startswith("192.168.77."), f"{link}: {lease or 'no address'}")
@@ -290,6 +298,22 @@ def firewall_broken():
     check("no-default-route", routes == "", routes or "none")
     o = outcomes([p for p in PROBES if p[0] == "internet"])["internet"]
     check("internet-unreachable", not o.startswith("answer "), f"198.51.100.10:80 -> {o}")
+    check("session-held", held("swiff-session.service") and held("swiff-hostd.service"), "swiff-session and swiff-hostd failed on their dependencies")
+
+
+def no_stun():
+    for _ in range(150):
+        if run("systemctl", "is-failed", "swiff-netguard-ready.service") == "failed":
+            break
+        time.sleep(1)
+    ready = run("systemctl", "is-failed", "swiff-netguard-ready.service")
+    say("INFO", "netguard", " / ".join(f"{s}: {elements(s)}" for s in ("gateway4", "onlink4", "onlink6", "wan4")))
+    check("not-ready-without-stun", ready == "failed" and elements("wan4") == "-", f"swiff-netguard-ready {ready}; wan4: {elements('wan4')}")
+    check("session-held-without-stun", held("swiff-session.service"), "swiff-session failed on its dependency")
+    check("agent-held-without-stun", held("swiff-hostd.service"), "swiff-hostd failed on its dependency")
+    # The rest of the firewall is filled all the same.
+    o = outcomes([p for p in PROBES if p[0] == "router-admin"])["router-admin"]
+    check("lan-blocked-without-stun", o.startswith("refused "), f"192.168.77.1:80 -> {o}")
 
 
 def main():
@@ -299,6 +323,8 @@ def main():
         lan()
     elif sys.argv[1] == "lan-firewall-broken":
         firewall_broken()
+    elif sys.argv[1] == "lan-no-stun":
+        no_stun()
     else:
         raise SystemExit(f"unknown phase {sys.argv[1]}")
 

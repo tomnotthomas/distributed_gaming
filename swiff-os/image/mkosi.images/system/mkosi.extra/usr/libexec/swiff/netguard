@@ -81,9 +81,13 @@ dns6=$(printf '%s\n' "$dns" | grep ':' | sed 's/%.*//' | paste -sd, - || true)
 } | nft -f -
 
 # The router may serve its admin pages on the home's public address too. It is
-# learned last, and a STUN failure leaves the set as it was and the run a
-# success: the sets above are in place either way.
-wan4=$(/usr/libexec/swiff/wan4) || exit 0
+# learned last: a STUN failure leaves the set as it was, and fails the run only
+# with --require-wan (swiff-netguard-ready), as the sets above are in place
+# either way.
+if ! wan4=$(/usr/libexec/swiff/wan4); then
+	[ "${1:-}" = --require-wan ] && exit 1
+	exit 0
+fi
 nft -f - << NFT
 flush set inet swiff wan4
 add element inet swiff wan4 { $wan4 }

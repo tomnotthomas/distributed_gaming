@@ -40,7 +40,7 @@ phase=$(cat /run/swiff-fixtures/phase)
 say INFO phase "$phase"
 case $phase in
 bootstrap | update) ;;
-lan | lan-firewall-broken)
+lan | lan-firewall-broken | lan-no-stun)
 	/usr/libexec/swiff/selftest-lan "$phase"
 	say DONE selftest
 	exit 0
