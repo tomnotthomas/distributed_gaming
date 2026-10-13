@@ -34,15 +34,17 @@ medium() {
 	networkctl list --no-legend --no-pager | awk '$4 == "routable" { print ($3 == "wlan" ? "wifi" : "ethernet"); exit }'
 }
 
-want=ethernet reason=no-network
+want=ethernet
 for network in /var/lib/iwd/*.psk /var/lib/iwd/*.open; do
-	[ -e "$network" ] || continue
-	want=wifi
-	if [ -n "$(ls /sys/class/ieee80211 2> /dev/null)" ]; then reason=wifi; else reason=no-wifi-adapter; fi
+	[ -e "$network" ] && want=wifi
 done
 
 report STATE=connecting MEDIUM=$want
 if ! wait_online --timeout=$timeout; then
+	reason=no-network
+	if [ $want = wifi ]; then
+		if [ -n "$(ls /sys/class/ieee80211 2> /dev/null)" ]; then reason=wifi; else reason=no-wifi-adapter; fi
+	fi
 	report STATE=failed MEDIUM=$want REASON=$reason
 	systemd-notify --ready
 	wait_online --timeout=0
