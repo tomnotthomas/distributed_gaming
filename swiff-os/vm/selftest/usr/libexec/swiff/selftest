@@ -120,7 +120,12 @@ suid=$(find / -xdev -type f -perm /6000 2> /dev/null | head -n5 | paste -sd' ' -
 check no-setuid-binaries "${suid:-none}" test -z "$suid"
 caps=$(find / -xdev -type f -exec python3 -c '
 import os, sys
-print(*(p for p in sys.argv[1:] if "security.capability" in os.listxattr(p)))' {} + 2> /dev/null | xargs | cut -c1-200)
+def caps(p):
+    try:
+        return "security.capability" in os.listxattr(p)
+    except OSError:
+        return False
+print(*(p for p in sys.argv[1:] if caps(p)))' {} + 2> /dev/null | xargs | cut -c1-200)
 check no-file-capabilities "${caps:-none}" test -z "$caps"
 polkit=$(ls -d /usr/lib/polkit-1/polkitd /usr/libexec/polkitd /usr/share/polkit-1/rules.d/* /etc/polkit-1/rules.d/* 2> /dev/null | paste -sd' ' -)
 check no-polkit "polkitd or rules: ${polkit:-none}" test -z "$polkit"
@@ -144,11 +149,13 @@ renter_writes=$(findmnt -rn -o TARGET,FSTYPE,SOURCE | while read -r target fstyp
 	# /dev/null is not); the mounts inside this one are checked on their own.
 	writable=$(as_renter_privs timeout 60 sh -c 'test -w "$1" && echo "$1" ||
 		find "$1" -xdev -mindepth 1 \( -type f -o -type d \) -writable ! -exec mountpoint -q {} \; -print -quit' sh "$target" 2> /dev/null)
+	# A scan cut off by the timeout has not checked the mount.
+	[ $? = 124 ] && writable=$target note=': scan timed out' || note=
 	[ -n "$writable" ] || continue
 	case $fstype:$source in
 	tmpfs:* | ramfs:* | devtmpfs:* | devpts:* | mqueue:* | hugetlbfs:* | proc:* | cgroup2:* | securityfs:*) ;;
 	ext4:/dev/mapper/swiff-scratch | ext4:/dev/mapper/swiff-games-session | overlay:swiff-games | overlay:swiff-steam) ;;
-	*) echo "$writable($fstype $source)" ;;
+	*) echo "$writable($fstype $source$note)" ;;
 	esac
 done | paste -sd' ' -)
 check renter-writes-not-kept "kept across a restart: ${renter_writes:-none}" test -z "$renter_writes"
