@@ -645,7 +645,9 @@ machine's RAM, and needs about twice the root's size there: on a 10 GB machine s
 GEEKOM, a root of up to about 2.4 GB. The root is about 2.3 GB.
 
 `run-test.sh` builds the `selftest` profile. That is the shipped image plus a serial console and
-`swiff-selftest.service` (`vm/selftest/`). In the test build the session starts only after the
+`swiff-selftest.service` (`vm/selftest/`). Its first STUN server is a responder in the test build
+(`swiff-selftest-stun.service`, `vm/lan-fixture.py`'s), so `swiff-netguard` learns a public address
+without reaching the internet's STUN servers. In the test build the session starts only after the
 self-test, so sealing stays open, as it would until a game is launched. The test then boots the
 image twelve times in QEMU, with 2 GiB of RAM and 4 vCPUs, under OVMF with Secure Boot and swtpm:
 
@@ -865,6 +867,8 @@ through a tap device (`vm/lan-fixture.py` answers on it):
 - **The internet** beyond the router, at 198.51.100.10 and 2001:db8:ffff::10 (TEST-NET, which the
   firewall treats as the internet). It serves a page and echoes UDP, as a STUN server answers. The
   stream's STUN servers resolve to 198.51.100.30, which reports the router's public address.
+  Every boot turns the test build's own STUN responder off (`swiff.selftest.stun=network`), so the
+  VM asks these.
 
 The in-image test (`vm/selftest/usr/libexec/swiff/selftest-lan`) probes a table of these, as the
 renter and as root, first with the firewall and then without it as the control. Each probe must

@@ -66,7 +66,9 @@ boot_stall=${BOOT_STALL:-300}
 cpus=${SWIFF_VM_CPUS:-4}
 # The VM's network card, which the router gives 192.168.77.10.
 mac=52:54:00:12:77:10
-broken=io.systemd.stub.kernel-cmdline-extra=swiff.selftest.firewall=broken
+# Every boot asks the router's STUN, not the test build's own responder.
+network=io.systemd.stub.kernel-cmdline-extra=swiff.selftest.stun=network
+broken="$network swiff.selftest.firewall=broken"
 
 # Prints a section heading.
 log() { printf '\n== %s\n' "$*"; }
@@ -255,7 +257,7 @@ boot_vm() { # boot number, phase, QEMU arguments...
 }
 
 touch "$run/inbound.log"
-boot_vm 1 lan
+boot_vm 1 lan -smbios "type=11,value=$network"
 # What the router logged from here on is boot 2's.
 seen_before=$(wc -l < "$run/dnsmasq.log")
 # Every frame from the VM's card in boot 2, and when its kernel started: what
@@ -292,7 +294,7 @@ touch "$run/stun-off"
 	rm -f "$run/stun-off"
 ) &
 pids+=($!)
-boot_vm 3 lan-late-stun
+boot_vm 3 lan-late-stun -smbios "type=11,value=$network"
 
 # --- Verdict -------------------------------------------------------------------
 log "Results"

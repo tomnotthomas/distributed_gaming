@@ -5,6 +5,9 @@
     lan-fixture.py device IFACE      another device at home: a page, and discovery answers
     lan-fixture.py probe HOST PORT   connects as that device would; prints what came of it
     lan-fixture.py sniff IFACE MAC   logs each frame from MAC on IFACE, with its time
+    lan-fixture.py stun HOST PORT PUBLIC
+                                     answers STUN on HOST:PORT with PUBLIC: in the
+                                     self-test build, swiff-selftest-stun.service
 
 Every page and answer is one line naming what answered, which the VM's
 selftest-lan expects. Each datagram and connection is logged on stdout.
@@ -85,8 +88,8 @@ def serve_udp(s, answer):
         s.sendto(answer.encode(), peer)
 
 
-def serve_stun(s):
-    """Answers each binding request with XOR-MAPPED-ADDRESS = PUBLIC, unless the
+def serve_stun(s, public):
+    """Answers each binding request with XOR-MAPPED-ADDRESS = public, unless the
     file $SWIFF_LAN_STUN_OFF exists: then the STUN servers are unreachable."""
     off = os.environ.get("SWIFF_LAN_STUN_OFF", "")
     while True:
@@ -100,7 +103,7 @@ def serve_stun(s):
         kind, length, cookie = struct.unpack("!HHI", data[:8])
         if kind != 0x0001 or cookie != STUN_COOKIE or 20 + length > len(data):
             continue
-        address = struct.unpack("!I", socket.inet_aton(PUBLIC))[0] ^ STUN_COOKIE
+        address = struct.unpack("!I", socket.inet_aton(public))[0] ^ STUN_COOKIE
         attr = struct.pack("!HHBBHI", 0x0020, 8, 0, 0x01, peer[1] ^ (STUN_COOKIE >> 16), address)
         s.sendto(struct.pack("!HHI", 0x0101, len(attr), STUN_COOKIE) + data[8:20] + attr, peer)
 
@@ -113,7 +116,7 @@ def router():
     for kind, host, port, answer in ROUTER:
         start(serve_tcp if kind == "tcp" else serve_udp, bound(kind, host, port), answer)
     for port in STUN[1]:
-        start(serve_stun, bound("udp", STUN[0], port))
+        start(serve_stun, bound("udp", STUN[0], port), PUBLIC)
 
 
 def device(iface):
@@ -160,6 +163,9 @@ def main():
         return
     if role == "sniff":
         sniff(sys.argv[2], sys.argv[3])
+        return
+    if role == "stun":
+        serve_stun(bound("udp", sys.argv[2], int(sys.argv[3])), sys.argv[4])
         return
     router() if role == "router" else device(sys.argv[2])
     log(f"{role} ready")

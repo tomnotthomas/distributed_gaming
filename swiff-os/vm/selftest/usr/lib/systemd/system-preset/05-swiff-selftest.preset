@@ -1,1 +1,2 @@
 enable swiff-selftest.service
+enable swiff-selftest-stun.service
