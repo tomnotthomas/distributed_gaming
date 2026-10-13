@@ -1204,7 +1204,9 @@ async function createWorker({ imageDir, trust = trustOf({ dev: false }), win = W
         const tpm = await win.tpm();
         let record;
         try {
-          record = await provisionRecord({ ...op.record, wifi: wifi ?? undefined }, (key) => sealKey(tpm, policy, key));
+          record = await provisionRecord({ ...op.record, wifi: wifi ?? undefined }, (key) =>
+            sealKey(tpm, policy, key),
+          );
         } finally {
           tpm.close();
         }

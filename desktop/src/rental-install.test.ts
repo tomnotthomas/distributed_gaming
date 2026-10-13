@@ -1134,7 +1134,8 @@ describe("a provisioning record left on the disk", () => {
     pc.win.network = onWifi("correct horse 15");
     await worker.apply({ op: "provision", record: MACHINE, wifi: "Brammiball" });
     const wifi = { ssid: "Brammiball", security: "sae" as const, passphrase: "correct horse 15" };
-    expect(head().equals(provisionRecord({ ...MACHINE, wifi }))).toBe(true);
+    expect(pc.chip.open(head())).toEqual({ ...MACHINE, wifi });
+    expect(head().includes(Buffer.from(wifi.passphrase))).toBe(false);
     expect(await wipeRecord((op) => worker.apply(op as PlanOp), store)).toBe(true);
     expect(zeroed(head())).toBe(true);
   });

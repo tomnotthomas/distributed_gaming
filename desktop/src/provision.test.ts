@@ -1,10 +1,13 @@
 // @vitest-environment node
 // The provisioning record's payload, as swiff-os/hostd/src/provision.ts reads
-// it: the machine's fields, and the Wi-Fi only on a PC that goes online over it.
+// it once the TPM opens it: the machine's fields, and the Wi-Fi only on a PC
+// that goes online over it, sealed with them and never in the clear.
 
-import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { provisionRecord, RECORD_BYTES, RECORD_VERSION, wifiProblem } from "../provision.cjs";
+import { provisionRecord, wifiProblem, type Provisioning } from "../provision.cjs";
+import { sealKey, sealPolicy } from "../tpm-seal.cjs";
+import { fakeTpm } from "./test/fakeTpm";
+import { GOLDEN_CERT } from "./test/goldenKey";
 
 const MACHINE = {
   serverUrl: "wss://lanterel.example",
@@ -12,41 +15,48 @@ const MACHINE = {
   machineKey: "the-machine-key-of-gaming-pc-1",
 };
 
-/** The payload Lanterel OS reads from a record: checked against the header's length and hash. */
-function payloadOf(record: Buffer): unknown {
-  expect(record.length).toBe(RECORD_BYTES);
-  expect(record.subarray(0, 8).toString("ascii")).toBe("SWIFFPRV");
-  expect(record.readUInt32BE(8)).toBe(RECORD_VERSION);
-  const payload = record.subarray(48, 48 + record.readUInt32BE(12));
-  expect(createHash("sha256").update(payload).digest().equals(record.subarray(16, 48))).toBe(true);
-  return JSON.parse(payload.toString("utf8"));
+/** The record for `provisioning`, sealed to a fake TPM, and the payload that TPM opens from it. */
+async function sealed(provisioning: Provisioning) {
+  const tpm = fakeTpm();
+  const transport = tpm.transport();
+  const record = await provisionRecord(provisioning, (key) =>
+    sealKey(transport, sealPolicy(GOLDEN_CERT), key),
+  );
+  return { record, payload: tpm.open(record) };
 }
 
 describe("provisionRecord", () => {
-  it("carries no wifi on a PC with a network cable: the payload is as before", () => {
-    expect(payloadOf(provisionRecord(MACHINE))).toEqual(MACHINE);
-    expect(RECORD_VERSION).toBe(1);
+  it("carries no wifi on a PC with a network cable: the payload is as before", async () => {
+    expect((await sealed(MACHINE)).payload).toEqual(MACHINE);
   });
 
-  it("carries the Wi-Fi's name, security and password on a Wi-Fi PC, in the same record", () => {
-    const wifi = { ssid: "Brammiball", security: "sae" as const, passphrase: "correct horse 15" };
-    expect(payloadOf(provisionRecord({ ...MACHINE, wifi }))).toEqual({ ...MACHINE, wifi });
+  it("seals the Wi-Fi's name, security and password on a Wi-Fi PC in the same record, never in the clear", async () => {
+    const sae = { ssid: "Brammiball", security: "sae" as const, passphrase: "correct horse 15" };
     const psk = { ssid: "Büro & Gäste", security: "psk" as const, passphrase: "  spaces count  " };
-    expect(payloadOf(provisionRecord({ ...MACHINE, wifi: psk }))).toEqual({ ...MACHINE, wifi: psk });
     const hex = { ssid: "Home", security: "psk" as const, passphrase: "0123456789ABCDEF".repeat(4) };
-    expect(payloadOf(provisionRecord({ ...MACHINE, wifi: hex }))).toEqual({ ...MACHINE, wifi: hex });
+    for (const wifi of [sae, psk, hex]) {
+      const { record, payload } = await sealed({ ...MACHINE, wifi });
+      expect(payload).toEqual({ ...MACHINE, wifi });
+      expect(record.includes(Buffer.from(wifi.passphrase))).toBe(false);
+      expect(record.includes(Buffer.from(wifi.ssid))).toBe(false);
+    }
   });
 
-  it("carries no password for an open network, and nothing beyond the three fields", () => {
+  it("carries no password for an open network, and nothing beyond the three fields", async () => {
     const open = { ssid: "Café", security: "open" as const };
-    expect(payloadOf(provisionRecord({ ...MACHINE, wifi: { ...open, extra: 1 } as typeof open }))).toEqual({
+    expect((await sealed({ ...MACHINE, wifi: { ...open, extra: 1 } as typeof open })).payload).toEqual({
       ...MACHINE,
       wifi: open,
     });
   });
 
-  it("refuses a Wi-Fi Lanterel OS cannot join, never quoting its password", () => {
+  it("refuses a Wi-Fi Lanterel OS cannot join before the TPM is asked, never quoting its password", async () => {
     const secret = "hunter2-but-longer";
+    let asked = 0;
+    const seal = async () => {
+      asked++;
+      return { public: Buffer.alloc(48), private: Buffer.alloc(126) };
+    };
     const refused = [
       { ssid: "", security: "psk", passphrase: secret },
       { ssid: "x".repeat(33), security: "psk", passphrase: secret },
@@ -62,8 +72,9 @@ describe("provisionRecord", () => {
       const problem = wifiProblem(wifi);
       expect(problem).toMatch(/Wi-Fi/);
       expect(problem).not.toContain(secret);
-      expect(() => provisionRecord({ ...MACHINE, wifi } as never)).toThrow(problem!);
+      await expect(provisionRecord({ ...MACHINE, wifi } as never, seal)).rejects.toThrow(problem!);
     }
+    expect(asked).toBe(0);
     expect(wifiProblem(null)).not.toBeNull();
   });
 });
