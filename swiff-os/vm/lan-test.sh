@@ -101,7 +101,7 @@ if [ "${SWIFF_LAN_INSIDE:-}" != 1 ]; then
 	flock -n 9 || die "another lan-test.sh is running"
 
 	if [ "$build" = 0 ]; then
-		disk_src=$(ls -t "$build_dir"/images/selftest-*.raw 2> /dev/null | head -n1)
+		disk_src=$(ls -t "$build_dir"/images/selftest-*.raw 2> /dev/null | head -n1 || true)
 	else
 		log "The test image (vm/build-image.sh selftest)"
 		rebuild=()
