@@ -296,6 +296,12 @@ function tbsProblem(stderr) {
 }
 
 /**
+ * How long a TBS send may wait for its response: the first also waits for
+ * PowerShell to start and Add-Type to compile the helper.
+ */
+const TBS_TIMEOUT = 120_000;
+
+/**
  * This PC's TPM, through one PowerShell that stays up (TBS): `send(command)`
  * resolves with its response. The commands go over its stdin alone, never a
  * command line, a file or the environment: TPM2_Create's carries a secret.
@@ -346,7 +352,7 @@ function tbs() {
       for (const w of waiting.splice(0)) w.reject(ended);
     });
     child.once("close", () => {
-      ended = new Error(tbsProblem(err));
+      if (!ended) ended = new Error(tbsProblem(err));
       for (const w of waiting.splice(0)) w.reject(ended);
     });
     child.once("spawn", () =>
@@ -354,7 +360,23 @@ function tbs() {
         send: (command) =>
           new Promise((resolveSend, rejectSend) => {
             if (ended) return rejectSend(ended);
-            waiting.push({ resolve: resolveSend, reject: rejectSend });
+            // A TPM or helper that does not answer ends the helper, and every send waiting on it.
+            const timer = setTimeout(() => {
+              ended = new Error(tbsProblem("the TPM did not answer in time"));
+              for (const w of waiting.splice(0)) w.reject(ended);
+              child.kill();
+            }, TBS_TIMEOUT);
+            timer.unref();
+            waiting.push({
+              resolve: (response) => {
+                clearTimeout(timer);
+                resolveSend(response);
+              },
+              reject: (error) => {
+                clearTimeout(timer);
+                rejectSend(error);
+              },
+            });
             const line = hexLine(command);
             child.stdin.write(line, () => line.fill(0));
           }),
