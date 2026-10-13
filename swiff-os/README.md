@@ -516,8 +516,8 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
 - **No process memory reaches a disk.** Core dumps are off (`kernel.core_pattern=|/bin/false`,
   `fs.suid_dumpable=0`, `systemd-coredump.socket` masked). There is no swap: `swap.target` is masked,
   so not even a swap partition `systemd-gpt-auto-generator` finds on the PC's disk is used. Hibernation
-  is off on the command line and its targets are masked. iwd, which holds the Wi-Fi passphrase once
-  the image has Wi-Fi, runs in a sandbox on top of Ubuntu's unit (`iwd.service.d/60-swiff-sandbox.conf`),
+  is off on the command line and its targets are masked. iwd, which holds the Wi-Fi passphrase,
+  runs in a sandbox on top of Ubuntu's unit (`iwd.service.d/60-swiff-sandbox.conf`),
   including `MemoryDenyWriteExecute`. The network it keeps lives in root's 0700 `/var/lib/iwd`, on
   the tmpfs.
 
@@ -751,7 +751,7 @@ host's view. Together they cover:
   `NoNewPrivileges`, `sudo`, `doas`, `pkexec`, `su`, `run0` and `systemd-run` all fail, and nothing the
   renter can write outlives a restart.
 - Core dumps, swap and hibernation are off, and signed modules still load under lockdown.
-- Once the image has Wi-Fi, iwd runs in its sandbox, and `/var/lib/iwd` is root's 0700 on the tmpfs
+- iwd runs in its sandbox, and `/var/lib/iwd` is root's 0700 on the tmpfs
   with only root's 0600 files in it.
 - The session is gamescope with the Steam sign-in agent as `renter`, and no login of any kind is
   offered.
