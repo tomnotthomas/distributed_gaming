@@ -407,6 +407,8 @@ describe("useHost", () => {
     type Answer = "ok" | "fail" | ((land: (ok: boolean) => void) => void);
     let answers: Answer[];
     let playing: string[];
+    /** This PC's report as the app sent it off offer (report.ts), each a call of its own beside the crew's. */
+    let pcReports: Record<string, unknown>[];
     /** Who may play, as the platform says it: crew-only, playing for Alex's crew or for none. */
     const crewOf = (plays: boolean) => ({
       only: true,
@@ -434,6 +436,7 @@ describe("useHost", () => {
       devShare.on = false;
       answers = [];
       playing = ["c1"];
+      pcReports = [];
       vi.stubGlobal(
         "fetch",
         vi.fn(async (url: string, init: RequestInit) => {
@@ -441,6 +444,10 @@ describe("useHost", () => {
           if (path.endsWith("/demand")) throw new TypeError("no network in tests");
           if (path === "/api/pairings/mine") return pairedAnswer();
           const body = typeof init.body === "string" ? JSON.parse(init.body) : null;
+          if (body?.name !== undefined) {
+            pcReports.push(body);
+            return Response.json({ crew: crewOf(playing.includes("c1")) });
+          }
           calls.push({ method: init.method ?? "GET", path, body, keepalive: Boolean(init.keepalive) });
           const answer = answers.shift() ?? "ok";
           const ok =
@@ -494,6 +501,28 @@ describe("useHost", () => {
       expect(result.current.view.crewNote).toBeNull();
       // Nothing offers this PC from Windows.
       expect(reports().some((c) => c.body?.available === true)).toBe(false);
+    });
+
+    it("reports this PC with it off offer, and again once the games offered change", async () => {
+      const { result } = await ready();
+      expect(pcReports).toHaveLength(1);
+      expect(pcReports[0]).toMatchObject({ available: false, name: "gaming-pc-1" });
+      expect(pcReports[0]!.games).toEqual(result.current.view.games.offered);
+      expect(pcReports[0]).not.toHaveProperty("net");
+      expect(pcReports[0]).not.toHaveProperty("crews");
+
+      // Checked again with nothing changed: not sent again.
+      act(() => result.current.actions.checkRental());
+      await settle();
+      expect(pcReports).toHaveLength(1);
+
+      const [first] = result.current.view.games.offered!;
+      act(() => result.current.actions.toggleOffer(first!));
+      await settle();
+      expect(pcReports).toHaveLength(2);
+      expect(pcReports[1]!.games).not.toContain(first);
+      // Nothing offers this PC from Windows.
+      expect(pcReports.some((r) => r.available !== false)).toBe(false);
     });
 
     it("puts a choice that did not save back to the platform's, and says so", async () => {

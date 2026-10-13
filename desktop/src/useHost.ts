@@ -11,11 +11,14 @@ import { connectionReady, untilChoices, type Connection, type Host, type HostVie
 import {
   createHostReporter,
   hostReport,
+  measureNet,
   offOffer,
   playingFor,
+  WAKE_MS,
   type Crew,
   type HostReporter,
   type Machine,
+  type Net,
 } from "./report";
 import { rentalReady } from "./rental";
 import { seatClient } from "./seats";
@@ -132,11 +135,14 @@ export function useHost(): Host {
   // Go live registers this PC's TPM with the server (ek.ts), with the connection as it is then,
   // or says which part of it is missing.
   const ekMachine = useRef<Machine | EkError>("no-machine");
+  // Go live reports this PC with the network measured then, before the restart (reportRental below).
+  const goLiveReport = useRef<() => Promise<boolean>>(async () => false);
   const rental = useRental({
     registerEk: async (ek) =>
       typeof ekMachine.current === "string"
         ? { ok: false, error: ekMachine.current }
         : registerEk(ekMachine.current, ek),
+    reportPc: () => goLiveReport.current(),
   });
 
   // --- the games offered: every installed game the owner has not turned off
@@ -415,7 +421,7 @@ export function useHost(): Host {
     const asks = crewAsks.current;
     const n = ++asks.n;
     if (crews !== undefined) asks.sets++;
-    const read = await offOffer(machine, crews);
+    const read = await offOffer(machine, { crews });
     if (asks !== crewAsks.current) return true;
     if (crews !== undefined) asks.sets--;
     if (read) window.clearTimeout(asks.retry);
@@ -434,6 +440,25 @@ export function useHost(): Host {
     }
     return read !== null;
   };
+  // Rental mode's report (report.ts): what the platform last took, sent again only once it changes.
+  const rentalReported = useRef<string | null>(null);
+  const reportRental = async (net: Net | null): Promise<boolean> => {
+    const machine = rentalCrew.current;
+    if (!machine) return false;
+    const report = { ...latest.current.report, ...(net ? { net } : {}) };
+    const key = JSON.stringify([machine, report]);
+    if (!net && key === rentalReported.current) return true;
+    const ok = (await offOffer(machine, { report, timeoutMs: WAKE_MS })) !== null;
+    if (ok) rentalReported.current = key;
+    return ok;
+  };
+  goLiveReport.current = async () => {
+    const machine = rentalCrew.current;
+    return machine ? reportRental(await measureNet(machine)) : false;
+  };
+  useEffect(() => {
+    if (rentalMachine) void reportRental(null);
+  }, [rentalMachine?.url, rentalMachine?.machineId, rentalMachine?.machineKey, report]);
   /** A read of who may play, never once the platform has said or while the owner's choice is on its way. */
   const readCrew = () => {
     if (!crewAsks.current.confirmed && !crewAsks.current.sets) void askCrew();
