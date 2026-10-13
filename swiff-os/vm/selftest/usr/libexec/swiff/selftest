@@ -53,6 +53,9 @@ check secure-boot "SecureBoot=$sb SetupMode=$setup" test "$sb" = 1 -a "$setup" =
 check lockdown "$(cat /sys/kernel/security/lockdown)" grep -q '\[confidentiality\]' /sys/kernel/security/lockdown
 check module-signatures "sig_enforce=$(cat /sys/module/module/parameters/sig_enforce)" \
 	grep -qx Y /sys/module/module/parameters/sig_enforce
+# Under both, the kernel still loads its signed modules from the verity root
+# (nf_tables, for the firewall nftables.service loaded).
+check signed-modules-load "nf_tables: $(grep -c '^nf_tables ' /proc/modules)" grep -q '^nf_tables ' /proc/modules
 check iommu-on "$(ls /sys/class/iommu | paste -sd' ' -)" test -n "$(ls /sys/class/iommu)"
 check hardware-floor "$(paste -sd' ' /run/swiff/hardware-floor 2> /dev/null)" grep -qx floor=pass /run/swiff/hardware-floor
 
@@ -111,11 +114,61 @@ locked() { case $(password_field "$1") in '!'* | '*'* | x) return 0 ;; *) return
 # itself (a hash on other systems) never goes to the console log.
 check renter-no-password "password field not logged" locked renter
 check root-locked "password field not logged" locked root
-check no-sudo "no sudo or su to escalate with" bash -c '! command -v sudo && ! command -v sudo-rs'
+escalators=$(for b in sudo sudo-rs doas pkexec; do command -v "$b"; done | paste -sd' ' -)
+check no-sudo "sudo, doas or pkexec: ${escalators:-none}" test -z "$escalators"
 suid=$(find / -xdev -type f -perm /6000 2> /dev/null | head -n5 | paste -sd' ' -)
 check no-setuid-binaries "${suid:-none}" test -z "$suid"
+caps=$(find / -xdev -type f -exec python3 -c '
+import os, sys
+print(*(p for p in sys.argv[1:] if "security.capability" in os.listxattr(p)))' {} + 2> /dev/null | xargs | cut -c1-200)
+check no-file-capabilities "${caps:-none}" test -z "$caps"
+polkit=$(ls -d /usr/lib/polkit-1/polkitd /usr/libexec/polkitd /usr/share/polkit-1/rules.d/* /etc/polkit-1/rules.d/* 2> /dev/null | paste -sd' ' -)
+check no-polkit "polkitd or rules: ${polkit:-none}" test -z "$polkit"
 check renter-cannot-read-shadow "" bash -c '! setpriv --reuid=renter --regid=renter --init-groups cat /etc/shadow'
+# The ways a renter's program could ask for root, tried without the session's
+# NoNewPrivileges (the renter's own systemd manager runs without it): each must
+# fail, while the same user runs a plain program (the control).
+as_renter_privs() { setpriv --reuid=renter --regid=renter --init-groups -- "$@"; }
+became=$(for cmd in 'sudo -n true' 'doas -n true' 'pkexec true' 'su -c true root' 'run0 true' 'systemd-run --wait --quiet true'; do
+	# shellcheck disable=SC2086 # the command's words
+	as_renter_privs timeout 20 $cmd < /dev/null > /dev/null 2>&1 && echo "$cmd"
+done | paste -sd, -)
+check renter-cannot-become-root "succeeded: ${became:-none}; control uid=$(as_renter_privs id -u)" \
+	test -z "$became" -a "$(as_renter_privs id -u)" = 1000
+# Everything the renter can write is gone after a restart: RAM (tmpfs, /dev,
+# /proc, its cgroup, securityfs's query files), the scratch or the games library's session layer (each
+# under a key of this boot), or the overlays above them.
+renter_writes=$(findmnt -rn -o TARGET,FSTYPE,SOURCE | while read -r target fstype source; do
+	target=$(printf '%b' "$target")
+	# Files and directories, the only things that keep data (a symlink to
+	# /dev/null is not); the mounts inside this one are checked on their own.
+	writable=$(as_renter_privs timeout 60 sh -c 'test -w "$1" && echo "$1" ||
+		find "$1" -xdev -mindepth 1 \( -type f -o -type d \) -writable ! -exec mountpoint -q {} \; -print -quit' sh "$target" 2> /dev/null)
+	[ -n "$writable" ] || continue
+	case $fstype:$source in
+	tmpfs:* | ramfs:* | devtmpfs:* | devpts:* | mqueue:* | hugetlbfs:* | proc:* | cgroup2:* | securityfs:*) ;;
+	ext4:/dev/mapper/swiff-scratch | ext4:/dev/mapper/swiff-games-session | overlay:swiff-games | overlay:swiff-steam) ;;
+	*) echo "$writable($fstype $source)" ;;
+	esac
+done | paste -sd' ' -)
+check renter-writes-not-kept "kept across a restart: ${renter_writes:-none}" test -z "$renter_writes"
 check ptrace-scope "$(cat /proc/sys/kernel/yama/ptrace_scope)" grep -qx 3 /proc/sys/kernel/yama/ptrace_scope
+coredump=$(systemctl show -P LoadState systemd-coredump.socket)
+check no-core-dumps "core_pattern=$(cat /proc/sys/kernel/core_pattern) suid_dumpable=$(cat /proc/sys/fs/suid_dumpable) systemd-coredump=$coredump" \
+	test "$(cat /proc/sys/kernel/core_pattern)" = '|/bin/false' -a "$(cat /proc/sys/fs/suid_dumpable)" = 0 -a "$coredump" = masked
+swaps=$(tail -n +2 /proc/swaps | awk '{ print $1 }' | paste -sd' ' -)
+check no-swap "swaps: ${swaps:-none} swap.target=$(systemctl show -P LoadState swap.target)" \
+	test -z "$swaps" -a "$(systemctl show -P LoadState swap.target)" = masked
+check no-hibernate "/sys/power/state: $(cat /sys/power/state) hibernate.target=$(systemctl show -P LoadState hibernate.target)" \
+	bash -c '! grep -qw disk /sys/power/state && [ "$(systemctl show -P LoadState hibernate.target)" = masked ]'
+# iwd, once the image has Wi-Fi: boxed in as its drop-in says.
+if [ "$(systemctl show -P LoadState iwd.service)" = loaded ]; then
+	iwd_box=$(for p in ProtectSystem ProtectHome PrivateTmp NoNewPrivileges MemoryDenyWriteExecute; do systemctl show -P "$p" iwd.service; done | paste -sd' ' -)
+	check iwd-sandboxed "ProtectSystem ProtectHome PrivateTmp NoNewPrivileges MemoryDenyWriteExecute: $iwd_box" \
+		test "$iwd_box" = "strict yes yes yes yes"
+else
+	say INFO iwd-sandboxed "iwd not installed"
+fi
 
 # --- Session: gamescope + Steam, nothing else ------------------------------------
 check default-target "$(systemctl get-default)" test "$(systemctl get-default)" = graphical.target
