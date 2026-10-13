@@ -114,6 +114,7 @@
 
 import { randomBytes } from "node:crypto";
 import {
+  DEFAULT_MAX_RTT_MS,
   gpuScore,
   rank,
   sessionSpanMs,
@@ -899,6 +900,8 @@ export type PlatformOptions = {
    * none could be booked but never served.
    */
   offeredOnlyWhilePresent?: boolean;
+  /** Gate E6's limit on a machine's round trip from the renter in ms (SWIFF_MAX_RTT_MS). Defaults to rank()'s. */
+  maxRttMs?: number;
   onSessionEnded?: (machineId: string, sessionId: string, ticketId: string | null) => void;
   /**
    * When the renter holding `ticketId` dropped out of `machineId`'s room and is
@@ -925,6 +928,7 @@ export class Platform {
   readonly #onCrewReady: (crewId: string, memberIds: string[]) => void;
   readonly #owners: ReadonlyMap<string, string>;
   readonly #offeredOnlyWhilePresent: boolean;
+  readonly #maxRttMs: number;
   /** The transaction of the call running now: every statement goes through it. */
   #tx: Queryable | null = null;
   /** The last call queued: the next one runs once it has finished. */
@@ -953,6 +957,7 @@ export class Platform {
     now = Date.now,
     owners = new Map(),
     offeredOnlyWhilePresent = false,
+    maxRttMs = DEFAULT_MAX_RTT_MS,
     onSessionEnded = () => {},
     droppedAt = () => null,
     onSessionClaimed = () => {},
@@ -964,6 +969,7 @@ export class Platform {
     this.#now = now;
     this.#owners = owners;
     this.#offeredOnlyWhilePresent = offeredOnlyWhilePresent;
+    this.#maxRttMs = maxRttMs;
     this.#onSessionEnded = onSessionEnded;
     this.#droppedAt = droppedAt;
     this.#onSessionClaimed = onSessionClaimed;
@@ -3475,7 +3481,11 @@ export class Platform {
       link: bookingLink(rtts, row),
       history,
     }));
-    const ranked = rank(game, bookingRenter(booking), candidates, { now, heartbeatMaxAgeMs: LIVENESS_MS });
+    const ranked = rank(game, bookingRenter(booking), candidates, {
+      now,
+      heartbeatMaxAgeMs: LIVENESS_MS,
+      maxRttMs: this.#maxRttMs,
+    });
     return ranked.hosts[0]?.host.id ?? null;
   }
 

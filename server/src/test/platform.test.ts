@@ -1050,6 +1050,12 @@ describe("booking a picked machine", () => {
     assert.equal(await platform.bookMachine("pc-1", 730, 30, "steam:1", { server: 30 }), null);
     assert.ok(await platform.bookMachine("pc-1", 730, 30, "steam:1", { server: 10 }));
   });
+
+  it("books a machine that far once the latency gate is raised", async () => {
+    await openPlatform({ maxRttMs: 100 });
+    await offer("pc-1", { net: { ...REPORT.net, rttMs: 60 } });
+    assert.ok(await platform.bookMachine("pc-1", 730, 30, "steam:1", { server: 30 }));
+  });
 });
 
 describe("the renter ending a booking", () => {

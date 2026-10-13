@@ -53,7 +53,7 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
-import { sessionSpanMs } from "@swiff/rank";
+import { DEFAULT_MAX_RTT_MS, sessionSpanMs } from "@swiff/rank";
 import { errorTrackingFromEnv } from "./error-tracking.js";
 import { relayFromEnv } from "./ice.js";
 import {
@@ -95,6 +95,7 @@ import { cachedProfiles, publicOriginFromEnv, readProfile, WALL_APPIDS } from ".
 import { createSteamAuth, renterOf, sessionSecretFromEnv } from "./signin.js";
 import { MAX_MINUTES, Platform, watchCrew, type ClaimedSession } from "./platform.js";
 import { createApi } from "./api.js";
+import { maxRttMsFromEnv } from "./candidates.js";
 import { openPairings } from "./pairing.js";
 import { createRenterEvents } from "./events.js";
 import { openDatabase } from "./db.js";
@@ -180,9 +181,21 @@ const watches = new Watches();
 // members' streams. Each machine's owner comes from MACHINE_KEYS, so no renter
 // is ever matched to their own PC. The platform arms its own timer for whatever
 // changes only with time.
+// Gate E6: how far, in ms of round trip through the server, a renter may be
+// from a machine. SWIFF_MAX_RTT_MS widens or narrows it; rank()'s default otherwise.
+const maxRttFromEnv = maxRttMsFromEnv(process.env.SWIFF_MAX_RTT_MS);
+if (maxRttFromEnv === null) {
+  console.warn(
+    `[swiff] SWIFF_MAX_RTT_MS is not a positive whole number of ms; using the default ${DEFAULT_MAX_RTT_MS}`,
+  );
+}
+const MAX_RTT_MS = maxRttFromEnv ?? DEFAULT_MAX_RTT_MS;
+console.log(`[swiff] latency gate: a renter is matched to machines within ${MAX_RTT_MS} ms round trip`);
+
 const platform = await Platform.open({
   database,
   owners: access.owners,
+  maxRttMs: MAX_RTT_MS,
   // Attested-only: a machine is on the market only while a socket that may
   // host it is open, never on its machine key's heartbeat alone.
   offeredOnlyWhilePresent: attestationConfig.attestedOnly,
@@ -229,6 +242,7 @@ const serveApi = createApi({
   sessionSecret,
   publicOrigin,
   fallbackOrigin: `http://localhost:${PORT}`,
+  maxRttMs: MAX_RTT_MS,
   profile: cachedProfiles((steamId) => readProfile(process.env.STEAM_API_KEY, steamId)),
   events: renterEvents,
   attestation,

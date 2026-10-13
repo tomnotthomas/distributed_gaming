@@ -196,6 +196,8 @@ export type ApiOptions = {
   publicOrigin: string | null;
   /** Used when the request carries no host header. */
   fallbackOrigin: string;
+  /** Gate E6's limit on a machine's round trip from the renter in ms (SWIFF_MAX_RTT_MS). Defaults to rank()'s. */
+  maxRttMs?: number;
   /** The games that can be booked, before playability. Defaults to Steam's most played (catalog.ts). */
   games?: () => Promise<{ id: number; name: string; image: string | null }[]>;
   /**
@@ -558,6 +560,7 @@ export function createApi({
   sessionSecret,
   publicOrigin,
   fallbackOrigin,
+  maxRttMs,
   games,
   profile = (steamId) => readProfile(undefined, steamId),
   events,
@@ -784,7 +787,7 @@ export function createApi({
       // Optional: how long the renter means to play, for `ready` and `best`. It never changes `free`.
       const minutes = query.has("minutes") ? wholeParam(query.get("minutes"), "minutes", MAX_MINUTES) : 0;
       const { at, machines } = await platform.offeredMachines();
-      reply(res, 200, availabilityFor(games, ask, machines, at, minutes));
+      reply(res, 200, availabilityFor(games, ask, machines, at, minutes, maxRttMs));
       return true;
     }
 
@@ -801,7 +804,7 @@ export function createApi({
       }
       const [game] = await platform.requirements([appid]);
       const { at, machines } = await platform.offeredMachines();
-      reply(res, 200, machinesFor(game!, minutes, ask, machines, at));
+      reply(res, 200, machinesFor(game!, minutes, ask, machines, at, maxRttMs));
       return true;
     }
 
@@ -1319,7 +1322,7 @@ export function createApi({
         const [game] = await platform.requirements([gameId]);
         const { at, machines } = await platform.offeredMachines();
         nextBest =
-          machinesFor(game!, minutes, ask, machines, at).machines.find(
+          machinesFor(game!, minutes, ask, machines, at, maxRttMs).machines.find(
             (m) => m.id !== machineId && m.coversSession,
           ) ?? null;
       }

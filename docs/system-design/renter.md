@@ -436,8 +436,9 @@ sort's O3).
 Latency is estimated through the server for every machine: the renter's `rtt` plus the
 PC's own round trip to the server from its host report (`net.rttMs`), with the PC's
 jitter. The direct path is usually shorter, so the estimate is an upper bound, and it
-cannot tell a direct path from a relayed one. A machine more than 80 ms away by the
-estimate (E6), or one that has never reported `net`, is not listed. No PC's address is
+cannot tell a direct path from a relayed one. A machine further away by the estimate
+than the latency gate allows (E6: 80 ms unless the server's `SWIFF_MAX_RTT_MS` says
+otherwise, see `.env.example`), or one that has never reported `net`, is not listed. No PC's address is
 stored or sent: a renter sees a machine's id, name, hardware, terms and scores, never
 its owner. Probing the top few machines directly is a later step.
 
@@ -470,8 +471,8 @@ session running out) instead of a sweep: the oldest queued booking gets the mach
 minutes (and a rental-mode PC's Steam sign-in before them), and the machine is reserved for it. That is the order of the renter's own list
 (see "What can be played where"), not merely the cheapest: a machine must have the game
 installed and meet the game's minimum hardware (gates E2 and E3), take every control the
-renter turned on (E4), not be the renter's own (E5), be within 80 ms of the renter
-(E6) and, when it is crew-only, play for a crew they are in (E7), and the best of those is the one free all session, then not Shaky, then with the
+renter turned on (E4), not be the renter's own (E5), be within the latency gate of
+the renter (E6) and, when it is crew-only, play for a crew they are in (E7), and the best of those is the one free all session, then not Shaky, then with the
 best response, then picture, then the lowest latency, then the lowest price. The controls
 and Picture setting are the ones the booking was made with; a booking made without them
 asks for no controls and the best picture.
