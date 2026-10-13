@@ -2,29 +2,34 @@
 // platform's address, this machine's id and its machine key. No secret is in
 // the image; the owner's app (desktop/provision.cjs) writes one record raw at
 // the start of the keep partition when it installs Lanterel OS and each time it
-// restarts the PC into it:
+// restarts the PC into it. The record arrives sealed: the owner's Windows app
+// encrypts the payload with a fresh key and seals that key to this PC's TPM
+// under PolicyAuthorize by Lanterel's PCR signing key (the UKI's .pcrpkey, its
+// signed PCR 11 policies in .pcrsig), so only a Lanterel OS boot of this PC
+// opens it, and it is never on the disk in the clear (handover.ts):
 //
 //   offset  bytes
 //        0      8  "SWIFFPRV"
-//        8      4  version, 1 (big-endian)
-//       12      4  length of the payload (big-endian)
-//       16     32  SHA-256 of the payload
-//       48      …  the payload: JSON { "serverUrl", "machineId", "machineKey" }
+//        8      4  version, 2 (big-endian)
+//       12      4  length of the body (big-endian)
+//       16     32  SHA-256 of the body
+//       48      …  the body: the sealed key and the encrypted payload, JSON
+//                  { "serverUrl", "machineId", "machineKey" } (handover.ts)
 //                  then zeros, to 4096 bytes
 //
 // At every boot, before swiff-hostd (swiff-provision.service runs
 // `swiff-hostd provision`):
 //
-//   a record there   seal its payload to this PC's TPM under Swiff's signed
-//                    PCR 11 policy (systemd-creds, as the state's U share), so
-//                    only a signed Lanterel OS boot of this PC opens it; zero the
-//                    record; format the keep as ext4 and keep the sealed payload
-//                    there (provision.cred). The keep held the old U share,
-//                    which goes with it: the state is renewed, as it is anyway
-//                    after Windows ran. A record it cannot take in (damaged,
-//                    of another version, or one the TPM cannot seal) is
-//                    zeroed all the same: the owner's next Go live writes a
-//                    fresh one.
+//   a record there   open it (handover.ts), then seal its payload to this
+//                    PC's TPM again under Swiff's signed PCR 11 policy
+//                    (systemd-creds, as the state's U share); zero the record;
+//                    format the keep as ext4 and keep the sealed payload there
+//                    (provision.cred). The keep held the old U share, which
+//                    goes with it: the state is renewed, as it is anyway after
+//                    Windows ran. A record it cannot take in (damaged, of
+//                    another version, the plaintext version 1 among them, one
+//                    the TPM does not open or cannot seal) is zeroed all the
+//                    same: the owner's next Go live writes a fresh one.
 //   none             mount the keep.
 //
 // then unseal provision.cred and write this boot's swiff-hostd config (the
@@ -32,8 +37,7 @@
 // and id) and its machine key into /var/lib/swiff, root's alone, on the tmpfs
 // /var. The record carries data only: everything that names a program, a
 // device or a user comes from the image, so a record cannot make the agent run
-// anything. The payload is never logged, and the plaintext record lives on the
-// disk only from the owner's restart into Lanterel OS to its first boot.
+// anything. The payload is never logged.
 
 import { createHash } from "node:crypto";
 import { access, open, readFile, rename, rm } from "node:fs/promises";
@@ -43,7 +47,7 @@ import { PCR_POLICY, runBytes, runFilter, type RunBytes, type RunFilter } from "
 import type { Run } from "./system.ts";
 
 export const RECORD_MAGIC = Buffer.from("SWIFFPRV", "ascii");
-export const RECORD_VERSION = 1;
+export const RECORD_VERSION = 2;
 /** The whole record, padding included: one 4 KiB block, whole sectors on any disk. */
 export const RECORD_BYTES = 4096;
 const HEADER_BYTES = 48;
@@ -55,27 +59,27 @@ export type Provisioning = { serverUrl: string; machineId: string; machineKey: s
 export class ProvisionError extends Error {}
 
 /**
- * The provisioning a record block holds; null when the block holds no record
- * (no magic and no payload that matches its checksum: a keep already
- * formatted, or never written). Throws ProvisionError for a record cut short,
- * of another version, or whose magic alone is damaged.
+ * The sealed body a record block holds (a view into the block); null when the
+ * block holds no record (no magic and no body that matches its checksum: a
+ * keep already formatted, or never written). Throws ProvisionError for a
+ * record cut short, of another version (the plaintext version 1 among them),
+ * or whose magic alone is damaged.
  */
-export function parseRecord(block: Buffer): Provisioning | null {
+export function parseRecord(block: Buffer): Buffer | null {
   if (block.length < HEADER_BYTES) return null;
   const length = block.readUInt32BE(12);
   const whole = length <= RECORD_BYTES - HEADER_BYTES && HEADER_BYTES + length <= block.length;
-  const payload = whole ? block.subarray(HEADER_BYTES, HEADER_BYTES + length) : null;
-  const matches =
-    payload !== null && createHash("sha256").update(payload).digest().equals(block.subarray(16, 48));
+  const body = whole ? block.subarray(HEADER_BYTES, HEADER_BYTES + length) : null;
+  const matches = body !== null && createHash("sha256").update(body).digest().equals(block.subarray(16, 48));
   if (!block.subarray(0, 8).equals(RECORD_MAGIC)) {
     if (matches) throw new ProvisionError("the provisioning record's magic is damaged");
     return null;
   }
   const version = block.readUInt32BE(8);
   if (version !== RECORD_VERSION) throw new ProvisionError(`the provisioning record is version ${version}`);
-  if (!payload) throw new ProvisionError("the provisioning record is cut short");
+  if (!body) throw new ProvisionError("the provisioning record is cut short");
   if (!matches) throw new ProvisionError("the provisioning record does not match its checksum");
-  return payloadOf(payload);
+  return body;
 }
 
 /** The provisioning in a JSON payload, each field checked. Throws ProvisionError, never quoting the payload. */
@@ -129,6 +133,8 @@ export type Keep = {
 
 export type ProvisionDeps = {
   keep: Keep;
+  /** Open a record's sealed body; resolves with its JSON payload, rejects when it cannot. */
+  open(body: Buffer): Promise<Buffer>;
   /** Seal a payload to this PC's TPM; resolves with the credential. */
   seal(payload: Buffer): Promise<Buffer>;
   /** Unseal the credential in `file`; resolves with the payload. */
@@ -168,6 +174,7 @@ const WIPE_BYTES = 1024 * 1024;
  */
 export async function provision({
   keep,
+  open: openBody,
   seal,
   unseal,
   paths,
@@ -176,13 +183,16 @@ export async function provision({
   const block = Buffer.from(await keep.head(RECORD_BYTES));
   let fresh: Provisioning | null;
   try {
-    fresh = parseRecord(block);
+    fresh = await takeIn(block, openBody);
   } catch (cause) {
     block.fill(0);
     // Its write overwrote the keep's filesystem: nothing on it can be used either.
     await keep.wipe(WIPE_BYTES);
-    if (!(cause instanceof ProvisionError)) throw cause;
-    log(`${cause.message}: restart into Lanterel OS from the Lanterel app again`);
+    const reason =
+      cause instanceof ProvisionError
+        ? cause.message
+        : `the provisioning record cannot be opened (${cause instanceof Error ? cause.message : cause})`;
+    log(`${reason}: restart into Lanterel OS from the Lanterel app again`);
     return false;
   }
   if (fresh) {
@@ -234,6 +244,18 @@ export async function provision({
   // Written last: the config is what starts swiff-hostd (ConditionPathExists).
   await writeDurably(paths.config, Buffer.from(`${JSON.stringify(config, null, 2)}\n`));
   return true;
+}
+
+/** The provisioning in a record block, opened; null when the block holds no record. */
+async function takeIn(block: Buffer, openBody: ProvisionDeps["open"]): Promise<Provisioning | null> {
+  const body = parseRecord(block);
+  if (!body) return null;
+  const payload = await openBody(body);
+  try {
+    return payloadOf(payload);
+  } finally {
+    payload.fill(0);
+  }
 }
 
 /** Written whole or not at all, readable by root alone, and on the disk before it resolves. */
