@@ -37,6 +37,23 @@ say INFO eventlog-end
 wait_for 180 systemctl -q is-active systemd-user-sessions.service
 say INFO ready-phase "$(systemctl show -P ActiveState systemd-pcrphase.service)" \
 	"dmaguard $(systemctl show -P ActiveState swiff-dmaguard.service)"
+# PCR 11 at `ready`: a boot of a modified UKI has another.
+say INFO pcr11 "$(cat /sys/class/tpm/tpm0/pcr-sha256/11 2> /dev/null)"
+# What swiff-provision made of the owner's record, said as soon as it is done
+# and before anything waits for swiff-hostd, which a refused record keeps from
+# starting: its lines, and whether it wrote this boot's config.
+provision_done() {
+	case $(systemctl show -P ActiveState swiff-provision.service) in
+	activating | inactive) return 1 ;;
+	esac
+}
+provision_log() { journalctl -b -o cat -u swiff-provision.service | grep -F '[swiff-provision]' | paste -sd'|' -; }
+provision_logged() { [ -n "$(provision_log)" ]; }
+wait_for 120 provision_done
+# It logs every refusal: a moment for the journal to have the line.
+[ -e /var/lib/swiff/hostd.json ] || wait_for 5 provision_logged
+say INFO provision "$(provision_log)"
+say INFO provision-config "$([ -e /var/lib/swiff/hostd.json ] && echo written || echo none)"
 
 # --- The image ---------------------------------------------------------------------
 sb=$(od -An -t u1 /sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c 2> /dev/null | awk '{ print $NF }')
@@ -100,7 +117,6 @@ check state-open "$state" grep -q '^/dev/mapper/swiff-state ext4$' <<< "$state"
 say INFO state-kept "$(ls /var/lib/swiff/keep | paste -sd' ' -)"
 
 # --- What the owner's app provisioned, sealed on the keep -------------------------------
-say INFO provision "$(journalctl -b -o cat -u swiff-provision.service | grep -F '[swiff-provision]' | paste -sd'|' -)"
 modes=$(stat -c '%n %U %a' /var/lib/swiff/hostd.json /var/lib/swiff/machine-key /var/lib/swiff/keep/provision.cred 2>&1 | paste -sd' ' -)
 check provisioned "$modes; keep $(findmnt -no FSTYPE /var/lib/swiff/keep)" bash -c '
 	[ "$(stat -c "%U %a" /var/lib/swiff/hostd.json /var/lib/swiff/machine-key /var/lib/swiff/keep/provision.cred | sort -u)" = "root 600" ] &&

@@ -15,14 +15,19 @@
 //      a release's own.
 //   2. the owner: offers the PC with the machine key and registers its TPM's
 //      EK certificate, as their app does before the PC restarts into rental
-//      mode, and provisions it as their app does: Go live's own provision
-//      step (desktop/vm/apply-plan.cjs) writes the server, the
-//      machine id and the machine key at the start of the image's keep
-//      partition. No config is given to the VM any other way.
+//      mode, and provisions it as their app does on Windows: Go live's own
+//      provision step (desktop/vm/apply-plan.cjs) seals the server, the
+//      machine id and the machine key to the PC's TPM, under Windows' storage
+//      root key (desktop/vm/swtpm.cjs makes it as Windows does) and a policy
+//      only a boot whose PCR 11 the build's key signed satisfies, and writes
+//      the record at the start of the image's keep partition. The keep then
+//      holds the record but not the machine key. No config is given to the VM
+//      any other way.
 //   3. the VM: OVMF with Secure Boot and a software TPM manufactured with an EK
 //      certificate, in a home network of its own (QEMU's user network is its
-//      router). swiff-provision seals the provisioning to the TPM and zeroes
-//      it; swiff-hostd attests with the image's attestation client
+//      router). swiff-provision opens the record with the TPM, seals the
+//      provisioning again with systemd-creds and zeroes the record; swiff-hostd
+//      attests with the image's attestation client
 //      (swiff-attest: EK, AK, credential activation, a quote of PCRs 0-7 and
 //      11-13 with the event log), opens its persistent state (the image's state
 //      partition) with the key share the server releases to that attested boot
@@ -41,6 +46,14 @@
 //      line from outside the signed UKI (an SMBIOS string systemd-stub takes
 //      and measures into PCR 12). The server refuses its attestation, so it
 //      gets no state key and is never offered.
+//   7. another PC: the record Go live sealed, copied onto the keep of another
+//      PC with a TPM, a storage root key and firmware of its own. Lanterel OS
+//      there cannot open it: it zeroes the record and swiff-hostd never starts.
+//   8. a modified Lanterel OS: this PC, its TPM and the sealed record, booting
+//      the build's UKI with one line added to its os-release and signed with
+//      the build's Secure Boot key, as if that key had leaked. Secure Boot
+//      starts it, but its PCR 11 is no boot the build's key signed, so the
+//      record does not open.
 //
 // SWIFF_SESSION_NO_IOMMU=1 boots the VM without its virtual IOMMU instead, and
 // stops after the owner's steps: the boot must not reach `ready` (the image's
@@ -58,7 +71,10 @@
 //
 // Needs TURNSERVER (coturn's turnserver), Playwright's Chromium
 // (PLAYWRIGHT_BROWSERS_PATH), swtpm_setup and swtpm_localca, as session-test.sh
-// checks, and SWIFF_SESSION_PCR11, the PCR 11 it predicts for the image's UKI.
+// checks, and SWIFF_SESSION_PCR11, the PCR 11 it predicts for the image's UKI;
+// swtpm_ioctl, qemu-io and bwrap; and beside the image, as build-image.sh
+// leaves them, its UKI (.efi) and the build's tools tree (ubuntu-tools), with
+// the build's Secure Boot key in swiff-os/image (mkosi.key, mkosi.crt).
 
 import { spawn, execFileSync } from "node:child_process";
 import { createHash, generateKeyPairSync, randomBytes, randomInt } from "node:crypto";
@@ -77,6 +93,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { connect } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -122,9 +139,20 @@ const ZERO = "0".repeat(64);
 const OVMF_CODE = "/usr/share/OVMF/OVMF_CODE_4M.secboot.fd";
 const OVMF_VARS = "/usr/share/OVMF/OVMF_VARS_4M.fd";
 
+/** The build's UKI, beside its disk. */
+const UKI = IMAGE.replace(/\.raw$/, ".efi");
+/** The build's Secure Boot key and certificate: build-image.sh signs the UKI, and its PCR 11 policies, with them. */
+const SB_KEY = join(REPO, "swiff-os/image/mkosi.key");
+const SB_CERT = join(REPO, "swiff-os/image/mkosi.crt");
+/** The record Go live sealed, as it left the owner's app: ciphertext only, for the boots that take it elsewhere. */
+const SEALED = join(RUN, "sealed.rec");
+/** A line in which swiff-provision says it could not open a record. */
+const REFUSAL = /\[swiff-provision\] .*(refuse|not one Lanterel signed|cannot|could not|changed)/i;
+
 // Every step the run must pass: the VM's, per boot, and the harness's own.
 const EXPECTED = NO_IOMMU
   ? [
+      "the record Go live wrote is sealed: the machine key is not on the keep in the clear",
       "the release's boot policy, signed",
       "the owner registers the PC's EK certificate",
       "boot1/secure-boot",
@@ -134,6 +162,7 @@ const EXPECTED = NO_IOMMU
       "the boot without an IOMMU gets no state key and is not offered",
     ]
   : [
+      "the record Go live wrote is sealed: the machine key is not on the keep in the clear",
       "the release's boot policy, signed",
       "the owner registers the PC's EK certificate",
       "boot1/secure-boot",
@@ -183,6 +212,10 @@ const EXPECTED = NO_IOMMU
       "the PC is offered again after the restart",
       "a tampered boot is refused attestation",
       "the tampered boot gets no state key and is not offered",
+      "a record copied to another PC does not open there",
+      "the copied record is zeroed there",
+      "a modified Lanterel OS does not open the record",
+      "the modified Lanterel OS's PCR 11 is not the build's",
     ];
 
 const results = new Map();
@@ -280,12 +313,67 @@ function drawnPath(url) {
 /** A system tool's path, which may be in /usr/sbin, outside this user's PATH. */
 const sbin = (tool) => ["/usr/sbin", "/sbin", "/usr/bin"].map((d) => join(d, tool)).find(existsSync) ?? tool;
 
-/** The image's keep partition: its offset and size in bytes, from the build's own GPT (the overlay's too). */
-function keepPartition() {
+/** A partition of the image by its GPT name: its offset and size in bytes, from the build's own GPT (the overlays' too). */
+function partition(name) {
   const table = JSON.parse(execFileSync(sbin("sfdisk"), ["-J", IMAGE]).toString());
-  const keep = table.partitiontable.partitions.find((p) => p.name === "swiff-keep");
-  if (!keep) throw new Error("the image has no swiff-keep partition");
-  return { offset: keep.start * 512, bytes: keep.size * 512 };
+  const found = table.partitiontable.partitions.find((p) => p.name === name);
+  if (!found) throw new Error(`the image has no ${name} partition`);
+  return { offset: found.start * 512, bytes: found.size * 512 };
+}
+
+/** Creates `disk`, an overlay of the build: the build stays as it is, the VM writes to the overlay. */
+function overlay(disk) {
+  execFileSync("qemu-img", ["create", "-q", "-f", "qcow2", "-b", IMAGE, "-F", "raw", disk]);
+}
+
+/** Writes `file` into the overlay `disk` at byte `offset`, as a record is written at the keep's start. */
+function writeAt(disk, file, offset) {
+  execFileSync("qemu-io", ["-f", "qcow2", disk, "-c", `write -s ${file} ${offset} ${statSync(file).size}`], {
+    stdio: ["ignore", "ignore", "inherit"],
+  });
+}
+
+/** Resolves whether something in this namespace accepts connections on `port`. */
+const listening = (port) =>
+  new Promise((resolve) => {
+    const socket = connect(port, "127.0.0.1");
+    socket.once("connect", () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.once("error", () => resolve(false));
+  });
+
+/**
+ * Windows on the PC whose TPM is in `dir`, as Go live finds it: swtpm serves
+ * that TPM on TCP here, and Windows has made its storage root key at 0x81000001
+ * when it provisioned the TPM (desktop/vm/swtpm.cjs makes it as Windows does).
+ * Returns what `use` returns, given the TPM's host:port. swtpm saves the TPM's
+ * state as it stops, before the VM's own swtpm opens it.
+ */
+async function onWindows(dir, use = () => {}) {
+  const port = 24000 + randomInt(400) * 2;
+  const swtpm = child("swtpm", [
+    ...["socket", "--tpm2", "--tpmstate", `dir=${dir}`, "--flags", "not-need-init,startup-clear"],
+    ...["--server", `type=tcp,port=${port},bindaddr=127.0.0.1`],
+    ...["--ctrl", `type=tcp,port=${port + 1},bindaddr=127.0.0.1`],
+  ]);
+  const stopped = new Promise((r) => swtpm.once("exit", r));
+  const tpm = `127.0.0.1:${port}`;
+  try {
+    await until(() => swtpm.exitCode === null && listening(port), "swtpm's TCP server", 10_000);
+    execFileSync(process.execPath, [join(REPO, "desktop/vm/swtpm.cjs"), "srk", tpm], {
+      stdio: ["ignore", "inherit", "inherit"],
+    });
+    return use(tpm);
+  } finally {
+    try {
+      execFileSync("swtpm_ioctl", ["--tcp", `127.0.0.1:${port + 1}`, "-s"], { stdio: "ignore" });
+    } catch {
+      swtpm.kill();
+    }
+    await stopped;
+  }
 }
 
 /**
@@ -293,14 +381,13 @@ function keepPartition() {
  * provisions a PC, OVMF's variables, and the fixture disk with the test's own
  * plumbing (the server's address for the loopback forwarder, Steam's codes).
  */
-function prepare() {
+async function prepare() {
   // The machine key and the VM's state: everything the run writes is this user's alone.
   process.umask(0o077);
   rmSync(RUN, { recursive: true, force: true });
   mkdirSync(join(RUN, "fixtures", "qr"), { recursive: true, mode: 0o700 });
   chmodSync(RUN, 0o700);
-  mkdirSync(join(RUN, "tpm"));
-  manufactureTpm();
+  manufactureTpm(join(RUN, "tpm"), join(RUN, "ek"));
   const fixtures = join(RUN, "fixtures");
   writeFileSync(join(fixtures, "forward"), `${SERVER_IP} ${PORT}\n`);
   CODES.forEach((code, i) => writeFileSync(join(fixtures, "qr", `${i + 1}.xwd`), qrXwd(code)));
@@ -308,45 +395,41 @@ function prepare() {
   execFileSync(mkfs, ["-q", "-L", "SWIFFSESS", "-d", fixtures, join(RUN, "fixtures.img"), "16M"]);
   chmodSync(join(RUN, "fixtures.img"), 0o600);
   rmSync(fixtures, { recursive: true });
-  // The build stays as it is: the VM writes to an overlay of it.
-  const overlay = ["-f", "qcow2", "-b", IMAGE, "-F", "raw"];
-  execFileSync("qemu-img", ["create", "-q", ...overlay, join(RUN, "disk.qcow2")]);
+  overlay(join(RUN, "disk.qcow2"));
   copyFileSync(OVMF_VARS, join(RUN, "vars.fd"));
-  // The owner's app before the restart into rental mode: Go live's own provision step, with
-  // the server and machine id from its Settings and the machine key from its encrypted store.
-  // It reads the build's keep partition only, and hands the record over in a file, written
-  // into the overlay at the keep's start.
+  // The owner's app on Windows before the restart into rental mode: Go live's own provision
+  // step, with the server and machine id from its Settings and the machine key from its
+  // encrypted store, sealed to the PC's TPM for a boot whose PCR 11 the build's key signed
+  // (the build's certificate stands in for the image set's). It reads the build's keep
+  // partition only, and hands the record over in a file, written into the overlay at the
+  // keep's start.
   const recordFile = join(RUN, "provision.rec");
   writeFileSync(KEY_FILE, `${MACHINE_KEY}\n`, { mode: 0o600 });
   try {
-    const said = execFileSync(
-      process.execPath,
-      [join(REPO, "desktop/vm/apply-plan.cjs"), "provision", IMAGE, recordFile],
-      {
-        stdio: ["ignore", "pipe", "inherit"],
-        env: {
-          ...process.env,
-          SWIFF_PROVISION_SERVER: "ws://127.0.0.1:8080",
-          SWIFF_PROVISION_MACHINE_ID: MACHINE,
-          SWIFF_PROVISION_KEY_FILE: KEY_FILE,
+    const said = await onWindows(join(RUN, "tpm"), (tpm) =>
+      execFileSync(
+        process.execPath,
+        [join(REPO, "desktop/vm/apply-plan.cjs"), "provision", IMAGE, recordFile],
+        {
+          stdio: ["ignore", "pipe", "inherit"],
+          env: {
+            ...process.env,
+            SWIFF_PROVISION_SERVER: "ws://127.0.0.1:8080",
+            SWIFF_PROVISION_MACHINE_ID: MACHINE,
+            SWIFF_PROVISION_KEY_FILE: KEY_FILE,
+            SWIFF_PROVISION_TPM: tpm,
+            SWIFF_PROVISION_CERT: SB_CERT,
+          },
         },
-      },
-    ).toString();
+      ).toString(),
+    );
     rmSync(KEY_FILE);
     process.stdout.write(said);
     const offset = said.match(/\(offset (\d+)\)/)?.[1];
     if (!offset) throw new Error("the provision step named no offset for its record");
-    execFileSync(
-      "qemu-io",
-      [
-        "-f",
-        "qcow2",
-        join(RUN, "disk.qcow2"),
-        "-c",
-        `write -s ${recordFile} ${offset} ${statSync(recordFile).size}`,
-      ],
-      { stdio: ["ignore", "ignore", "inherit"] },
-    );
+    writeAt(join(RUN, "disk.qcow2"), recordFile, offset);
+    // Ciphertext only: the record as sealed, for the boots that take it elsewhere.
+    copyFileSync(recordFile, SEALED);
   } finally {
     rmSync(KEY_FILE, { force: true });
     if (existsSync(recordFile)) {
@@ -354,17 +437,23 @@ function prepare() {
       rmSync(recordFile);
     }
   }
+  const clear = keepInTheClear();
+  record(
+    "the record Go live wrote is sealed: the machine key is not on the keep in the clear",
+    clear.record && !clear.key,
+    `${clear.record ? "the record is on the keep" : "no record on the keep"}; ${clear.key ? "the machine key is in the clear" : "no machine key in the clear"}`,
+  );
 }
 
 /**
- * Whether the keep in the run's disk (the VM's overlay, read while the VM runs) holds the
- * plaintext record, or the machine key in the clear, anywhere on it.
+ * Whether the keep in `disk` (an overlay, read while its VM may run) holds a
+ * record at its start, and whether the machine key is in the clear anywhere on it.
  */
-function keepInTheClear() {
-  const { offset, bytes } = keepPartition();
+function keepInTheClear(disk = join(RUN, "disk.qcow2")) {
+  const { offset, bytes } = partition("swiff-keep");
   const file = join(RUN, "keep.read");
   // The keep's range of the overlay as a raw disk of its own (qemu-img dd's skip shortens its output).
-  const range = `driver=raw,offset=${offset},size=${bytes},file.driver=qcow2,file.file.filename=${join(RUN, "disk.qcow2")}`;
+  const range = `driver=raw,offset=${offset},size=${bytes},file.driver=qcow2,file.file.filename=${disk}`;
   execFileSync("qemu-img", ["convert", "-U", "--image-opts", range, "-O", "raw", file], {
     stdio: ["ignore", "ignore", "inherit"],
   });
@@ -384,39 +473,36 @@ function keepInTheClear() {
 }
 
 /**
- * Manufactures the VM's TPM as its maker would: swtpm_setup makes its EK
+ * Manufactures a PC's TPM in `dir` as its maker would: swtpm_setup makes its EK
  * (RSA 2048, TCG template L-1) and has a throwaway local CA, the server's only
- * trusted TPM vendor, certify it. The CA's certificates go to roots/firmware.
+ * trusted TPM vendor, certify it. The CA's certificates go to roots/firmware,
+ * and the EK certificate to `ek` when given.
  */
-function manufactureTpm() {
+function manufactureTpm(dir, ek) {
   const ca = join(RUN, "tpm-ca");
-  mkdirSync(ca);
-  writeFileSync(
-    join(ca, "swtpm-localca.conf"),
-    `statedir = ${ca}\nsigningkey = ${ca}/signkey.pem\nissuercert = ${ca}/issuercert.pem\ncertserial = ${ca}/certserial\n`,
-  );
-  writeFileSync(
-    join(ca, "swtpm-localca.options"),
-    "--platform-manufacturer Lanterel\n--platform-version 2.1\n--platform-model session-vm\n",
-  );
-  const localca = execFileSync("sh", ["-c", "command -v swtpm_localca"]).toString().trim();
-  writeFileSync(
-    join(ca, "swtpm_setup.conf"),
-    `create_certs_tool = ${localca}\ncreate_certs_tool_config = ${ca}/swtpm-localca.conf\ncreate_certs_tool_options = ${ca}/swtpm-localca.options\n`,
-  );
-  mkdirSync(join(RUN, "ek"));
+  if (!existsSync(ca)) {
+    mkdirSync(ca);
+    writeFileSync(
+      join(ca, "swtpm-localca.conf"),
+      `statedir = ${ca}\nsigningkey = ${ca}/signkey.pem\nissuercert = ${ca}/issuercert.pem\ncertserial = ${ca}/certserial\n`,
+    );
+    writeFileSync(
+      join(ca, "swtpm-localca.options"),
+      "--platform-manufacturer Lanterel\n--platform-version 2.1\n--platform-model session-vm\n",
+    );
+    const localca = execFileSync("sh", ["-c", "command -v swtpm_localca"]).toString().trim();
+    writeFileSync(
+      join(ca, "swtpm_setup.conf"),
+      `create_certs_tool = ${localca}\ncreate_certs_tool_config = ${ca}/swtpm-localca.conf\ncreate_certs_tool_options = ${ca}/swtpm-localca.options\n`,
+    );
+  }
+  mkdirSync(dir);
+  if (ek) mkdirSync(ek);
   execFileSync(
     "swtpm_setup",
     [
-      ...[
-        "--tpm2",
-        "--tpmstate",
-        join(RUN, "tpm"),
-        "--create-ek-cert",
-        "--config",
-        join(ca, "swtpm_setup.conf"),
-      ],
-      ...["--pcr-banks", "sha256", "--write-ek-cert-files", join(RUN, "ek")],
+      ...["--tpm2", "--tpmstate", dir, "--create-ek-cert", "--config", join(ca, "swtpm_setup.conf")],
+      ...["--pcr-banks", "sha256", ...(ek ? ["--write-ek-cert-files", ek] : [])],
     ],
     { stdio: "ignore" },
   );
@@ -691,12 +777,16 @@ let pcNetwork;
  * network is the PC's home router: what it sends leaves from there, and
  * nothing reaches it there but answers to what it sent, as behind a NAT. (In
  * this namespace, where the renter's packets arrive, it would listen on every
- * port it sends from.) `extra`: more QEMU arguments. QEMU starts through
- * vm-run.py, which waits for room among the PC's test VMs and stops it when its
- * console is silent for 10 minutes or it runs past an hour.
+ * port it sends from.) `extra`: more QEMU arguments. `tpm`, `disk` and `vars`:
+ * the TPM's state, the disk and the firmware variables of the PC it boots, this
+ * PC's unless given. QEMU starts through vm-run.py, which waits for room among
+ * the PC's test VMs and stops it when its console is silent for 10 minutes or
+ * it runs past an hour.
  */
-async function startVm(extra = []) {
-  const tpm = join(RUN, "tpm");
+async function startVm(
+  extra = [],
+  { tpm = join(RUN, "tpm"), disk = join(RUN, "disk.qcow2"), vars = join(RUN, "vars.fd") } = {},
+) {
   rmSync(`${tpm}/sock`, { force: true });
   const swtpm = child("swtpm", [
     ...["socket", "--tpm2", "--tpmstate", `dir=${tpm}`, "--ctrl", `type=unixio,path=${tpm}/sock`],
@@ -723,12 +813,12 @@ async function startVm(extra = []) {
         ],
         ...["-global", "driver=cfi.pflash01,property=secure,value=on", "-global", "ICH9-LPC.disable_s3=1"],
         ...["-drive", `if=pflash,format=raw,unit=0,readonly=on,file=${OVMF_CODE}`],
-        ...["-drive", `if=pflash,format=raw,unit=1,file=${join(RUN, "vars.fd")}`],
+        ...["-drive", `if=pflash,format=raw,unit=1,file=${vars}`],
         ...(NO_IOMMU ? [] : ["-device", "intel-iommu,intremap=on"]),
         ...["-chardev", `socket,id=chrtpm,path=${tpm}/sock`, "-tpmdev", "emulator,id=tpm0,chardev=chrtpm"],
         ...["-device", "tpm-crb,tpmdev=tpm0"],
         // QEMU's default cache: a cut power (powerOff) loses only what the guest had not flushed.
-        ...["-drive", `if=none,id=os,format=qcow2,file=${join(RUN, "disk.qcow2")}`],
+        ...["-drive", `if=none,id=os,format=qcow2,file=${disk}`],
         ...["-device", "virtio-blk-pci,drive=os,bootindex=1"],
         ...["-drive", `if=none,id=fix,format=raw,readonly=on,file=${join(RUN, "fixtures.img")}`],
         ...["-device", "virtio-blk-pci,drive=fix"],
@@ -1142,6 +1232,189 @@ async function tamperedBoot() {
 }
 
 /**
+ * What boot `n` said of the owner's record, once it has, within `ms`:
+ * swiff-provision's lines, the one refusing the record if any, and whether it
+ * wrote this boot's config.
+ */
+async function provisionReport(n, ms = 300_000) {
+  const config = await until(
+    () => boot >= n && seen(/SWIFF-SESSIONTEST INFO provision-config /, n),
+    `boot ${n}'s provisioning`,
+    ms,
+  ).catch(() => null);
+  if (!config) return null;
+  const reported = seen(/SWIFF-SESSIONTEST INFO provision( |$)/, n)?.line ?? "";
+  const said = reported.replace(/^.*?SWIFF-SESSIONTEST INFO provision ?/, "");
+  const refusal = said.split("|").find((line) => REFUSAL.test(line));
+  const written = config.line.replace(/^.*provision-config /, "");
+  return {
+    refusal,
+    config: written,
+    detail: `${refusal ?? (said || "swiff-provision said nothing")}; config ${written}`,
+  };
+}
+
+/** A fresh overlay of the build at `disk`, with the record Go live sealed at its keep's start. */
+function diskWithRecord(disk) {
+  overlay(disk);
+  writeAt(disk, SEALED, partition("swiff-keep").offset);
+  return disk;
+}
+
+/**
+ * The record Go live sealed, copied onto another PC: a TPM of its own, with
+ * Windows' storage root key at 0x81000001 too, firmware of its own, and the
+ * build on its disk with the record at the keep's start. That TPM does not open
+ * the record: Lanterel OS there zeroes it, writes no config, and swiff-hostd
+ * never starts.
+ */
+async function anotherPc() {
+  await powerOff();
+  const tpm = join(RUN, "tpm-other");
+  manufactureTpm(tpm);
+  await onWindows(tpm);
+  const disk = diskWithRecord(join(RUN, "other.qcow2"));
+  const vars = join(RUN, "other-vars.fd");
+  copyFileSync(OVMF_VARS, vars);
+  const before = boot;
+  await startVm([], { tpm, disk, vars });
+  console.log(`----  another PC is booting, with the sealed record on its keep  [${elapsed()}]`);
+  const report = await provisionReport(before + 1);
+  record(
+    "a record copied to another PC does not open there",
+    Boolean(report?.refusal) && report.config === "none",
+    report?.detail ?? "not reported",
+  );
+  await powerOff();
+  const clear = keepInTheClear(disk);
+  record(
+    "the copied record is zeroed there",
+    !clear.record && !clear.key,
+    `${clear.record ? "the record is still there" : "no record"}; ${clear.key ? "the machine key is in the clear" : "no machine key in the clear"}`,
+  );
+}
+
+/** Writes the sections of a PE file (argv 1) named from argv 3 on, each to a file of its name less the dot, in argv 2. */
+const PE_SECTIONS = `
+import pefile, sys
+pe = pefile.PE(sys.argv[1], fast_load=True)
+for s in pe.sections:
+    name = s.Name.rstrip(b"\\0").decode()
+    if name in sys.argv[3:]:
+        with open(f"{sys.argv[2]}/{name[1:]}", "wb") as f:
+            f.write(s.get_data(length=s.Misc_VirtualSize))
+`;
+
+/**
+ * Runs a command in the build's tools tree (ukify, sbsign, mtools, python3 with
+ * pefile), with `work` at /work, the build's UKI at /uki.efi and its Secure
+ * Boot key at /sb.key and /sb.crt. Returns what it printed.
+ */
+function inTools(work, ...command) {
+  return execFileSync(
+    "bwrap",
+    [
+      ...["--ro-bind", join(dirname(IMAGE), "ubuntu-tools", "usr"), "/usr"],
+      ...["--symlink", "usr/bin", "/bin", "--symlink", "usr/sbin", "/sbin"],
+      ...["--symlink", "usr/lib", "/lib", "--symlink", "usr/lib64", "/lib64"],
+      ...["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--bind", work, "/work"],
+      ...["--ro-bind", UKI, "/uki.efi", "--ro-bind", SB_KEY, "/sb.key", "--ro-bind", SB_CERT, "/sb.crt"],
+      ...["--setenv", "TMPDIR", "/work", "--setenv", "MTOOLS_SKIP_CHECK", "1"],
+      ...command,
+    ],
+    { stdio: ["ignore", "pipe", "pipe"] },
+  ).toString();
+}
+
+/**
+ * Puts a modified Lanterel OS on the ESP of the overlay `disk`: the build's UKI
+ * with one line added to its os-release, every other section as built, the
+ * build's PCR signatures (.pcrsig) and their key (.pcrpkey) carried over, and
+ * signed with the build's Secure Boot key so Secure Boot starts it.
+ */
+function writeModifiedUki(disk) {
+  const work = join(RUN, "modified");
+  mkdirSync(work);
+  try {
+    const sections = [".linux", ".initrd", ".cmdline", ".osrel", ".uname", ".pcrpkey", ".pcrsig"];
+    inTools(work, "python3", "-c", PE_SECTIONS, "/uki.efi", "/work", ...sections);
+    const osrel = join(work, "osrel");
+    writeFileSync(osrel, `${readFileSync(osrel, "utf8").replace(/\n?$/, "\n")}VARIANT_ID=modified\n`);
+    inTools(
+      work,
+      ...["ukify", "build", "--linux=/work/linux", "--initrd=/work/initrd", "--cmdline=@/work/cmdline"],
+      ...["--os-release=@/work/osrel", `--uname=${readFileSync(join(work, "uname"), "utf8")}`],
+      ...["--pcrpkey=/work/pcrpkey", "--section=.pcrsig:@/work/pcrsig", "--no-sign-kernel"],
+      ...["--secureboot-private-key=/sb.key", "--secureboot-certificate=/sb.crt"],
+      "--output=/work/modified.efi",
+    );
+    // The build's ESP, the modified UKI over the build's on it, written into the overlay.
+    const esp = partition("esp");
+    const range = `driver=raw,offset=${esp.offset},size=${esp.bytes}`;
+    execFileSync(
+      "qemu-img",
+      [
+        ...["convert", "--image-opts", `${range},file.driver=file,file.filename=${IMAGE}`],
+        ...["-O", "raw", join(work, "esp.raw")],
+      ],
+      { stdio: ["ignore", "ignore", "inherit"] },
+    );
+    const uki = inTools(work, "mdir", "-i", "/work/esp.raw", "-b", "::/EFI/Linux").trim();
+    if (!/^::\/EFI\/Linux\/\S+\.efi$/.test(uki)) throw new Error(`the build's ESP has no single UKI: ${uki}`);
+    inTools(work, "mcopy", "-o", "-i", "/work/esp.raw", "/work/modified.efi", uki);
+    execFileSync(
+      "qemu-img",
+      [
+        ...["convert", "-n", "-f", "raw", join(work, "esp.raw")],
+        ...["--target-image-opts", `${range},file.driver=qcow2,file.file.filename=${disk}`],
+      ],
+      { stdio: ["ignore", "ignore", "inherit"] },
+    );
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+}
+
+/** The PCR 11 boot `n` reported once it was `ready`. */
+function pcr11Of(n) {
+  const line = seen(/SWIFF-SESSIONTEST INFO pcr11 [0-9a-f]{64}/i, n)?.line;
+  return line?.match(/pcr11 ([0-9a-f]{64})/i)[1].toLowerCase();
+}
+
+/**
+ * This PC, with its TPM and firmware, booting a modified Lanterel OS with the
+ * record Go live sealed to that TPM on its keep, which the build would open.
+ * The build's Secure Boot key signed the modification, as if that key had
+ * leaked, so Secure Boot starts it; but its PCR 11 is no boot that key signed,
+ * so the TPM does not open the record and Lanterel OS writes no config.
+ */
+async function modifiedOs() {
+  await powerOff();
+  const disk = diskWithRecord(join(RUN, "modified.qcow2"));
+  writeModifiedUki(disk);
+  const before = boot;
+  await startVm([], { disk });
+  console.log(
+    `----  the VM is booting a modified Lanterel OS, with the sealed record on its keep  [${elapsed()}]`,
+  );
+  const modified = before + 1;
+  const report = await provisionReport(modified);
+  record(
+    "a modified Lanterel OS does not open the record",
+    Boolean(report?.refusal) && report.config === "none",
+    report?.detail ?? "not reported",
+  );
+  const built = pcr11Of(1);
+  const booted = pcr11Of(modified);
+  record(
+    "the modified Lanterel OS's PCR 11 is not the build's",
+    Boolean(built && booted) && built !== booted,
+    `PCR 11 ${booted?.slice(0, 12) ?? "not reported"}…, boot 1's ${built?.slice(0, 12) ?? "not reported"}…`,
+  );
+  await powerOff();
+}
+
+/**
  * The boot without an IOMMU: swiff-dmaguard.service fails, so the boot never
  * reaches `ready` and its PCR 11 is no release's. The PC gets no state key
  * and is never offered.
@@ -1186,7 +1459,7 @@ process.on("exit", stopAll);
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => process.exit(1));
 
 try {
-  prepare();
+  await prepare();
   startRelay();
   watchSerial();
   await startVm();
@@ -1275,6 +1548,10 @@ try {
       );
       await tamperedBoot();
     }
+  }
+  if (!NO_IOMMU) {
+    await anotherPc();
+    await modifiedOs();
   }
 } catch (e) {
   record("harness", false, e.message);
