@@ -13,12 +13,16 @@
 //      Secure Boot authorities of the VM's first boot (its event log, read off
 //      the serial console before the server starts), as the release step lists
 //      a release's own.
-//   2. the owner: offers the PC with the machine key and registers its TPM's
-//      EK certificate, as their app does before the PC restarts into rental
-//      mode, and provisions it as their app does: Go live's own provision
-//      step (desktop/vm/apply-plan.cjs) writes the server, the
-//      machine id and the machine key at the start of the image's keep
-//      partition. No config is given to the VM any other way.
+//   2. the owner: their app reports the PC off offer, as it does from Windows
+//      in rental mode, with its own code (desktop/src/report.ts, bundled):
+//      the report it builds from a GEEKOM's Windows probe (a Radeon 680M that
+//      Windows names only "AMD Radeon(TM) Graphics") and the network it
+//      measures against the server. Nothing offers the PC by hand. It
+//      registers the TPM's EK certificate, as the app does before the PC
+//      restarts into rental mode, and provisions it as the app does: Go
+//      live's own provision step (desktop/vm/apply-plan.cjs) writes the
+//      server, the machine id and the machine key at the start of the
+//      image's keep partition. No config is given to the VM any other way.
 //   3. the VM: OVMF with Secure Boot and a software TPM manufactured with an EK
 //      certificate, in a home network of its own (QEMU's user network is its
 //      router). swiff-provision seals the provisioning to the TPM and zeroes
@@ -27,7 +31,7 @@
 //      11-13 with the event log), opens its persistent state (the image's state
 //      partition) with the key share the server releases to that attested boot
 //      and, once the Steam client is installed and kept on that state, offers
-//      the PC.
+//      the PC itself: the owner's Go live restarted it into this boot.
 //   4. a renter: headless Chromium on the hosted site, signed in, who holds
 //      Launch on the PC, sees Steam's sign-in code on Ignition, gets the game
 //      once Steam signs in, plays it on the path ICE picks (both seats hold a
@@ -79,6 +83,7 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { parseArgs } from "node:util";
 import { chromium } from "@playwright/test";
 import { encode } from "uqr";
@@ -126,6 +131,7 @@ const OVMF_VARS = "/usr/share/OVMF/OVMF_VARS_4M.fd";
 const EXPECTED = NO_IOMMU
   ? [
       "the release's boot policy, signed",
+      "the owner's app reports the PC off offer, with its network measured",
       "the owner registers the PC's EK certificate",
       "boot1/secure-boot",
       "boot1/root-is-verity",
@@ -135,6 +141,7 @@ const EXPECTED = NO_IOMMU
     ]
   : [
       "the release's boot policy, signed",
+      "the owner's app reports the PC off offer, with its network measured",
       "the owner registers the PC's EK certificate",
       "boot1/secure-boot",
       "boot1/root-is-verity",
@@ -145,6 +152,7 @@ const EXPECTED = NO_IOMMU
       "boot1/hostd-attested",
       "boot1/state-open",
       "boot1/hostd-offered",
+      "hostd offers the PC itself in the boot Go live restarted it into",
       "boot1/provisioned",
       "boot1/renter-cannot-read-provisioning",
       "the provisioning is sealed: neither the record nor the machine key in the clear on the keep",
@@ -552,29 +560,64 @@ async function startServer() {
 }
 
 const ownerHeaders = { authorization: `Bearer ${MACHINE_KEY}`, "content-type": "application/json" };
-/** The owner shares the PC from their app, then it restarts into rental mode. */
+/**
+ * What Windows PowerShell's probe (desktop/probe.cjs) printed on the GEEKOM the
+ * captain hosts on: a Ryzen 7 6800H whose Radeon 680M (PCI 1002:1681) Windows
+ * names only "AMD Radeon(TM) Graphics".
+ */
+const GEEKOM_PROBE =
+  '{"adapters":[{"vram":4267503616,"name":"AMD Radeon(TM) Graphics","device":5761,"vendor":4098}],' +
+  '"encoders":{"h264":2,"hevc":2,"av1":0},"ram":[17179869184],' +
+  '"cpus":[{"cores":8,"name":"AMD Ryzen 7 6800H with Radeon Graphics         "}],"vigem":false}';
+const GAMES = [730, 2073850];
+
+/** The owner's app's report code (desktop/src/report.ts), bundled for Node as the app's build bundles it. */
+async function hostApp() {
+  const out = join(RUN, "host-app-report.mjs");
+  execFileSync(join(REPO, "node_modules/.bin/esbuild"), [
+    join(REPO, "desktop/src/report.ts"),
+    "--bundle",
+    "--platform=node",
+    "--format=esm",
+    `--outfile=${out}`,
+    "--log-level=warning",
+  ]);
+  return import(out);
+}
+
+/**
+ * The owner's app on the Go live screen, in Windows: it reports the PC with it
+ * off offer, its network measured against the server, as Go live does before
+ * the restart. The offer is Lanterel OS's to make once it is up.
+ */
 async function ownerGoesLive() {
-  const res = await fetch(`${ORIGIN}/api/machines/${MACHINE}/availability`, {
-    method: "PUT",
-    headers: ownerHeaders,
-    body: JSON.stringify({
-      available: true,
-      name: NAME,
-      hardware: {
-        gpu: "AMD Radeon RX 7800 XT",
-        vramMb: 16_384,
-        ramMb: 32_768,
-        cpu: "AMD Ryzen 7 7700",
-        cores: 8,
-        encoders: ["h264"],
-        display: { width: 2560, height: 1440, refreshHz: 144 },
-      },
-      games: [730, 2073850],
-      controls: ["kb", "mouse", "pad"],
-      net: { rttMs: 1, jitterMs: 1, upMbps: 100 },
-    }),
+  const app = await hostApp();
+  const { parseProbe } = createRequire(import.meta.url)(join(REPO, "desktop/probe.cjs"));
+  const probed = parseProbe(GEEKOM_PROBE);
+  const pc = {
+    hardware: { ...probed, display: { width: 1920, height: 1080, refreshHz: 60 } },
+    controls: ["kb", "mouse", ...(probed.pad ? ["pad"] : [])],
+    games: GAMES.map((appid) => ({ appid, name: `Steam app ${appid}` })),
+  };
+  const report = app.hostReport({ name: NAME, pc, offered: GAMES });
+  const machine = { url: `ws://127.0.0.1:${PORT}`, machineId: MACHINE, machineKey: MACHINE_KEY };
+  const net = await app.measureNet(machine);
+  const crew = await app.offOffer(machine, {
+    report: { ...report, ...(net && { net }) },
+    timeoutMs: app.WAKE_MS,
   });
-  if (res.status !== 200) throw new Error(`the owner's offer answered ${res.status}`);
+  const view = await (
+    await fetch(`${ORIGIN}/api/machines/${MACHINE}/heartbeat`, {
+      method: "POST",
+      headers: ownerHeaders,
+      body: "{}",
+    })
+  ).json();
+  record(
+    "the owner's app reports the PC off offer, with its network measured",
+    crew !== null && net !== null && view.status === "idle" && view.gpu === "AMD Radeon 680M",
+    `status ${view.status}; GPU ${view.gpu}; rtt ${net?.rttMs} ms, jitter ${net?.jitterMs} ms, up ${net?.upMbps} Mbit/s`,
+  );
 }
 
 /** The owner's app registers the TPM's EK certificate, as Windows reads it, with the machine key. */
@@ -1207,6 +1250,12 @@ try {
     await withoutIommu();
   } else {
     await waitVm("boot1/hostd-offered", 900_000);
+    const live = seen(/\[swiff-hostd\] offering the PC: its owner went live/, 1);
+    record(
+      "hostd offers the PC itself in the boot Go live restarted it into",
+      Boolean(live) && !seen(/\[swiff-hostd\] the owner is not sharing this PC/, 1),
+      live ? "swiff-provision's go-live note" : "no 'offering the PC: its owner went live' in boot 1's log",
+    );
     // The VM reports these right after the offer.
     await waitVm("boot1/provisioned", 10_000);
     await waitVm("boot1/steam-client-overlay", 10_000);

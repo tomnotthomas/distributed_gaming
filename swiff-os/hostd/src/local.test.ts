@@ -116,7 +116,10 @@ describe("the resume file", () => {
     const store = fileResumeStore(stateDir, goLive);
     expect(await store.servedBoot()).toBeNull();
     await store.markServed({ bootId: "boot-1", sessionId: "s1" });
-    expect(await fileResumeStore(stateDir, goLive).servedBoot()).toEqual({ bootId: "boot-1", sessionId: "s1" });
+    expect(await fileResumeStore(stateDir, goLive).servedBoot()).toEqual({
+      bootId: "boot-1",
+      sessionId: "s1",
+    });
     await store.forgetServed();
     expect(await store.servedBoot()).toBeNull();
   });
