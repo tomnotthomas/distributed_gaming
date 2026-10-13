@@ -4,7 +4,7 @@ home network vm/lan-test.sh puts the VM in:
 
     selftest-lan lan                  the renter reaches the internet, nothing of the home network
     selftest-lan lan-firewall-broken  the firewall did not load: no network comes up
-    selftest-lan lan-no-stun          no STUN answer: the agent and the session never start
+    selftest-lan lan-late-stun        STUN answers late: the agent and the session wait for it
     selftest-lan probe                (as the renter) runs the probes on stdin, prints their outcomes
 
 Every result is a SWIFF-SELFTEST line on the serial console, as from selftest.
@@ -301,19 +301,28 @@ def firewall_broken():
     check("session-held", held("swiff-session.service") and held("swiff-hostd.service"), "swiff-session and swiff-hostd failed on their dependencies")
 
 
-def no_stun():
-    for _ in range(150):
-        if run("systemctl", "is-failed", "swiff-netguard-ready.service") == "failed":
-            break
-        time.sleep(1)
-    ready = run("systemctl", "is-failed", "swiff-netguard-ready.service")
+def since_boot(unit, prop):
+    """A unit's monotonic timestamp in µs, 0 when systemd has not set it."""
+    return int(run("systemctl", "show", "-P", prop, unit) or 0)
+
+
+def late_stun():
+    # The self-test runs after multi-user.target, which waited for swiff-hostd
+    # and so for swiff-netguard-ready: STUN has answered by now.
+    ready = run("systemctl", "is-active", "swiff-netguard-ready.service")
     say("INFO", "netguard", " / ".join(f"{s}: {elements(s)}" for s in ("gateway4", "onlink4", "onlink6", "wan4")))
-    check("not-ready-without-stun", ready == "failed" and elements("wan4") == "-", f"swiff-netguard-ready {ready}; wan4: {elements('wan4')}")
-    check("session-held-without-stun", held("swiff-session.service"), "swiff-session failed on its dependency")
-    check("agent-held-without-stun", held("swiff-hostd.service"), "swiff-hostd failed on its dependency")
-    # The rest of the firewall is filled all the same.
-    o = outcomes([p for p in PROBES if p[0] == "router-admin"])["router-admin"]
-    check("lan-blocked-without-stun", o.startswith("refused "), f"192.168.77.1:80 -> {o}")
+    check("ready-once-stun-answers", ready == "active" and elements("wan4") == PUBLIC, f"swiff-netguard-ready {ready}; wan4: {elements('wan4')}")
+    started = since_boot("swiff-netguard-ready.service", "InactiveExitTimestampMonotonic")
+    active = since_boot("swiff-netguard-ready.service", "ActiveEnterTimestampMonotonic")
+    check("ready-waited-for-stun", started and active - started >= 20_000_000, f"swiff-netguard-ready took {(active - started) / 1e6:.1f} s")
+    hostd = since_boot("swiff-hostd.service", "ConditionTimestampMonotonic") or since_boot("swiff-hostd.service", "InactiveExitTimestampMonotonic")
+    check("agent-started-after-ready", active and hostd >= active, f"swiff-hostd at {hostd / 1e6:.1f} s, swiff-netguard-ready active at {active / 1e6:.1f} s")
+    failed = [u for u in ("swiff-hostd.service", "swiff-session.service") if held(u)]
+    check("agent-and-session-not-held", not failed, f"failed on a dependency: {' '.join(failed) or 'none'}")
+    after = run("systemctl", "show", "-P", "After", "swiff-session.service").split()
+    requires = run("systemctl", "show", "-P", "Requires", "swiff-session.service").split()
+    check("session-waits-for-ready", "swiff-netguard-ready.service" in after and "swiff-netguard-ready.service" in requires, "swiff-session After= and Requires= swiff-netguard-ready.service")
+    check("firewall-filled", elements("gateway4") == "192.168.77.1" and elements("onlink4") != "-", f"gateway4: {elements('gateway4')}; onlink4: {elements('onlink4')}")
 
 
 def main():
@@ -323,8 +332,8 @@ def main():
         lan()
     elif sys.argv[1] == "lan-firewall-broken":
         firewall_broken()
-    elif sys.argv[1] == "lan-no-stun":
-        no_stun()
+    elif sys.argv[1] == "lan-late-stun":
+        late_stun()
     else:
         raise SystemExit(f"unknown phase {sys.argv[1]}")
 

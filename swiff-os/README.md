@@ -456,8 +456,10 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
 - **Nothing the renter runs starts before the rules are filled.** `swiff-netguard-ready.service`
   waits for a default route and runs `swiff-netguard` until it has filled every set, the public
   address included, trying again after 1, 2, 4, 8 and then every 15 seconds. `swiff-hostd` and the
-  renter session require it. Without a STUN answer, which the stream needs as well, it gives up
-  after 90 seconds, and the PC is not offered.
+  renter session require it. It has no time limit: after a slow router or a STUN outage, which the
+  stream needs as well, the agent and the session start late, once the public address is learned.
+  `multi-user.target` waits with the agent; the no-network screen, which comes before the session
+  and does not need the agent, still appears.
 - **The renter sees only verified games.** The owner's games library is never written by the renter.
   The renter sees a view of it at `/srv/games` that shows only verified files, and their writes go to
   a per-boot encrypted session layer. See [Stage 4](#stage-4-the-shared-games-library).
@@ -881,9 +883,9 @@ advertisement refreshes it, also with the firewall removed. The test boots three
    line, through an SMBIOS string systemd-stub takes, makes `vm/selftest/`'s `nftables.service`
    load a broken ruleset). systemd-networkd never starts, in the initrd or after it. The network
    card stays down with no address or route, and the router never hears from the VM.
-3. **Boot 3.** The STUN servers do not answer. `swiff-netguard-ready` gives up, systemd fails
-   `swiff-hostd`'s and the renter session's start on it, and the rest of the firewall is filled all
-   the same.
+3. **Boot 3.** The STUN servers answer late: only 20 seconds after the VM asked them three times
+   in vain. `swiff-netguard-ready` waits for them, with the gateway and on-link sets filled, and
+   `swiff-hostd` and the renter session start after it rather than failing on it.
 
 It needs dnsmasq (`DNSMASQ=path`, else on `PATH`; `dnsmasq-base` will do) and user and network
 namespaces, and runs as the calling user. `--no-build` takes the newest stored self-test build.

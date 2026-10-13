@@ -5,7 +5,7 @@
 #
 # The suites:
 #   selftest  swiff-os/vm/run-test.sh                Lanterel OS's self-test, 12 boots
-#   lan       swiff-os/vm/lan-test.sh                in a home network: the internet, nothing of the LAN, 2 boots
+#   lan       swiff-os/vm/lan-test.sh                in a home network: the internet, nothing of the LAN, 3 boots
 #   session   swiff-os/vm/session-test.sh            a renter's session, end to end
 #   streamer  swiff-os/streamer/vm/run-test.sh       the streamer in a VM of its own
 #   rental    desktop/vm/rental-install-test.sh      install and switch on a Windows-like disk

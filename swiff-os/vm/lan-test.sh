@@ -29,14 +29,13 @@
 #           on the kernel command line, through an SMBIOS string systemd-stub
 #           takes): systemd-networkd never starts, initrd included, no network
 #           comes up, and the router never hears from the VM.
-#   boot 3  the STUN servers do not answer: the public address is never
-#           learned, swiff-netguard-ready gives up, and with it swiff-hostd and
-#           the renter session, while the rest of the firewall is filled.
+#   boot 3  the STUN servers answer late: swiff-netguard-ready waits until
+#           they do, and swiff-hostd and the renter session start after it.
 #
 # This script adds what needs the network's view: the router answered the VM's
 # DHCP renewal, the device could not connect to the VM with the firewall and
 # could without it, the VM sent no frame at all once Linux ran in boot 2, and
-# it asked STUN in boot 3 and got no answer.
+# it asked STUN in boot 3 in vain before it got an answer.
 #
 # Usage: vm/lan-test.sh [--no-build|--rebuild]
 #
@@ -283,8 +282,15 @@ boot_vm 2 lan-firewall-broken -smbios "type=11,value=$broken"
 kill "$sniff" 2> /dev/null || true
 wait "$sniff" 2> /dev/null || true
 seen_after=$(wc -l < "$run/dnsmasq.log")
+# STUN answers again 20 s after the VM asked it 3 times in vain.
 touch "$run/stun-off"
-boot_vm 3 lan-no-stun
+(
+	until [ "$(grep -c '<- 192.168.77.10 unanswered' "$run/router.log" || true)" -ge 3 ]; do sleep 0.5; done
+	sleep 20
+	rm -f "$run/stun-off"
+) &
+pids+=($!)
+boot_vm 3 lan-late-stun
 
 # --- Verdict -------------------------------------------------------------------
 log "Results"
@@ -348,10 +354,16 @@ else
 	result FAIL boot2/vm-sent-nothing "the kernel's start never showed on the serial console"
 fi
 unanswered=$(grep -c "<- 192.168.77.10 unanswered" "$run/router.log" || true)
-if [ "$unanswered" -ge 1 ]; then
+if [ "$unanswered" -ge 3 ]; then
 	result PASS boot3/stun-asked-unanswered "the VM asked STUN $unanswered times, unanswered"
 else
-	result FAIL boot3/stun-asked-unanswered "the VM never asked STUN in boot 3"
+	result FAIL boot3/stun-asked-unanswered "the VM asked STUN $unanswered times unanswered in boot 3 (want 3 or more)"
+fi
+answered=$(awk '/<- 192\.168\.77\.10 unanswered$/ { off = 1; next } off && /^stun .* <- 192\.168\.77\.10$/ { n++ } END { print n + 0 }' "$run/router.log")
+if [ "$answered" -ge 1 ]; then
+	result PASS boot3/stun-answered-later "STUN answered the VM $answered times once it was back"
+else
+	result FAIL boot3/stun-answered-later "STUN never answered the VM after it was back"
 fi
 
 echo
