@@ -33,12 +33,18 @@ say INFO boot "$(cat /proc/sys/kernel/random/boot_id)"
 
 # The fixture disk from run-test.sh says which boot this is. The Stage 1
 # checks run in the first two; the games library checks (selftest-games) in all.
+# lan-test.sh's boots run only the LAN checks (selftest-lan).
 mkdir -p /run/swiff-fixtures
 mount -o ro LABEL=SWIFFFIX /run/swiff-fixtures
 phase=$(cat /run/swiff-fixtures/phase)
 say INFO phase "$phase"
 case $phase in
 bootstrap | update) ;;
+lan | lan-firewall-broken)
+	/usr/libexec/swiff/selftest-lan "$phase"
+	say DONE selftest
+	exit 0
+	;;
 *)
 	/usr/libexec/swiff/selftest-games "$phase"
 	say DONE selftest

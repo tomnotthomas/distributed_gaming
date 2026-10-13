@@ -604,6 +604,7 @@ swiff-os/vm/vm-tests.sh             # the VM tests this branch's changes touch (
 swiff-os/vm/run-test.sh             # build the test image if its inputs changed, boot it twelve times, check everything
 swiff-os/vm/run-test.sh --no-build  # boot the last build again (--rebuild: build it anyway)
 swiff-os/vm/session-test.sh         # a renter plays on rental mode end to end (below)
+swiff-os/vm/lan-test.sh             # rental mode in a home network: the internet, nothing of the LAN (below)
 # the shipped image only, as swiffos.raw in the given output directory
 swiff-os/image/stage.sh ~/.cache/swiff-os/output
 sudo mkosi -C swiff-os/image --output-dir ~/.cache/swiff-os/output --cache-dir ~/.cache/swiff-os/cache build
@@ -835,6 +836,42 @@ the streamer's relayed one.
 passes only when the boot does not reach `ready` (`systemd-pcrphase.service` never runs),
 swiff-hostd logs its hardware-floor refusal (`not offered: …`), and the PC gets no state key and is
 never offered.
+
+### The LAN test
+
+`vm/lan-test.sh` puts the self-test build in a home network and checks that a renter reaches the
+internet and nothing of it. The network is a bridge in a user and network namespace, the VM on it
+through a tap device (`vm/lan-fixture.py` answers on it):
+
+- **The router** at 192.168.77.1, fe80::1 and 2001:db8:77::1. dnsmasq hands out the addresses
+  (DHCP and router advertisements) and answers DNS. Admin pages answer on 80 and 443.
+- **Another device** at 192.168.77.50, fe80::50 and 2001:db8:77::50, in a namespace of its own. It
+  serves a page and answers mDNS, SSDP, LLMNR and NetBIOS.
+- **The internet** beyond the router, at 198.51.100.10 and 2001:db8:ffff::10 (TEST-NET, which the
+  firewall treats as the internet). It serves a page and echoes UDP, as a STUN server answers.
+
+The in-image test (`vm/selftest/usr/libexec/swiff/selftest-lan`) probes a table of these, as the
+renter and as root, first with the firewall and then without it as the control. Each probe must
+be refused or go unanswered with the firewall, and answer without it. The device also connects to
+the VM, and the VM renews its lease. A probe of the internet that finds no route is tried again
+once the route is back: the IPv6 default route is sometimes gone for a few seconds after a router
+advertisement refreshes it, also with the firewall removed. The test boots twice:
+
+1. **Boot 1.** The VM gets its addresses from the router, and nothing listens for discovery. With
+   the firewall, the router's admin pages (IPv4, IPv6 and link-local, 80 and 443, also as root) and
+   ping, the device's page and every discovery query are refused or go unanswered, and the device
+   cannot connect to the VM. DNS and the internet over TCP, UDP and ping, on IPv4 and IPv6, work.
+   The router answers the lease renewal. Without the firewall, everything answers, and once it is
+   loaded again the router is refused again.
+2. **Boot 2.** The ruleset fails to load (`swiff.selftest.firewall=broken` on the kernel command
+   line, through an SMBIOS string systemd-stub takes, makes `vm/selftest/`'s `nftables.service`
+   load a broken ruleset). systemd-networkd never starts, in the initrd or after it. The network
+   card stays down with no address or route, and the router never hears from the VM.
+
+It needs dnsmasq (`DNSMASQ=path`, else on `PATH`; `dnsmasq-base` will do) and user and network
+namespaces, and runs as the calling user. `--no-build` takes the newest stored self-test build.
+The run's serial consoles, the router's log and what the device tried are in
+`$SWIFF_OS_BUILD_DIR/lan-vm`.
 
 ## Follow-ups
 
