@@ -477,8 +477,9 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   the tmpfs, the file 0600; nothing logs it. It holds the passphrase as given, for `psk` too:
   iwd takes WPA3 (SAE) whenever the network offers it, a WPA2/WPA3 network as well, and SAE
   needs the passphrase. Nobody at the PC changes it: there is no settings UI, and iwd's D-Bus answers root
-  alone (the renter is in no group). An enterprise (802.1X) or captive-portal network is not
-  supported: the payload cannot carry one, and such a PC needs a cable. The image
+  alone (the renter is in no group). An enterprise (802.1X), captive-portal or hidden network
+  (one that does not broadcast its SSID) is not supported: the payload cannot carry one, such a
+  PC needs a cable, and the owner's app refuses it before Go live. The image
   carries the firmware of the common Wi-Fi chips: Intel (`iwlwifi`), MediaTek (`mt76`, such as
   the MT7921 and MT7922) and Realtek (`rtw88`, `rtw89`), and the regulatory database.
 - **The network's state, for the status screen.** `swiff-network.service`
