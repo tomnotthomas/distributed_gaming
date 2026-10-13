@@ -115,6 +115,8 @@ export SWIFF_SESSION_IMAGE
 
 # What PCR 11 holds once the UKI has booted to `ready`: the release's in the boot policy.
 tools=$out/ubuntu-tools
+# The harness rebuilds a modified UKI in it.
+export SWIFF_SESSION_TOOLS=$tools
 SWIFF_SESSION_PCR11=$(bwrap --ro-bind "$tools/usr" /usr \
 	--symlink usr/bin /bin --symlink usr/sbin /sbin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
 	--ro-bind "$uki" /uki.efi --ro-bind "$here/measure-uki.py" /measure-uki.py \

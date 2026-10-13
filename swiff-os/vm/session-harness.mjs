@@ -72,9 +72,10 @@
 // Needs TURNSERVER (coturn's turnserver), Playwright's Chromium
 // (PLAYWRIGHT_BROWSERS_PATH), swtpm_setup and swtpm_localca, as session-test.sh
 // checks, and SWIFF_SESSION_PCR11, the PCR 11 it predicts for the image's UKI;
-// swtpm_ioctl, qemu-io and bwrap; and beside the image, as build-image.sh
-// leaves them, its UKI (.efi) and the build's tools tree (ubuntu-tools), with
-// the build's Secure Boot key in swiff-os/image (mkosi.key, mkosi.crt).
+// swtpm_ioctl, qemu-io and bwrap; beside the image, as build-image.sh leaves
+// it, its UKI (.efi); the build's tools tree in SWIFF_SESSION_TOOLS (else
+// ubuntu-tools beside the image); and the build's Secure Boot key in
+// swiff-os/image (mkosi.key, mkosi.crt).
 
 import { spawn, execFileSync } from "node:child_process";
 import { createHash, generateKeyPairSync, randomBytes, randomInt } from "node:crypto";
@@ -104,6 +105,8 @@ const { values } = parseArgs({ options: { run: { type: "string" }, image: { type
 const RUN = resolve(values.run ?? "");
 const IMAGE = resolve(values.image ?? "");
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+/** The build's tools tree: session-test.sh names it, since build-image.sh keeps the build apart from it. */
+const TOOLS = resolve(process.env.SWIFF_SESSION_TOOLS ?? join(dirname(IMAGE), "ubuntu-tools"));
 
 /**
  * SWIFF_SESSION_RELAY_ONLY=1: the renter behind a home router, on a private
@@ -1314,7 +1317,7 @@ function inTools(work, ...command) {
   return execFileSync(
     "bwrap",
     [
-      ...["--ro-bind", join(dirname(IMAGE), "ubuntu-tools", "usr"), "/usr"],
+      ...["--ro-bind", join(TOOLS, "usr"), "/usr"],
       ...["--symlink", "usr/bin", "/bin", "--symlink", "usr/sbin", "/sbin"],
       ...["--symlink", "usr/lib", "/lib", "--symlink", "usr/lib64", "/lib64"],
       ...["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--bind", work, "/work"],
