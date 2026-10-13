@@ -363,7 +363,8 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
 - **The session is the whole UI.** `swiff-session.service` runs gamescope on tty1 as `renter`, with
   `NoNewPrivileges`, and gamescope runs the Steam sign-in agent (`steam/session`, below): Steam at
   its sign-in window, then the game the renter booked, never Steam's own UI. It starts only after
-  `nftables.service` has loaded the firewall and does not start at all if loading fails. There is no
+  `nftables.service` has loaded the firewall and `swiff-netguard-ready` has filled it (below), and
+  does not start at all if loading fails. There is no
   display manager, desktop, getty, serial console login or sshd.
 - **The rental-mode agents are in the image.** `swiff-hostd` (root, `swiff-hostd.service`), the
   streamer it starts for each renter as `swiff-stream`, and the Steam sign-in agent run on Ubuntu's
@@ -1196,7 +1197,7 @@ From a checkout the agent runs as TypeScript source on Node 22.18 or later, usin
 type stripping. The image's Node (Ubuntu's) is built without it, so the image runs one
 bundled file, `dist/swiff-hostd.mjs` (`npm run build -w @swiff/hostd`, which
 `image/stage.sh` runs), from `swiff-hostd.service`. The unit starts it once the firewall is
-up and the games are checked, and only when its config is there. It runs as root in a
+up and filled (`swiff-netguard-ready`) and the games are checked, and only when its config is there. It runs as root in a
 sandbox of its own (private `/tmp`, `/home` hidden, no new privileges, no kernel modules,
 logs or control groups); the streamer it starts inherits that and drops to its own user. The
 config format is in `hostd/hostd.example.json`, with the image's streamer. In the image
