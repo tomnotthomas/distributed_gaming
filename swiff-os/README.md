@@ -499,6 +499,7 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
 
   The verdict holds `multi-user.target` (`swiff-hostd` waits for it), so what shows the state
   must wait for neither.
+  Two parts outside Lanterel OS consume this: the owner's host app, which hands over the Wi-Fi network and checks for a network before Go live, and the status screen, which shows `/run/swiff/network`.
 
 - **The renter sees only verified games.** The owner's games library is never written by the renter.
   The renter sees a view of it at `/srv/games` that shows only verified files, and their writes go to
