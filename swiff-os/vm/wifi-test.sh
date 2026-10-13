@@ -75,7 +75,7 @@ die() {
 	exit 1
 }
 
-for tool in qemu-system-x86_64 qemu-img qemu-io swtpm swtpm_ioctl node mkosi sfdisk mkfs.ext4; do
+for tool in qemu-system-x86_64 qemu-img qemu-io swtpm swtpm_ioctl node sfdisk mkfs.ext4; do
 	command -v "$tool" > /dev/null || [ -x "/usr/sbin/$tool" ] || die "$tool not found"
 done
 [ -r "$ovmf_code" ] && [ -r "$ovmf_vars" ] || die "OVMF Secure Boot firmware not found in /usr/share/OVMF"
@@ -94,6 +94,7 @@ if [ "$build" = 0 ]; then
 	disk_src=$(ls -t "$build_dir"/images/wifitest-*.raw 2> /dev/null | head -n1)
 else
 	log "The Wi-Fi test image (vm/build-image.sh wifitest)"
+	command -v mkosi > /dev/null || [ -x /usr/sbin/mkosi ] || die "mkosi not found"
 	rebuild=()
 	[ "$build" = 2 ] && rebuild=(--rebuild)
 	disk_src=$("$here/build-image.sh" wifitest ${rebuild[@]+"${rebuild[@]}"}).raw
