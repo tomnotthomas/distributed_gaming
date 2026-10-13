@@ -176,6 +176,16 @@ if [ "$(systemctl show -P LoadState iwd.service)" = loaded ]; then
 else
 	say INFO iwd-sandboxed "iwd not installed"
 fi
+# The Wi-Fi network iwd keeps: root's alone, on tmpfs. Modes only, never contents.
+if [ -d /var/lib/iwd ]; then
+	iwd_dir="$(stat -c '%U:%G %a' /var/lib/iwd) $(findmnt -no FSTYPE -T /var/lib/iwd)"
+	iwd_files=$(find /var/lib/iwd -mindepth 1 -type f -printf '%P %u:%g %m\n' | paste -sd, -)
+	iwd_loose=$(find /var/lib/iwd -mindepth 1 -type f ! \( -user root -group root -perm 600 \) -print -quit)
+	check wifi-passphrase-root-only "/var/lib/iwd $iwd_dir; files: ${iwd_files:-none}" \
+		test "$iwd_dir" = "root:root 700 tmpfs" -a -z "$iwd_loose"
+else
+	say INFO wifi-passphrase-root-only "no /var/lib/iwd"
+fi
 
 # --- Session: gamescope + Steam, nothing else ------------------------------------
 check default-target "$(systemctl get-default)" test "$(systemctl get-default)" = graphical.target

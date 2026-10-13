@@ -792,9 +792,8 @@ never offered.
   there.
 - **Steam's sandbox.** Ubuntu's AppArmor restriction on unprivileged user namespaces may need a Steam
   profile for pressure-vessel. This can only be tested with a GPU.
-- **NVIDIA.** The image has only the kernel's own `nouveau`, signed like every in-tree module, so it
-  loads under lockdown. NVIDIA's own driver must be signed for `module.sig_enforce`, for example
-  Ubuntu's prebuilt signed NVIDIA modules. Redistribution terms need checking.
+- **NVIDIA.** Modules must be signed for `module.sig_enforce`, for example Ubuntu's prebuilt signed
+  NVIDIA modules. Redistribution terms need checking.
 - **The `-security` pocket.** mkosi 20 always uses the live `security.ubuntu.com` for it. Pinning it
   too needs a newer mkosi or a local mirror.
 - **Games: the session agent drives sealing.** The agent runs Steam without its UI, lets it update
