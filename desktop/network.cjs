@@ -103,7 +103,7 @@ public static class SwiffWlan {
       ipv6 = if ($connection) { [string]$connection.IPv6Connectivity } else { $null }
       profiles = @($_[1] | ForEach-Object { ${
         withKey
-          ? "if ($network -and @(try { ([xml]$_).WLANProfile.SSIDConfig.SSID.name } catch {}) -contains $network) { $_ } else { $_ -replace '<keyMaterial>[^<]*</keyMaterial>', '' }"
+          ? "if ($network -and @(try { ([xml]$_).WLANProfile.SSIDConfig.SSID.name } catch {}) -ccontains $network) { $_ } else { $_ -replace '<keyMaterial>[^<]*</keyMaterial>', '' }"
           : "$_ -replace '<keyMaterial>[^<]*</keyMaterial>', ''"
       } })
     }
