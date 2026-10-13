@@ -49,7 +49,8 @@ if ! wait_online --timeout=$timeout; then
 	fi
 	report STATE=failed MEDIUM=$want REASON=$reason
 	systemd-notify --ready
-	wait_online --timeout=0
+	# Should the wait itself fail, the state stays failed, without failing the unit.
+	wait_online --timeout=0 || exit 0
 fi
 report STATE=online MEDIUM="$(medium)"
 systemd-notify --ready
