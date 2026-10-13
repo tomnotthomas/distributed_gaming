@@ -44,7 +44,7 @@ function imageSet(dir: string, cert: Buffer, signer: (manifest: Buffer) => void)
   for (const p of layout.filter((p) => p.split))
     files[splitFile(p.split!)] = { bytes: p.bytes, sha256: "0".repeat(64) };
   files["swiffos-key.cer"] = { bytes: cert.length, sha256: sha256(cert) };
-  const manifest = Buffer.from(JSON.stringify({ version: "0.1.0", layout, files }));
+  const manifest = Buffer.from(JSON.stringify({ version: SWIFF_OS.version, layout, files }));
   fs.writeFileSync(path.join(dir, MANIFEST), manifest);
   fs.writeFileSync(path.join(dir, "swiffos-key.cer"), cert);
   signer(manifest);
@@ -203,13 +203,13 @@ describe.skipIf(!tools)("Lanterel's release keys", () => {
 
     const good = path.join(dir, "good");
     imageSet(good, releaseCert, releaseSigned(good));
-    expect(readImageSet(good, { trust: release }).version).toBe("0.1.0");
-    expect(readImageSet(good, { trust: test }).version).toBe("0.1.0");
+    expect(readImageSet(good, { trust: release }).version).toBe(SWIFF_OS.version);
+    expect(readImageSet(good, { trust: test }).version).toBe(SWIFF_OS.version);
 
     // A developer's set: a test build reads it, a release build does not.
     const devSet = path.join(dir, "dev");
     imageSet(devSet, devCert, devSigned(devSet));
-    expect(readImageSet(devSet, { trust: test }).version).toBe("0.1.0");
+    expect(readImageSet(devSet, { trust: test }).version).toBe(SWIFF_OS.version);
     expect(() => readImageSet(devSet, { trust: release })).toThrow(/Lanterel did not sign this image set/);
     // Nor with the release certificate in it.
     const devWithRelease = path.join(dir, "dev-release-cert");

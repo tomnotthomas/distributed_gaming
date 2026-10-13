@@ -224,7 +224,7 @@ Hosts download the set themselves: the Lanterel Host app fetches it from the Git
 `swiffos.json` and `swiffos.json.sig` there, all at the release's top level:
 
 ```sh
-gh release create swiffos-0.1.0 <set-dir>/download/* <set-dir>/swiffos.json <set-dir>/swiffos.json.sig
+gh release create swiffos-0.2.0 <set-dir>/download/* <set-dir>/swiffos.json <set-dir>/swiffos.json.sig
 ```
 
 The app reads nothing from the release unless a key in `image-trust.json` signed its

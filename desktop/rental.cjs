@@ -70,7 +70,7 @@ const NO_AUTO = "0x800000000000000";
  * derived from the root hash.
  */
 const SWIFF_OS = {
-  version: "0.1.0",
+  version: "0.2.0",
   partitions: [
     { role: "esp", type: TYPE.esp, bytes: 1 * GiB, split: "esp", attrs: "0x0" },
     { role: "root-a", type: TYPE.root, bytes: 8 * GiB, split: "root-x86-64", attrs: READ_ONLY },
@@ -569,7 +569,7 @@ function imageLayout(gpt) {
 /** Without the image at hand: Swiff OS's layout with its ids and names still to be read from it. */
 const PREVIEW_LAYOUT = SWIFF_OS.partitions.map((p) => ({ ...p, id: null, name: null }));
 
-/** The image file a partition's contents come from: swiffos_0.1.0.esp.raw. */
+/** The image file a partition's contents come from: swiffos_0.2.0.esp.raw. */
 const splitFile = (split, version = SWIFF_OS.version) => `swiffos_${version}.${split}.raw`;
 
 // --- plans ------------------------------------------------------------------------------
