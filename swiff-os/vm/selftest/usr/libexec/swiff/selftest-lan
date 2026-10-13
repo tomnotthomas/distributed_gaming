@@ -10,7 +10,8 @@ Every result is a SWIFF-SELFTEST line on the serial console, as from selftest.
 The home network (vm/lan-fixture.py): the router at 192.168.77.1, fe80::1 and
 2001:db8:77::1 hands out addresses, answers DNS and serves admin pages on 80
 and 443, also on its public address 203.0.113.7, which the stream's STUN
-servers (resolved to 198.51.100.30) report; another device at 192.168.77.50, fe80::50 and 2001:db8:77::50 serves
+servers (resolved to 198.51.100.30) report, and on 80 at 100.64.0.1 and
+192.0.0.2, a CGNAT and a DS-Lite WAN address; another device at 192.168.77.50, fe80::50 and 2001:db8:77::50 serves
 a page and answers mDNS, SSDP, LLMNR and NetBIOS; the internet beyond the
 router, 198.51.100.10 and 2001:db8:ffff::10, serves a page and echoes UDP.
 """
@@ -53,6 +54,8 @@ PROBES = [
     ("router-admin-wan-https", "renter", "tcp", PUBLIC, 443, ADMIN, True),
     ("router-admin-wan-as-root", "root", "tcp", PUBLIC, 80, ADMIN, True),
     ("router-admin-wan-https-as-root", "root", "tcp", PUBLIC, 443, ADMIN, True),
+    ("router-admin-cgnat", "renter", "tcp", "100.64.0.1", 80, ADMIN, True),
+    ("router-admin-ds-lite", "renter", "tcp", "192.0.0.2", 80, ADMIN, True),
     ("router-ping", "root", "ping", "192.168.77.1", 0, "echo-reply", True),
     ("lan-device", "renter", "tcp", "192.168.77.50", 80, DEVICE, True),
     ("lan-device-ipv6", "renter", "tcp", "2001:db8:77::50", 80, DEVICE, True),

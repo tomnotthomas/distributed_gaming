@@ -432,10 +432,11 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   program's or logind's `VT_ACTIVATE`. The session does not start without the lock. No getty runs on
   any VT. This stands behind the streamer's own key filter.
 - **The LAN is blocked.** nftables (`/etc/nftables.conf`, on the read-only root) refuses traffic to
-  RFC 1918, link-local, multicast and broadcast addresses, their IPv6 counterparts, every on-link
+  RFC 1918, CGNAT (100.64.0.0/10), IETF special-purpose (192.0.0.0/24, where a DS-Lite router's WAN
+  side sits), link-local, multicast and broadcast addresses, their IPv6 counterparts, every on-link
   prefix and the prefix of each of the host's own global addresses, so the LAN's global IPv6
-  addresses (even when the router advertises the prefix without an on-link route) and non-RFC 1918
-  LANs (such as CGNAT 100.64.0.0/10) are blocked too. It applies to every program, root's included.
+  addresses (even when the router advertises the prefix without an on-link route) and LANs in any
+  other range are blocked too. It applies to every program, root's included.
   Programs fail at once rather than waiting for a timeout (IPv4: "No route to host", IPv6:
   "Permission denied"), except toward a link-local IPv6 address, where they time out. It allows DHCP, IPv6
   neighbour discovery and multicast listener (MLD) reports, and DNS to the current gateway and DNS servers. `swiff-netguard` keeps the
@@ -849,7 +850,8 @@ through a tap device (`vm/lan-fixture.py` answers on it):
 
 - **The router** at 192.168.77.1, fe80::1 and 2001:db8:77::1. dnsmasq hands out the addresses
   (DHCP and router advertisements) and answers DNS. Admin pages answer on 80 and 443, also on its
-  public address 203.0.113.7.
+  public address 203.0.113.7, and on 80 at 100.64.0.1 and 192.0.0.2, as on a CGNAT or DS-Lite
+  router's WAN side.
 - **Another device** at 192.168.77.50, fe80::50 and 2001:db8:77::50, in a namespace of its own. It
   serves a page and answers mDNS, SSDP, LLMNR and NetBIOS.
 - **The internet** beyond the router, at 198.51.100.10 and 2001:db8:ffff::10 (TEST-NET, which the
@@ -865,7 +867,8 @@ advertisement refreshes it, also with the firewall removed. The test boots twice
 
 1. **Boot 1.** The VM gets its addresses from the router, `swiff-netguard` learns the public
    address, and nothing listens for discovery. With the firewall, the router's admin pages (IPv4,
-   IPv6, link-local and the public address, 80 and 443, also as root) and ping, the device's page
+   IPv6, link-local and the public address, 80 and 443, also as root, and the CGNAT and DS-Lite
+   WAN addresses) and ping, the device's page
    and every discovery query are refused or go unanswered, and the device cannot connect to the VM. DNS and the internet over TCP, UDP and ping, on IPv4 and IPv6, work.
    The router answers the lease renewal. Without the firewall, everything answers, and once it is
    loaded again the router is refused again.

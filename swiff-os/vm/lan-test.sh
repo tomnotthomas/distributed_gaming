@@ -10,7 +10,8 @@
 #   the router    192.168.77.1, fe80::1, 2001:db8:77::1. dnsmasq hands out
 #                 the addresses (DHCP, router advertisements) and answers DNS;
 #                 admin pages on 80 and 443, also on its public address
-#                 203.0.113.7.
+#                 203.0.113.7, and on 80 at 100.64.0.1 and 192.0.0.2 (a CGNAT
+#                 and a DS-Lite WAN address).
 #   a device      192.168.77.50, fe80::50, 2001:db8:77::50, in a network
 #                 namespace of its own: a page, and answers to mDNS, SSDP,
 #                 LLMNR and NetBIOS.
@@ -126,6 +127,8 @@ ip link set lo up
 ip addr add 198.51.100.10/32 dev lo
 ip addr add 198.51.100.30/32 dev lo
 ip addr add 203.0.113.7/32 dev lo
+ip addr add 100.64.0.1/32 dev lo
+ip addr add 192.0.0.2/32 dev lo
 ip addr add 2001:db8:ffff::10/128 dev lo
 # The router's side: its only link-local address is fe80::1, the source of
 # its router advertisements and so the VM's IPv6 gateway.

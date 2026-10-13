@@ -14,13 +14,15 @@ import struct
 import sys
 import threading
 
-# The router: admin pages on the home network's side and on its public
-# address, a page and a UDP echo (as a STUN server answers) on the internet's.
+# The router: admin pages on the home network's side, on its public address
+# and on a CGNAT and a DS-Lite WAN address, a page and a UDP echo (as a STUN server answers) on the internet's.
 ROUTER = [
     ("tcp", "192.168.77.1", 80, "swiff-router-admin"),
     ("tcp", "192.168.77.1", 443, "swiff-router-admin"),
     ("tcp", "203.0.113.7", 80, "swiff-router-admin"),
     ("tcp", "203.0.113.7", 443, "swiff-router-admin"),
+    ("tcp", "100.64.0.1", 80, "swiff-router-admin"),
+    ("tcp", "192.0.0.2", 80, "swiff-router-admin"),
     ("tcp", "2001:db8:77::1", 80, "swiff-router-admin"),
     ("tcp", "fe80::1%br0", 80, "swiff-router-admin"),
     ("tcp", "198.51.100.10", 80, "swiff-internet"),
