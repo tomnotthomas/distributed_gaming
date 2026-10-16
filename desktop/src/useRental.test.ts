@@ -9,7 +9,7 @@ import type { RunEvent, RunOutcome } from "../rental-exec.cjs";
 import type { RentalPlan, RentalRead } from "../rental.cjs";
 import type { HostBridge } from "./bridge";
 import type { EkResult } from "./ek";
-import { REPORT_FAILED } from "./rental";
+import { REPORT_FAILED, REPORT_REJECTED } from "./rental";
 import { stepBytes, useRental } from "./useRental";
 
 const plan = (kind: RentalPlan["kind"], title: string): RentalPlan =>
@@ -676,6 +676,29 @@ describe("useRental", () => {
     await act(async () => reported(true));
     expect(host.runRental).toHaveBeenCalledOnce();
     expect(host.restartRental).toHaveBeenCalledOnce();
+  });
+
+  it("says the server turned Go live's report down, and changes nothing", async () => {
+    const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
+    host.runRental = vi.fn(async (): Promise<RunOutcome> => ({
+      status: "done",
+      done: ["ek", "once"],
+      results: [],
+    }));
+    host.restartRental = vi.fn(async () => true);
+    const reportPc = vi.fn(async () => "rejected" as const);
+    host.readRental = vi.fn(async () => ({ facts: { checked: null }, network: { kind: "wired" } }) as never);
+    const { result } = renderHook(() => useRental({ reportPc }));
+    await act(async () => {});
+    act(() => result.current.goLive());
+    await answer(0, plan("once", "once"));
+    await act(async () => {});
+    expect(host.runRental).not.toHaveBeenCalled();
+    expect(host.restartRental).not.toHaveBeenCalled();
+    expect(result.current.run).toMatchObject({
+      status: "failed",
+      failed: { step: "report", error: REPORT_REJECTED },
+    });
   });
 
   it("changes nothing when Go live's report was not taken, and Try again goes live afresh", async () => {

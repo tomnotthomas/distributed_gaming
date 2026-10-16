@@ -1005,6 +1005,9 @@ function ekFailure(setup: RentalSetup, error: string, stoppedAt: string): Failur
 /** Go live's error when the server didn't take this PC's report: nothing on the PC changed. */
 export const REPORT_FAILED = "Lanterel couldn't report this PC to the server.";
 
+/** Go live's error when the server answered and turned this PC's report down: nothing on the PC changed. */
+export const REPORT_REJECTED = "The server didn't take this PC's report.";
+
 /** Which failure this is, and everything it says. */
 export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "failed" }>): Failure {
   const { plan, step, error } = s;
@@ -1064,19 +1067,33 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
       far: "before the restart",
     };
   }
-  if (failedStep === "report")
-    return {
-      kind: "network",
-      title: "Lanterel couldn't reach the server",
-      why: "This PC's report didn't reach the server, so Lanterel didn't go live.",
-      changed: "Nothing on this PC has changed. Check this PC's internet connection, then try again.",
-      action: "again",
+  if (failedStep === "report") {
+    const base = {
+      kind: "network" as const,
+      action: "again" as const,
       label: "Try again",
-      rail: "Server unreachable",
       what: "Go live",
       at: "Not started",
       far: "not started",
     };
+    // The app builds the report itself: one the server turns down is not the owner's to correct.
+    if (error === REPORT_REJECTED)
+      return {
+        ...base,
+        title: "The server didn't take this PC's report",
+        why: "The Lanterel server answered but didn't accept this PC's report, so Lanterel didn't go live.",
+        changed:
+          "Nothing on this PC has changed. Try again, and update the Lanterel app if it keeps happening.",
+        rail: "Report not taken",
+      };
+    return {
+      ...base,
+      title: "Lanterel couldn't reach the server",
+      why: "This PC's report didn't reach the server, so Lanterel didn't go live.",
+      changed: "Nothing on this PC has changed. Check this PC's internet connection, then try again.",
+      rail: "Server unreachable",
+    };
+  }
   if (failedStep === "restart")
     return {
       kind: "restart",

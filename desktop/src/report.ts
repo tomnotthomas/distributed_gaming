@@ -493,6 +493,8 @@ export function createHostReporter(
   };
 }
 
+type OffOfferOptions = { crews?: string[]; report?: HostReport; timeoutMs?: number };
+
 /**
  * Rental mode, from Windows: Swiff OS offers this PC, so here it is off offer.
  * Says so, with the owner's choice of the crews it plays for when they made one,
@@ -502,13 +504,22 @@ export function createHostReporter(
  */
 export async function offOffer(
   machine: Machine,
-  {
-    crews,
-    report = {},
-    timeoutMs = BEAT_TIMEOUT_MS,
-  }: { crews?: string[]; report?: HostReport; timeoutMs?: number } = {},
+  options: OffOfferOptions = {},
   fetch: typeof globalThis.fetch = (...args) => globalThis.fetch(...args),
 ): Promise<Crew | null> {
+  const answer = await offOfferAnswer(machine, options, fetch);
+  return answer === "rejected" ? null : answer;
+}
+
+/**
+ * offOffer, telling a server that answered and turned the call down (a 4xx:
+ * "rejected") from one that could not be reached (null).
+ */
+export async function offOfferAnswer(
+  machine: Machine,
+  { crews, report = {}, timeoutMs = BEAT_TIMEOUT_MS }: OffOfferOptions = {},
+  fetch: typeof globalThis.fetch = (...args) => globalThis.fetch(...args),
+): Promise<Crew | "rejected" | null> {
   try {
     const res = await fetch(routeOf(machine, "availability"), {
       method: "PUT",
@@ -516,6 +527,7 @@ export async function offOffer(
       body: JSON.stringify({ available: false, ...(crews === undefined ? {} : { crews }), ...report }),
       signal: AbortSignal.timeout(timeoutMs),
     });
+    if (res.status >= 400 && res.status < 500) return "rejected";
     return res.ok ? crewOf(await res.json().catch(() => null)) : null;
   } catch {
     return null;

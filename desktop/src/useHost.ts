@@ -13,6 +13,7 @@ import {
   hostReport,
   measureNet,
   offOffer,
+  offOfferAnswer,
   playingFor,
   RENTAL_CONTROLS,
   WAKE_MS,
@@ -137,7 +138,7 @@ export function useHost(): Host {
   // or says which part of it is missing.
   const ekMachine = useRef<Machine | EkError>("no-machine");
   // Go live reports this PC with the network measured then, before the restart (reportRental below).
-  const goLiveReport = useRef<() => Promise<boolean>>(async () => false);
+  const goLiveReport = useRef<() => Promise<boolean | "rejected">>(async () => false);
   const rental = useRental({
     registerEk: async (ek) =>
       typeof ekMachine.current === "string"
@@ -445,27 +446,34 @@ export function useHost(): Host {
   // One report at a time, each read as it is when its turn comes, so the last one sent is the latest.
   const rentalReported = useRef<string | null>(null);
   const rentalReports = useRef<Promise<unknown>>(Promise.resolve());
-  const reportRental = (net: Net | null): Promise<boolean> => {
+  const sameMachine = (a: Machine, b: Machine) =>
+    a.url === b.url && a.machineId === b.machineId && a.machineKey === b.machineKey;
+  // `planned` is the machine Go live planned for: its report goes to that one or, once the
+  // connection has changed, nowhere.
+  // True once the platform took it, "rejected" when it answered no, false when it could not be reached.
+  const reportRental = (net: Net | null, planned?: Machine): Promise<boolean | "rejected"> => {
     const send = async () => {
       const machine = rentalCrew.current;
-      if (!machine) return false;
+      if (!machine || (planned && !sameMachine(machine, planned))) return false;
       // The renter plays on Lanterel OS, not Windows: its controls, not the ones Windows reads.
       const report = { ...latest.current.report, controls: [...RENTAL_CONTROLS], ...(net ? { net } : {}) };
       const key = JSON.stringify([machine, report]);
       if (!net && key === rentalReported.current) return true;
-      const ok = (await offOffer(machine, { report, timeoutMs: WAKE_MS })) !== null;
-      if (ok) rentalReported.current = key;
-      return ok;
+      const answer = await offOfferAnswer(machine, { report, timeoutMs: WAKE_MS });
+      if (answer === "rejected") return answer;
+      if (answer) rentalReported.current = key;
+      return answer !== null;
     };
     const turn = rentalReports.current.then(send).catch(() => false);
     rentalReports.current = turn;
     return turn;
   };
   // Go live's report carries the network: renters are not matched to a PC without it.
+  // Bound to the machine it was planned for: a connection changed meanwhile ends this Go live.
   goLiveReport.current = async () => {
     const machine = rentalCrew.current;
     const net = machine ? await measureNet(machine) : null;
-    return net ? reportRental(net) : false;
+    return net && machine ? reportRental(net, machine) : false;
   };
   useEffect(() => {
     if (rentalMachine) void reportRental(null);

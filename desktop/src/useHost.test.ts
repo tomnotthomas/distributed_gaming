@@ -8,6 +8,7 @@ import type { SteamRead } from "../steam.cjs";
 import type { HostBridge } from "./bridge";
 import { DEMAND_EVERY_MS } from "./demand";
 import { untilChoices } from "./model";
+import { REPORT_REJECTED } from "./rental";
 import { BUSY_MS, IDLE_MS } from "./useSteam";
 import { rentalOf, type RentalPlan } from "../rental.cjs";
 import FACTS from "./test/rental-facts.json";
@@ -592,6 +593,86 @@ describe("useHost", () => {
       expect(bridge.runRental).not.toHaveBeenCalled();
       expect(bridge.restartRental).not.toHaveBeenCalled();
       expect(result.current.view.rental.run.failed?.step).toBe("report");
+    });
+
+    it("ends Go live when the connection changes while the network is measured", async () => {
+      const { result } = await ready();
+      const bridge = (window as { swiffHost?: HostBridge }).swiffHost!;
+      bridge.readRental = vi.fn(async () => ({ ...READY, network: { kind: "wired" as const } }));
+      act(() => result.current.actions.checkRental());
+      await settle();
+      bridge.planRental = vi.fn(async () => ({ kind: "once", steps: [] }) as unknown as RentalPlan);
+      bridge.runRental = vi.fn(async () => ({ status: "done" as const, done: [], results: [] }));
+      bridge.restartRental = vi.fn(async () => true);
+      // The first ping is held: the owner switches to another PC's connection meanwhile.
+      const platform = globalThis.fetch;
+      let pong: () => void = () => {};
+      const held = new Promise<void>((resolve) => (pong = resolve));
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string, init: RequestInit) => {
+          const path = new URL(url).pathname;
+          if (path === "/api/ping") {
+            await held;
+            return new Response("{}");
+          }
+          if (path.endsWith("/upload-test")) return new Response(null, { status: 204 });
+          return platform(url, init);
+        }),
+      );
+      act(() => result.current.actions.goLiveRental());
+      await settle();
+      await act(async () =>
+        result.current.actions.saveConnection({
+          url: "signal.example",
+          machineId: "pc-2",
+          machineKey: "k2",
+          name: "",
+        }),
+      );
+      await settle();
+      pong();
+      await vi.waitFor(async () => {
+        await settle();
+        expect(result.current.view.rental.run.status).toBe("failed");
+      });
+      // The network measured for the planned PC goes to no other: nothing is armed.
+      expect(pcReports.some((r) => "net" in r)).toBe(false);
+      expect(bridge.runRental).not.toHaveBeenCalled();
+      expect(bridge.restartRental).not.toHaveBeenCalled();
+      expect(result.current.view.rental.run.failed?.step).toBe("report");
+    });
+
+    it("says so when the server turns Go live's report down, and arms nothing", async () => {
+      const { result } = await ready();
+      const bridge = (window as { swiffHost?: HostBridge }).swiffHost!;
+      bridge.readRental = vi.fn(async () => ({ ...READY, network: { kind: "wired" as const } }));
+      act(() => result.current.actions.checkRental());
+      await settle();
+      bridge.planRental = vi.fn(async () => ({ kind: "once", steps: [] }) as unknown as RentalPlan);
+      bridge.runRental = vi.fn(async () => ({ status: "done" as const, done: [], results: [] }));
+      bridge.restartRental = vi.fn(async () => true);
+      // The network is measured; the report carrying it is answered with a 400.
+      const platform = globalThis.fetch;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string, init: RequestInit) => {
+          const path = new URL(url).pathname;
+          if (path === "/api/ping") return new Response("{}");
+          if (path.endsWith("/upload-test")) return new Response(null, { status: 204 });
+          if (typeof init.body === "string" && "net" in JSON.parse(init.body))
+            return new Response("{}", { status: 400 });
+          return platform(url, init);
+        }),
+      );
+      act(() => result.current.actions.goLiveRental());
+      await vi.waitFor(async () => {
+        await settle();
+        expect(result.current.view.rental.run.status).toBe("failed");
+      });
+      expect(bridge.runRental).not.toHaveBeenCalled();
+      expect(bridge.restartRental).not.toHaveBeenCalled();
+      expect(result.current.view.rental.run.failed).toEqual({ step: "report", error: REPORT_REJECTED });
     });
 
     it("puts a choice that did not save back to the platform's, and says so", async () => {

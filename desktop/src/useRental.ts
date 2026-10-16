@@ -8,6 +8,7 @@ import { meter } from "./progress";
 import { agreedWifi, networkReady } from "./network";
 import {
   REPORT_FAILED,
+  REPORT_REJECTED,
   endsInRestart,
   fileName,
   firmwareChecks,
@@ -76,7 +77,8 @@ export function useRental({
   reportPc = async () => true,
 }: {
   registerEk?: (ek: EkCertificate) => Promise<EkResult>;
-  reportPc?: () => Promise<boolean>;
+  /** True once the server took the report, "rejected" when it answered no, false when it couldn't be reached. */
+  reportPc?: () => Promise<boolean | "rejected">;
 } = {}): RentalSetup & {
   check(): void;
   choose(id: string): void;
@@ -347,7 +349,7 @@ export function useRental({
         }
         const taken = await reported.catch(() => false);
         if (n !== plans.current) return;
-        if (!taken) return stopped("report", REPORT_FAILED);
+        if (taken !== true) return stopped("report", taken === "rejected" ? REPORT_REJECTED : REPORT_FAILED);
         const outcome = await runPlan(plan);
         if (n !== plans.current || !outcome) return;
         if (outcome.status === "done") return restart();
