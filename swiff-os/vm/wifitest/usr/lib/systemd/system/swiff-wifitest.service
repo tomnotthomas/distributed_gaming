@@ -1,0 +1,17 @@
+# VM Wi-Fi test build only (mkosi --profile=wifitest). Never part of the
+# shipped image: once the network verdict is in, it checks it as root, prints
+# the results on the serial console for vm/wifi-test.sh and powers the VM off.
+[Unit]
+Description=Lanterel OS VM Wi-Fi test
+Wants=network-online.target
+After=network-online.target swiff-wifitest-ap.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/swiff/wifitest
+ExecStopPost=/usr/bin/systemctl --no-block poweroff
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

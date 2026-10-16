@@ -390,7 +390,8 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   sign, a boot with a command line or other extras from outside its UKI, or a record changed
   after it was sealed cannot get that far. Should systemd-pcrphase move PCR 11 on to the next phase mid-way,
   it tries again with the new value. The payload is then checked (a `wss://` server, or
-  `ws://` on this machine, a machine id and a machine key), sealed again with `systemd-creds`
+  `ws://` on this machine, a machine id and a machine key, and for a PC on Wi-Fi the network,
+  below), sealed again with `systemd-creds`
   under Swiff's signed PCR 11 policy, as the state's U share is, and PCRs 12 and 13 at zero
   (`--tpm2-pcrs=12+13`, which binds their values at that moment: zero, or the record would not
   have opened), so only a signed Swiff OS boot of this PC with no
@@ -401,7 +402,8 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   record in the clear. Every boot then
   unseals it and writes swiff-hostd's config for that boot, `/var/lib/swiff/hostd.json`
   (0600, in root's 0700 `/var/lib/swiff`, on the tmpfs), from the image's own settings (`/usr/lib/swiff/hostd.json`) with this machine's
-  server and id, and its machine key beside it. The record is data only: everything that
+  server and id, and its machine key beside it, and the Wi-Fi network, if there is one, for
+  iwd (below). The record is data only: everything that
   names a program, a device or a user comes from the image, so a record (which the owner's
   Windows can write) cannot make the agent run anything. A keep with neither a record nor a
   sealed provisioning, or one that no longer unseals (the TPM was cleared), starts no agent,
@@ -464,6 +466,49 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
   stream needs as well, the agent and the session start late, once the public address is learned.
   `multi-user.target` waits with the agent; the no-network screen, which comes before the session
   and does not need the agent, still appears.
+- **The network: a cable, or the owner's Wi-Fi.** systemd-networkd takes an address on any
+  Ethernet port and on Wi-Fi (`80-swiff-wired.network`, `80-swiff-wireless.network`); with both,
+  the cable carries the traffic. iwd joins one Wi-Fi network only, the one the owner's PC was on
+  when the owner's app provisioned it: the payload's optional `wifi`,
+  `{ "ssid", "security": "open" | "psk" | "sae", "passphrase" }` (an SSID of 1 to 32 bytes; a
+  passphrase of 8 to 63 printable ASCII characters, or for `psk` the key as 64 hex digits; none
+  for `open`), sealed with the rest. `swiff-provision` writes it at every boot as iwd's network
+  file (`iwd.network(5)`, named and escaped as iwd reads it) into `/var/lib/iwd`, root's 0700 on
+  the tmpfs, the file 0600; nothing logs it. It holds the passphrase as given, for `psk` too:
+  iwd takes WPA3 (SAE) whenever the network offers it, a WPA2/WPA3 network as well, and SAE
+  needs the passphrase. A `psk` given as the 64-hex-digit key is written as iwd's `PreSharedKey`
+  and joins over WPA2 only: a WPA3-only network needs the passphrase. Nobody at the PC changes it: there is no settings UI, and iwd's D-Bus answers root
+  alone (the renter is in no group). An enterprise (802.1X), captive-portal or hidden network
+  (one that does not broadcast its SSID) is not supported: the payload cannot carry one, such a
+  PC needs a cable, and the owner's app refuses it before Go live. The image
+  carries the firmware of the common Wi-Fi chips: Intel (`iwlwifi`), MediaTek (`mt76`, such as
+  the MT7921 and MT7922) and Realtek (`rtw88`, `rtw89`), and the regulatory database.
+- **The network's state, for the status screen.** `swiff-network.service`
+  (`/usr/libexec/swiff/network-online`) stands in for `systemd-networkd-wait-online.service`,
+  masked, which waits for every link and fails with a red line on a PC without a cable. It
+  waits up to a minute for a routable address on any link, and never fails:
+  `network-online.target` is reached at its verdict, online or not. The state is
+  `/run/swiff/network`, readable by everyone and replaced whole at each change, in `KEY=VALUE`
+  lines:
+  - `STATE`: `connecting`, then `online` or `failed`. A network that comes after `failed` still
+    turns it `online`. `online` is not watched further: networkd's own state (`networkctl`)
+    tells of a loss later.
+  - `MEDIUM`: when `online`, the link that carries the traffic: `ethernet` when a cable is
+    online, else `wifi`. Otherwise what it waits
+    for: `wifi` when a Wi-Fi network was handed over, else `ethernet`.
+  - `REASON`, when `failed`: `wifi` (the network was not joined: out of reach, a changed
+    passphrase, or no address from it), `no-wifi-adapter` (Wi-Fi was handed over, but this PC
+    has no Wi-Fi adapter Lanterel OS drives) or `no-network` (no Wi-Fi was handed over, and no
+    cable gave an address).
+
+  The verdict holds `multi-user.target` (`swiff-hostd` waits for it).
+
+  The owner's host app hands the Wi-Fi network over at Go live (`desktop/network.cjs`,
+  `desktop/provision.cjs`) and checks for a network before it: Ethernet, or a Wi-Fi it can hand
+  over, refusing enterprise, captive-portal and hidden Wi-Fi (a cable is needed). Lanterel's
+  status screen, a planned follow-up, will show `/run/swiff/network`, waiting for neither
+  `network-online.target` nor `multi-user.target`.
+
 - **The renter sees only verified games.** The owner's games library is never written by the renter.
   The renter sees a view of it at `/srv/games` that shows only verified files, and their writes go to
   a per-boot encrypted session layer. See [Stage 4](#stage-4-the-shared-games-library).
@@ -475,8 +520,8 @@ the new one has booted well. The update service itself (signed `systemd-sysupdat
 - **No process memory reaches a disk.** Core dumps are off (`kernel.core_pattern=|/bin/false`,
   `fs.suid_dumpable=0`, `systemd-coredump.socket` masked). There is no swap: `swap.target` is masked,
   so not even a swap partition `systemd-gpt-auto-generator` finds on the PC's disk is used. Hibernation
-  is off on the command line and its targets are masked. iwd, which holds the Wi-Fi passphrase once
-  the image has Wi-Fi, runs in a sandbox on top of Ubuntu's unit (`iwd.service.d/60-swiff-sandbox.conf`),
+  is off on the command line and its targets are masked. iwd, which holds the Wi-Fi passphrase,
+  runs in a sandbox on top of Ubuntu's unit (`iwd.service.d/60-swiff-sandbox.conf`),
   including `MemoryDenyWriteExecute`. The network it keeps lives in root's 0700 `/var/lib/iwd`, on
   the tmpfs.
 
@@ -619,6 +664,7 @@ VM starts.
 swiff-os/vm/vm-tests.sh             # the VM tests this branch's changes touch (--list, --only selftest,...)
 swiff-os/vm/run-test.sh             # build the test image if its inputs changed, boot it twelve times, check everything
 swiff-os/vm/run-test.sh --no-build  # boot the last build again (--rebuild: build it anyway)
+swiff-os/vm/wifi-test.sh            # online over Wi-Fi, and a failure without a network, three boots (below)
 swiff-os/vm/session-test.sh         # a renter plays on rental mode end to end (below)
 swiff-os/vm/lan-test.sh             # rental mode in a home network: the internet, nothing of the LAN (below)
 # the shipped image only, as swiffos.raw in the given output directory
@@ -709,7 +755,7 @@ host's view. Together they cover:
   `NoNewPrivileges`, `sudo`, `doas`, `pkexec`, `su`, `run0` and `systemd-run` all fail, and nothing the
   renter can write outlives a restart.
 - Core dumps, swap and hibernation are off, and signed modules still load under lockdown.
-- Once the image has Wi-Fi, iwd runs in its sandbox, and `/var/lib/iwd` is root's 0700 on the tmpfs
+- iwd runs in its sandbox, and `/var/lib/iwd` is root's 0700 on the tmpfs
   with only root's 0600 files in it.
 - The session is gamescope with the Steam sign-in agent as `renter`, and no login of any kind is
   offered.
@@ -722,6 +768,7 @@ host's view. Together they cover:
   2 s reach systemd and neither reboot the VM nor queue a reboot, and Ctrl+Alt+F2, Alt+F2,
   Alt+Left/Right and Alt+Up leave tty1 active, as does `VT_ACTIVATE` as root. As a control,
   Ctrl+Alt+F2 does switch to tty2 once the lock is lifted.
+- Over the cable, `swiff-network`'s verdict is online over Ethernet.
 - The LAN is blocked for the renter, including the host's address in an on-link global IPv6 prefix,
   also after its on-link route is deleted (a SLAAC prefix advertised without the on-link flag),
   while DNS and the internet work. As a control, the same LAN service and IPv6 address answer once
@@ -754,6 +801,30 @@ host's view. Together they cover:
 
 The VM has no GPU, so gamescope cannot start there and the session unit keeps restarting. The test
 checks the session's wiring, not a running game; the session test (below) plays one.
+
+### The Wi-Fi test
+
+`vm/wifi-test.sh` builds the `wifitest` profile, the shipped image plus `vm/wifitest/`: the Wi-Fi
+around the PC, two simulated radios (`mac80211_hwsim`), one of them the owner's access point in a
+network namespace of its own (hostapd, WPA2-PSK, with dnsmasq for DHCP and DNS). Its packages
+differ from the other profiles', so `vm/build-image.sh` keeps its package cache apart
+(`$SWIFF_OS_BUILD_DIR/cache-wifitest`). The VM has no network card. It boots three times through
+`vm/vm-run.py`, under OVMF with Secure Boot and swtpm, provisioned as the owner's app provisions a
+PC: a record sealed to the VM's TPM (`vm/wifi-provision.cjs`, by the app's own `desktop/provision.cjs`
+encoder, the Wi-Fi network in its payload) and written at the start of the keep partition.
+
+1. **Boot 1.** The record holds a WPA2 network whose SSID iwd names hex-encoded and whose
+   passphrase needs iwd's escapes (a leading space, a backslash); the access point checks the key
+   derived from the passphrase. Lanterel OS joins it: the state is `online` over `wifi`, the
+   Wi-Fi link has the access point's DHCP address, and a name resolves through its DNS server, as
+   the renter resolves one. The network file is root's alone, and iwd answers root and refuses the
+   renter. The passphrase is in no journal and on no console, and on the keep only sealed.
+2. **Boot 2.** The same PC, the access point gone: the state is `failed`, `wifi`, reason `wifi`.
+3. **Boot 3.** Provisioned again without Wi-Fi, and no Wi-Fi adapter: `failed`, reason
+   `no-network`, and the earlier Wi-Fi network is gone.
+
+Every boot reaches `network-online.target` within two minutes, the renter can read the state,
+and no network unit failed, neither in systemd nor on the console.
 
 ### The session test
 

@@ -1,0 +1,18 @@
+# VM Wi-Fi test build only (mkosi --profile=wifitest). The Wi-Fi around the
+# PC, in place before iwd and swiff-network start, as a PC's adapter and its
+# owner's access point are.
+[Unit]
+Description=Lanterel OS VM Wi-Fi test: the Wi-Fi around the PC
+DefaultDependencies=no
+After=local-fs.target
+Before=iwd.service swiff-network.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/swiff/wifitest-ap
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

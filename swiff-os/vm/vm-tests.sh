@@ -6,6 +6,7 @@
 # The suites:
 #   selftest  swiff-os/vm/run-test.sh                Lanterel OS's self-test, 12 boots
 #   lan       swiff-os/vm/lan-test.sh                in a home network: the internet, nothing of the LAN, 3 boots
+#   wifi      swiff-os/vm/wifi-test.sh               online over Wi-Fi, and offline without, 3 boots
 #   session   swiff-os/vm/session-test.sh            a renter's session, end to end
 #   streamer  swiff-os/streamer/vm/run-test.sh       the streamer in a VM of its own
 #   rental    desktop/vm/rental-install-test.sh      install and switch on a Windows-like disk
@@ -23,7 +24,7 @@ set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../.." && pwd)
-all="selftest lan session streamer rental mok windows"
+all="selftest lan wifi session streamer rental mok windows"
 
 base=
 only=
@@ -49,24 +50,26 @@ suites_for() { # path
 	swiff-os/streamer/src/vmStatus.test.ts) echo streamer ;;
 	*.md | *.test.ts | *.test.tsx) ;;
 	swiff-os/vm/vm-run.py | swiff-os/vm/vm-tests.sh) echo "$all" ;;
-	swiff-os/vm/build-image.sh | swiff-os/vm/inputs-key.py) echo selftest lan session streamer ;;
-	swiff-os/image/*) echo selftest lan session rental windows ;;
-	swiff-os/hostd/* | swiff-os/steam/*) echo selftest session ;;
+	swiff-os/vm/build-image.sh | swiff-os/vm/inputs-key.py) echo selftest lan wifi session streamer ;;
+	swiff-os/image/*) echo selftest lan wifi session rental windows ;;
+	swiff-os/hostd/*) echo selftest wifi session ;;
+	swiff-os/steam/*) echo selftest session ;;
 	swiff-os/image-set.sh) echo rental windows ;;
 	swiff-os/vm/sessiontest/* | swiff-os/vm/session-*) echo session ;;
 	swiff-os/vm/lan-*) echo lan ;;
+	swiff-os/vm/wifitest/* | swiff-os/vm/wifi-*) echo wifi ;;
 	swiff-os/vm/selftest/*) echo selftest lan ;;
 	swiff-os/vm/*) echo selftest ;;
 	swiff-os/streamer/vm/*) echo streamer ;;
 	swiff-os/streamer/*) echo selftest session streamer ;;
 	server/* | web/* | packages/*) echo session streamer ;;
-	desktop/vm/swtpm.cjs) echo session rental ;;
+	desktop/vm/swtpm.cjs) echo session rental wifi ;;
 	desktop/vm/apply-plan.cjs) echo session rental mok ;;
 	desktop/vm/mok-* | desktop/vm/boot-vars.py) echo rental mok ;;
 	desktop/vm/rental-*) echo rental ;;
 	desktop/vm/*) echo windows ;;
 	desktop/rental.cjs) echo rental mok windows ;;
-	desktop/provision.cjs | desktop/tpm-seal.cjs) echo session rental windows ;;
+	desktop/provision.cjs | desktop/tpm-seal.cjs) echo session rental windows wifi ;;
 	desktop/*.cjs) echo rental windows ;;
 	esac
 }
@@ -107,6 +110,7 @@ for s in $suites; do
 	case $s in
 	selftest) cmd=("$here/run-test.sh" $build_arg) ;;
 	lan) cmd=("$here/lan-test.sh" $build_arg) ;;
+	wifi) cmd=("$here/wifi-test.sh" $build_arg) ;;
 	session) cmd=("$here/session-test.sh" $build_arg) ;;
 	streamer) cmd=("$repo/swiff-os/streamer/vm/run-test.sh" $build_arg) ;;
 	rental) cmd=("$repo/desktop/vm/rental-install-test.sh") ;;

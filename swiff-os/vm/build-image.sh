@@ -2,16 +2,16 @@
 # Builds a VM test variant of the image once for what goes into it, and keeps
 # each build for the VM tests to start from:
 #
-#   swiff-os/vm/build-image.sh selftest|sessiontest [--rebuild]
+#   swiff-os/vm/build-image.sh selftest|sessiontest|wifitest [--rebuild]
 #
 # prints the build's path without its extension: <path>.raw is the disk and
 # <path>.efi the UKI. The build is keyed by its inputs: image/ (without its
-# output, caches and private key), the profile's tree (vm/selftest/ or
-# vm/sessiontest/), what image/stage.sh stages from the rest of the repository,
-# and mkosi's version. With a stored build for the same inputs, mkosi does not
-# run; any change to them builds again (--rebuild builds anyway). The builds
-# are kept in $SWIFF_OS_BUILD_DIR/images (default ~/.cache/swiff-os/images),
-# the newest three of each profile.
+# output, caches and private key), the profile's tree (vm/selftest/,
+# vm/sessiontest/ or vm/wifitest/), what image/stage.sh stages from the rest
+# of the repository, and mkosi's version. With a stored build for the same
+# inputs, mkosi does not run; any change to them builds again (--rebuild
+# builds anyway). The builds are kept in $SWIFF_OS_BUILD_DIR/images (default
+# ~/.cache/swiff-os/images), the newest three of each profile.
 #
 # The VM-only test Secure Boot key is made once for this PC, in
 # $SWIFF_OS_BUILD_DIR/test-key, and copied into image/ when it has none: every
@@ -36,13 +36,16 @@ die() {
 
 profile=${1:-}
 case $profile in
-selftest | sessiontest) ;;
-*) die "usage: $0 selftest|sessiontest [--rebuild]" ;;
+selftest | sessiontest) cache=$build_dir/cache ;;
+# Its own packages (the access point's): mkosi keeps one package cache per
+# image whatever the profile, which each build would otherwise replace.
+wifitest) cache=$build_dir/cache-wifitest ;;
+*) die "usage: $0 selftest|sessiontest|wifitest [--rebuild]" ;;
 esac
 rebuild=0
 [ "${2:-}" = --rebuild ] && rebuild=1
 
-mkdir -p "$out" "$build_dir/cache" "$store"
+mkdir -p "$out" "$cache" "$store"
 exec 7> "$build_dir/build.lock"
 if ! flock -n 7; then
 	echo "== waiting for another image build on this PC" >&2
@@ -73,7 +76,7 @@ key=$("$here/inputs-key.py" --with "$profile" --with "$(mkosi --version)" "$imag
 base=$store/$profile-$key
 if [ "$rebuild" = 1 ] || [ ! -e "$base.raw" ] || [ ! -e "$base.efi" ]; then
 	echo "== building the $profile image (mkosi --profile=$profile), inputs $key" >&2
-	sudo mkosi -C "$image_dir" --output-dir "$out" --cache-dir "$build_dir/cache" --profile="$profile" -f build >&2
+	sudo mkosi -C "$image_dir" --output-dir "$out" --cache-dir "$cache" --profile="$profile" -f build >&2
 	# Hard links: no copy, and mkosi replaces its outputs rather than writing into them.
 	ln -f "$out/swiffos-$profile.raw" "$base.raw.new"
 	ln -f "$out/swiffos-$profile.efi" "$base.efi"
