@@ -62,6 +62,8 @@ type CrewAsks = { n: number; confirmed: Crew | null; at: number; done: number; s
 const noCrewAsks = (): CrewAsks => ({ n: 0, confirmed: null, at: 0, done: 0, sets: 0 });
 /** A first read of who may play that failed is tried again this much later, once. */
 export const CREW_RETRY_MS = 10_000;
+/** How long Go live waits for this PC's read: the probe's own limit (probe.cjs) and some. */
+export const PC_READ_MS = 45_000;
 
 type Settings = Pick<Connection, "url" | "machineId" | "machineKey">;
 
@@ -73,9 +75,6 @@ type Settings = Pick<Connection, "url" | "machineId" | "machineKey">;
  * platform does not report reliability, levels, a rate or earnings yet, so
  * those stay null here.
  */
-/** How long Go live waits for this PC's read: the probe's own limit (probe.cjs) and some. */
-export const PC_READ_MS = 45_000;
-
 export function useHost(): Host {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
