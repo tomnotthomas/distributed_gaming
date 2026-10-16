@@ -311,7 +311,7 @@ to `GET /api/ping` and one upload test), once the PC's first read (hardware and 
 and before its plan changes anything. A Go live whose network it cannot measure, whose PC it
 could not read, or whose report the server does not take, changes nothing and
 does not restart: the app says it could not reach the server, or that the server did not take
-the report when it answered no (a 4xx), and Try again goes live afresh. A body is at most 32 KB.
+the report when it answered no (a 4xx other than 408 or 429), and Try again goes live afresh. A body is at most 32 KB.
 
 ```json
 {

@@ -573,6 +573,16 @@ describe("who may play", () => {
         answering(() => new Response("{}", { status: 503 })),
       ),
     ).toBeNull();
+    // Answered, but only to say try later: timed out (408) or throttled (429).
+    for (const status of [408, 429]) {
+      expect(
+        await offOfferAnswer(
+          machine,
+          {},
+          answering(() => new Response("{}", { status })),
+        ),
+      ).toBeNull();
+    }
     // offOffer itself reads either as nothing taken.
     expect(
       await offOffer(

@@ -512,8 +512,9 @@ export async function offOffer(
 }
 
 /**
- * offOffer, telling a server that answered and turned the call down (a 4xx:
- * "rejected") from one that could not be reached (null).
+ * offOffer, telling a server that answered and turned the call down (a 4xx
+ * other than 408 or 429: "rejected") from one that could not be reached, or
+ * timed out or throttled the call (null).
  */
 export async function offOfferAnswer(
   machine: Machine,
@@ -527,6 +528,7 @@ export async function offOfferAnswer(
       body: JSON.stringify({ available: false, ...(crews === undefined ? {} : { crews }), ...report }),
       signal: AbortSignal.timeout(timeoutMs),
     });
+    if (res.status === 408 || res.status === 429) return null;
     if (res.status >= 400 && res.status < 500) return "rejected";
     return res.ok ? crewOf(await res.json().catch(() => null)) : null;
   } catch {
