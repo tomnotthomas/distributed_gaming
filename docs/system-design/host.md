@@ -308,7 +308,7 @@ one, `net` once its figures move, and nothing more on a plain heartbeat. In rent
 Lanterel OS reports nothing, so the app reports the PC from Windows with its off-offer call
 whenever a section changes, and at Go live with `net` measured then over HTTP (round trips
 to `GET /api/ping` and one upload test), once the PC's read (hardware and games) is in, waiting
-up to 45 seconds for it, and before its plan changes anything. A Go live whose network it cannot
+up to 45 seconds for it and reading it again when the last read left it unread, and before its plan changes anything. A Go live whose network it cannot
 measure, whose PC it could not read, or whose report the server does not take, changes nothing
 and does not restart: the app says which, that it could not reach the server, that it could not
 read this PC, or that the server did not take the report when it answered no (a 4xx other than

@@ -62,6 +62,14 @@ type CrewAsks = { n: number; confirmed: Crew | null; at: number; done: number; s
 const noCrewAsks = (): CrewAsks => ({ n: 0, confirmed: null, at: 0, done: 0, sets: 0 });
 /** A first read of who may play that failed is tried again this much later, once. */
 export const CREW_RETRY_MS = 10_000;
+
+/** A promise and what settles it. */
+function settling(): { settled: Promise<void>; settle: () => void } {
+  let settle = () => {};
+  const settled = new Promise<void>((resolve) => (settle = resolve));
+  return { settled, settle };
+}
+
 /** How long Go live waits for this PC's read: the probe's own limit (probe.cjs) and some. */
 export const PC_READ_MS = 45_000;
 
@@ -113,15 +121,29 @@ export function useHost(): Host {
   const [pc, setPc] = useState<PcRead | null>(null);
   const [reading, setReading] = useState(true);
   const [reads, setReads] = useState(0);
+  // Reads finished, and whether one is under way: Go live's report waits for the hardware and
+  // games a read brings, and starts one of its own when the last left the PC unread.
+  const [readsIn, setReadsIn] = useState(0);
+  const readingNow = useRef(true);
   useEffect(() => {
     const host = bridge();
-    if (!host) return setReading(false);
+    if (!host) {
+      readingNow.current = false;
+      setReadsIn((n) => n + 1);
+      return setReading(false);
+    }
     let current = true;
+    readingNow.current = true;
     host
       .readPc()
       .then((read) => current && setPc(read))
       .catch(() => {})
-      .finally(() => current && setReading(false));
+      .finally(() => {
+        if (!current) return;
+        readingNow.current = false;
+        setReading(false);
+        setReadsIn((n) => n + 1);
+      });
     // Games installed or removed later arrive as the whole list.
     const unwatch = host.onGamesChanged((games) => setPc((read) => (read ? { ...read, games } : read)));
     return () => {
@@ -130,18 +152,11 @@ export function useHost(): Host {
     };
   }, [reads]);
 
-  // Settled once a read is in: Go live's report waits for the hardware and games it carries.
-  const pcRead = useRef<{ settled: Promise<void>; settle: () => void } | null>(null);
-  if (!pcRead.current) {
-    let settle = () => {};
-    const settled = new Promise<void>((resolve) => (settle = resolve));
-    pcRead.current = { settled, settle };
-  }
+  // Settled once the next read is in, after it rendered: what it read is in `latest` then.
+  const pcRead = useRef(settling());
   useEffect(() => {
-    if (!reading || pc) pcRead.current?.settle();
-  }, [reading, pc]);
-  const pcNow = useRef(pc);
-  pcNow.current = pc;
+    if (readsIn) pcRead.current.settle();
+  }, [readsIn]);
 
   const installed = pc?.games ?? [];
   const steam = useSteam({
@@ -489,17 +504,22 @@ export function useHost(): Host {
   // games, renters are not matched to it, so a PC not read, or read only in part, is not reported ("unread").
   goLiveReport.current = async () => {
     const machine = rentalCrew.current;
+    const read = () => latest.current.report.hardware && latest.current.report.games;
+    // Not read, or only partly: Try again reads this PC again, and waits for that read.
+    if (!read()) {
+      pcRead.current = settling();
+      if (!readingNow.current) setReads((n) => n + 1);
+    }
     let waited: number | undefined;
     const [net] = await Promise.all([
       machine ? measureNet(machine) : null,
       Promise.race([
-        pcRead.current?.settled,
+        pcRead.current.settled,
         new Promise<void>((done) => (waited = window.setTimeout(done, PC_READ_MS))),
       ]),
     ]);
     window.clearTimeout(waited);
-    const { hardware, games } = latest.current.report;
-    if (!pcNow.current || !hardware || !games) return "unread";
+    if (!read()) return "unread";
     return net && machine ? reportRental(net, machine) : false;
   };
   useEffect(() => {

@@ -766,6 +766,28 @@ describe("useHost", () => {
       expect(bridge.runRental).not.toHaveBeenCalled();
     });
 
+    it("reads this PC again when Go live is tried again after it couldn't read it", async () => {
+      let fails = true;
+      const { result, bridge } = await goLiveWithRead(async () => {
+        if (fails) throw new Error("main is gone");
+        return PC;
+      });
+      await vi.waitFor(async () => {
+        await settle();
+        expect(result.current.view.rental.run.failed).toEqual({ step: "report", error: REPORT_UNREAD });
+      });
+      // The read at launch failed, and so did the one Go live started of its own.
+      expect(bridge.readPc).toHaveBeenCalledTimes(2);
+      fails = false;
+      act(() => result.current.actions.retryRental());
+      await vi.waitFor(async () => {
+        await settle();
+        expect(bridge.runRental).toHaveBeenCalledOnce();
+      });
+      expect(bridge.readPc).toHaveBeenCalledTimes(3);
+      expect(pcReports.find((r) => "net" in r)!.hardware).toMatchObject({ gpu: PC.hardware.gpu });
+    });
+
     it("stops waiting for a read that never comes", async () => {
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
       const { result, bridge } = await goLiveWithRead(() => new Promise(() => {}));
