@@ -550,7 +550,7 @@ describe("useHost", () => {
       expect(pcReports[1]!.games).not.toContain(first);
     });
 
-    it("does not restart Go live when the network could not be measured", async () => {
+    it("does not arm Go live when the network could not be measured", async () => {
       const { result } = await ready();
       const bridge = (window as { swiffHost?: HostBridge }).swiffHost!;
       // Lanterel OS would have a network: Go live goes ahead (network.ts).
@@ -565,9 +565,10 @@ describe("useHost", () => {
         await settle();
         expect(result.current.view.rental.run.status).toBe("failed");
       });
-      expect(bridge.runRental).toHaveBeenCalledOnce();
+      // Not reported: nothing is written and BootNext is not set, so nothing restarts.
+      expect(bridge.runRental).not.toHaveBeenCalled();
       expect(bridge.restartRental).not.toHaveBeenCalled();
-      expect(result.current.view.rental.run.failed?.step).toBe("restart");
+      expect(result.current.view.rental.run.failed?.step).toBe("report");
     });
 
     it("puts a choice that did not save back to the platform's, and says so", async () => {
@@ -788,7 +789,9 @@ describe("useHost", () => {
           "PUT https://swiff.onrender.com/api/machines/geekom/ek",
         ]);
         expect(result.current.view.rental.run.failed?.step).not.toBe("ek");
-        expect(bridge.runRental).toHaveBeenCalledOnce();
+        // No network here to report this PC over: Go live stops at the report, after the EK.
+        expect(result.current.view.rental.run.failed?.step).toBe("report");
+        expect(bridge.runRental).not.toHaveBeenCalled();
         // Lanterel OS is provisioned with the same server.
         expect(bridge.planRental).toHaveBeenCalledWith(
           expect.objectContaining({
