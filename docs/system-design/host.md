@@ -307,8 +307,9 @@ installed or removed (it watches the Steam libraries) or the owner offers or sto
 one, `net` once its figures move, and nothing more on a plain heartbeat. In rental mode
 Lanterel OS reports nothing, so the app reports the PC from Windows with its off-offer call
 whenever a section changes, and at Go live with `net` measured then over HTTP (round trips
-to `GET /api/ping` and one upload test), before its plan changes anything. A Go live whose
-network it cannot measure, or whose report the server does not take, changes nothing and
+to `GET /api/ping` and one upload test), once the PC's first read (hardware and games) is in
+and before its plan changes anything. A Go live whose network it cannot measure, whose PC it
+could not read, or whose report the server does not take, changes nothing and
 does not restart: the app says it could not reach the server, or that the server did not take
 the report when it answered no (a 4xx), and Try again goes live afresh. A body is at most 32 KB.
 
