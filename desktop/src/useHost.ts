@@ -128,6 +128,19 @@ export function useHost(): Host {
     };
   }, [reads]);
 
+  // Settled once the first read is in: Go live's report waits for the hardware and games it carries.
+  const pcRead = useRef<{ settled: Promise<void>; settle: () => void } | null>(null);
+  if (!pcRead.current) {
+    let settle = () => {};
+    const settled = new Promise<void>((resolve) => (settle = resolve));
+    pcRead.current = { settled, settle };
+  }
+  useEffect(() => {
+    if (!reading) pcRead.current?.settle();
+  }, [reading]);
+  const pcNow = useRef(pc);
+  pcNow.current = pc;
+
   const installed = pc?.games ?? [];
   const steam = useSteam({
     installed: installed.map((g) => g.appid),
@@ -470,10 +483,11 @@ export function useHost(): Host {
   };
   // Go live's report carries the network: renters are not matched to a PC without it.
   // Bound to the machine it was planned for: a connection changed meanwhile ends this Go live.
+  // It waits for this PC's first read too: without the hardware and games, renters are not matched to it.
   goLiveReport.current = async () => {
     const machine = rentalCrew.current;
-    const net = machine ? await measureNet(machine) : null;
-    return net && machine ? reportRental(net, machine) : false;
+    const [net] = await Promise.all([machine ? measureNet(machine) : null, pcRead.current?.settled]);
+    return net && machine && pcNow.current ? reportRental(net, machine) : false;
   };
   useEffect(() => {
     if (rentalMachine) void reportRental(null);

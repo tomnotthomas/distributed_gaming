@@ -675,6 +675,44 @@ describe("useHost", () => {
       expect(result.current.view.rental.run.failed).toEqual({ step: "report", error: REPORT_REJECTED });
     });
 
+    it("waits for this PC's first read before Go live reports it", async () => {
+      const bridge = (window as { swiffHost?: HostBridge }).swiffHost!;
+      let read: (pc: typeof PC) => void = () => {};
+      bridge.readPc = vi.fn(() => new Promise<typeof PC>((resolve) => (read = resolve)));
+      const { result } = renderHook(() => useHost());
+      await settle();
+      expect(result.current.view.pc.reading).toBe(true);
+      bridge.readRental = vi.fn(async () => ({ ...READY, network: { kind: "wired" as const } }));
+      act(() => result.current.actions.checkRental());
+      await settle();
+      bridge.planRental = vi.fn(async () => ({ kind: "once", steps: [] }) as unknown as RentalPlan);
+      bridge.runRental = vi.fn(async () => ({ status: "done" as const, done: [], results: [] }));
+      bridge.restartRental = vi.fn(async () => true);
+      const platform = globalThis.fetch;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string, init: RequestInit) => {
+          const path = new URL(url).pathname;
+          if (path === "/api/ping") return new Response("{}");
+          if (path.endsWith("/upload-test")) return new Response(null, { status: 204 });
+          return platform(url, init);
+        }),
+      );
+      act(() => result.current.actions.goLiveRental());
+      await settle();
+      // The network is measured, but the PC is not read yet: nothing is reported or armed.
+      expect(pcReports.some((r) => "net" in r)).toBe(false);
+      expect(bridge.runRental).not.toHaveBeenCalled();
+      await act(async () => read(PC));
+      await vi.waitFor(async () => {
+        await settle();
+        expect(bridge.runRental).toHaveBeenCalledOnce();
+      });
+      const goLive = pcReports.find((r) => "net" in r)!;
+      expect(goLive.hardware).toMatchObject({ gpu: PC.hardware.gpu });
+      expect(goLive.games).toEqual([730, 1245620]);
+    });
+
     it("puts a choice that did not save back to the platform's, and says so", async () => {
       const { result } = await ready();
       answers.push("fail");
