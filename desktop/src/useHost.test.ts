@@ -553,6 +553,10 @@ describe("useHost", () => {
     it("does not restart Go live when the network could not be measured", async () => {
       const { result } = await ready();
       const bridge = (window as { swiffHost?: HostBridge }).swiffHost!;
+      // Lanterel OS would have a network: Go live goes ahead (network.ts).
+      bridge.readRental = vi.fn(async () => ({ ...READY, network: { kind: "wired" as const } }));
+      act(() => result.current.actions.checkRental());
+      await settle();
       bridge.planRental = vi.fn(async () => ({ kind: "once", steps: [] }) as unknown as RentalPlan);
       bridge.runRental = vi.fn(async () => ({ status: "done" as const, done: [], results: [] }));
       bridge.restartRental = vi.fn(async () => true);

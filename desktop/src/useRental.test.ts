@@ -662,6 +662,7 @@ describe("useRental", () => {
     host.restartRental = vi.fn(async () => true);
     let reported = (_ok: boolean) => {};
     const reportPc = vi.fn(() => new Promise<boolean>((resolve) => (reported = resolve)));
+    host.readRental = vi.fn(async () => ({ facts: { checked: null }, network: { kind: "wired" } }) as never);
     const { result } = renderHook(() => useRental({ reportPc }));
     await act(async () => {});
     act(() => result.current.goLive());
@@ -685,6 +686,7 @@ describe("useRental", () => {
     }));
     host.restartRental = vi.fn(async () => true);
     const reportPc = vi.fn(async () => false);
+    host.readRental = vi.fn(async () => ({ facts: { checked: null }, network: { kind: "wired" } }) as never);
     const { result } = renderHook(() => useRental({ reportPc }));
     await act(async () => {});
     act(() => result.current.goLive());
