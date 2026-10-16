@@ -486,7 +486,7 @@ export function useHost(): Host {
   // Go live's report carries the network: renters are not matched to a PC without it.
   // Bound to the machine it was planned for: a connection changed meanwhile ends this Go live.
   // It waits for this PC's read too, for as long as the probe may take: without the hardware and
-  // games, renters are not matched to it, so a PC not read is not reported ("unread").
+  // games, renters are not matched to it, so a PC not read, or read only in part, is not reported ("unread").
   goLiveReport.current = async () => {
     const machine = rentalCrew.current;
     let waited: number | undefined;
@@ -498,7 +498,8 @@ export function useHost(): Host {
       ]),
     ]);
     window.clearTimeout(waited);
-    if (!pcNow.current) return "unread";
+    const { hardware, games } = latest.current.report;
+    if (!pcNow.current || !hardware || !games) return "unread";
     return net && machine ? reportRental(net, machine) : false;
   };
   useEffect(() => {

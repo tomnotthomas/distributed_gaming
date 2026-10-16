@@ -752,6 +752,20 @@ describe("useHost", () => {
       expect(bridge.runRental).not.toHaveBeenCalled();
     });
 
+    it("says it couldn't read this PC when a part of it was not read, and reports and arms nothing", async () => {
+      const { result, bridge } = await goLiveWithRead(async () => ({
+        ...PC,
+        hardware: { ...PC.hardware, gpu: null },
+      }));
+      await vi.waitFor(async () => {
+        await settle();
+        expect(result.current.view.rental.run.status).toBe("failed");
+      });
+      expect(result.current.view.rental.run.failed).toEqual({ step: "report", error: REPORT_UNREAD });
+      expect(pcReports.some((r) => "net" in r)).toBe(false);
+      expect(bridge.runRental).not.toHaveBeenCalled();
+    });
+
     it("stops waiting for a read that never comes", async () => {
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
       const { result, bridge } = await goLiveWithRead(() => new Promise(() => {}));
