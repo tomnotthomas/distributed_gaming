@@ -9,6 +9,7 @@ import type { RunEvent, RunOutcome } from "../rental-exec.cjs";
 import type { RentalPlan, RentalRead } from "../rental.cjs";
 import type { HostBridge } from "./bridge";
 import type { EkResult } from "./ek";
+import { REPORT_FAILED } from "./rental";
 import { stepBytes, useRental } from "./useRental";
 
 const plan = (kind: RentalPlan["kind"], title: string): RentalPlan =>
@@ -652,7 +653,7 @@ describe("useRental", () => {
     expect(host.restartRental).toHaveBeenCalledOnce();
   });
 
-  it("reports this PC while Go live runs, and restarts only once that report is in", async () => {
+  it("reports this PC while Go live plans, and runs the plan only once that report is in", async () => {
     const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
     host.runRental = vi.fn(async (): Promise<RunOutcome> => ({
       status: "done",
@@ -670,14 +671,14 @@ describe("useRental", () => {
     expect(reportPc).toHaveBeenCalledOnce();
     await answer(0, plan("once", "once"));
     await act(async () => {});
-    expect(host.runRental).toHaveBeenCalledOnce();
-    expect(host.restartRental).not.toHaveBeenCalled();
-    expect(result.current.run.status).toBe("restarting");
+    expect(host.runRental).not.toHaveBeenCalled();
+    expect(result.current.run.status).toBe("running");
     await act(async () => reported(true));
+    expect(host.runRental).toHaveBeenCalledOnce();
     expect(host.restartRental).toHaveBeenCalledOnce();
   });
 
-  it("does not restart Go live when its report was not taken, and reports again on Restart now", async () => {
+  it("changes nothing when Go live's report was not taken, and Try again goes live afresh", async () => {
     const host = (window as { swiffHost?: Partial<HostBridge> }).swiffHost!;
     host.runRental = vi.fn(async (): Promise<RunOutcome> => ({
       status: "done",
@@ -690,22 +691,21 @@ describe("useRental", () => {
     const { result } = renderHook(() => useRental({ reportPc }));
     await act(async () => {});
     act(() => result.current.goLive());
-    const once = plan("once", "once");
-    once.steps.push({
-      id: "restart",
-      title: "Restart",
-      confirm: "Restarts.",
-      commands: [],
-      ops: [{ op: "restart" }],
-    });
-    await answer(0, once);
+    await answer(0, plan("once", "once"));
     await act(async () => {});
+    expect(host.runRental).not.toHaveBeenCalled();
     expect(host.restartRental).not.toHaveBeenCalled();
-    expect(result.current.run).toMatchObject({ status: "failed", failed: { step: "restart" } });
+    expect(result.current.run).toMatchObject({
+      status: "failed",
+      failed: { step: "report", error: REPORT_FAILED },
+    });
 
     reportPc.mockResolvedValue(true);
-    await act(async () => result.current.retry());
+    act(() => result.current.retry());
     expect(reportPc).toHaveBeenCalledTimes(2);
+    await answer(1, plan("once", "once"));
+    await act(async () => {});
+    expect(host.runRental).toHaveBeenCalledOnce();
     expect(host.restartRental).toHaveBeenCalledOnce();
   });
 

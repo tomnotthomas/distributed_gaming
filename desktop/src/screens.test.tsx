@@ -1559,13 +1559,13 @@ describe("rental mode", () => {
     expect(acts.retryRental).not.toHaveBeenCalled();
     cleanup();
 
-    // Go live's report didn't reach the server: nothing restarted, and Try again reports, then restarts.
-    acts = renderReal("live", off, failedAt("restart", REPORT_FAILED));
+    // Go live's report didn't reach the server: nothing changed, and Try again goes live afresh.
+    acts = renderReal("live", off, failedAt("report", REPORT_FAILED));
     expect(h1()).toHaveTextContent("Lanterel couldn't reach the server");
     expect(screen.queryByText(/key is queued/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    expect(acts.restartRental).toHaveBeenCalledOnce();
-    expect(acts.retryRental).not.toHaveBeenCalled();
+    expect(acts.retryRental).toHaveBeenCalledOnce();
+    expect(acts.restartRental).not.toHaveBeenCalled();
     cleanup();
 
     acts = renderReal("live", off, failedAt("once", "bcdedit failed: exit code 5"));
