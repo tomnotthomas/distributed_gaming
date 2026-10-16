@@ -41,7 +41,7 @@ import {
   toSocketUrl,
 } from "./settings";
 import { usePairing } from "./usePairing";
-import { useRental } from "./useRental";
+import { useRental, type PcReported } from "./useRental";
 import { useScreenShare } from "./useScreenShare";
 import { useSteam } from "./useSteam";
 
@@ -73,6 +73,9 @@ type Settings = Pick<Connection, "url" | "machineId" | "machineKey">;
  * platform does not report reliability, levels, a rate or earnings yet, so
  * those stay null here.
  */
+/** How long Go live waits for this PC's read: the probe's own limit (probe.cjs) and some. */
+export const PC_READ_MS = 45_000;
+
 export function useHost(): Host {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
@@ -128,7 +131,7 @@ export function useHost(): Host {
     };
   }, [reads]);
 
-  // Settled once the first read is in: Go live's report waits for the hardware and games it carries.
+  // Settled once a read is in: Go live's report waits for the hardware and games it carries.
   const pcRead = useRef<{ settled: Promise<void>; settle: () => void } | null>(null);
   if (!pcRead.current) {
     let settle = () => {};
@@ -136,8 +139,8 @@ export function useHost(): Host {
     pcRead.current = { settled, settle };
   }
   useEffect(() => {
-    if (!reading) pcRead.current?.settle();
-  }, [reading]);
+    if (!reading || pc) pcRead.current?.settle();
+  }, [reading, pc]);
   const pcNow = useRef(pc);
   pcNow.current = pc;
 
@@ -151,7 +154,7 @@ export function useHost(): Host {
   // or says which part of it is missing.
   const ekMachine = useRef<Machine | EkError>("no-machine");
   // Go live reports this PC with the network measured then, before the restart (reportRental below).
-  const goLiveReport = useRef<() => Promise<boolean | "rejected">>(async () => false);
+  const goLiveReport = useRef<() => Promise<PcReported>>(async () => false);
   const rental = useRental({
     registerEk: async (ek) =>
       typeof ekMachine.current === "string"
@@ -483,11 +486,21 @@ export function useHost(): Host {
   };
   // Go live's report carries the network: renters are not matched to a PC without it.
   // Bound to the machine it was planned for: a connection changed meanwhile ends this Go live.
-  // It waits for this PC's first read too: without the hardware and games, renters are not matched to it.
+  // It waits for this PC's read too, for as long as the probe may take: without the hardware and
+  // games, renters are not matched to it, so a PC not read is not reported ("unread").
   goLiveReport.current = async () => {
     const machine = rentalCrew.current;
-    const [net] = await Promise.all([machine ? measureNet(machine) : null, pcRead.current?.settled]);
-    return net && machine && pcNow.current ? reportRental(net, machine) : false;
+    let waited: number | undefined;
+    const [net] = await Promise.all([
+      machine ? measureNet(machine) : null,
+      Promise.race([
+        pcRead.current?.settled,
+        new Promise<void>((done) => (waited = window.setTimeout(done, PC_READ_MS))),
+      ]),
+    ]);
+    window.clearTimeout(waited);
+    if (!pcNow.current) return "unread";
+    return net && machine ? reportRental(net, machine) : false;
   };
   useEffect(() => {
     if (rentalMachine) void reportRental(null);

@@ -1005,6 +1005,9 @@ function ekFailure(setup: RentalSetup, error: string, stoppedAt: string): Failur
 /** Go live's error when the server didn't take this PC's report: nothing on the PC changed. */
 export const REPORT_FAILED = "Lanterel couldn't report this PC to the server.";
 
+/** Go live's error when the app couldn't read this PC's hardware and games to report: nothing on the PC changed. */
+export const REPORT_UNREAD = "Lanterel couldn't read this PC.";
+
 /** Go live's error when the server answered and turned this PC's report down: nothing on the PC changed. */
 export const REPORT_REJECTED = "The server didn't take this PC's report.";
 
@@ -1085,6 +1088,16 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
         changed:
           "Nothing on this PC has changed. Try again, and update the Lanterel app if it keeps happening.",
         rail: "Report not taken",
+      };
+    // Nothing reached the server: the app couldn't read this PC to report it.
+    if (error === REPORT_UNREAD)
+      return {
+        ...base,
+        title: "Lanterel couldn't read this PC",
+        why: "Lanterel couldn't read this PC's hardware and games to report them, so it didn't go live.",
+        changed:
+          "Nothing on this PC has changed. Try again, and restart the Lanterel app if it keeps happening.",
+        rail: "PC not read",
       };
     return {
       ...base,

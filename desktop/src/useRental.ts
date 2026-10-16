@@ -9,6 +9,7 @@ import { agreedWifi, networkReady } from "./network";
 import {
   REPORT_FAILED,
   REPORT_REJECTED,
+  REPORT_UNREAD,
   endsInRestart,
   fileName,
   firmwareChecks,
@@ -63,6 +64,12 @@ export function stepBytes(
 }
 
 /**
+ * Go live's report of this PC: true once the server took it, "rejected" when it answered no,
+ * "unread" when the app couldn't read this PC to report it, false when the server couldn't be reached.
+ */
+export type PcReported = boolean | "rejected" | "unread";
+
+/**
  * Rental mode on this PC, read through main (rental.cjs) once on opening and
  * again when the owner asks: after a trip to the BIOS, say. A plan comes back
  * for the screen; running it is main's (rental-exec.cjs), which runs every
@@ -77,8 +84,7 @@ export function useRental({
   reportPc = async () => true,
 }: {
   registerEk?: (ek: EkCertificate) => Promise<EkResult>;
-  /** True once the server took the report, "rejected" when it answered no, false when it couldn't be reached. */
-  reportPc?: () => Promise<boolean | "rejected">;
+  reportPc?: () => Promise<PcReported>;
 } = {}): RentalSetup & {
   check(): void;
   choose(id: string): void;
@@ -349,7 +355,11 @@ export function useRental({
         }
         const taken = await reported.catch(() => false);
         if (n !== plans.current) return;
-        if (taken !== true) return stopped("report", taken === "rejected" ? REPORT_REJECTED : REPORT_FAILED);
+        if (taken !== true)
+          return stopped(
+            "report",
+            taken === "rejected" ? REPORT_REJECTED : taken === "unread" ? REPORT_UNREAD : REPORT_FAILED,
+          );
         const outcome = await runPlan(plan);
         if (n !== plans.current || !outcome) return;
         if (outcome.status === "done") return restart();

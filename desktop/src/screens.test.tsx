@@ -13,7 +13,7 @@ import {
   type Step,
 } from "./model";
 import { ArtContext } from "./ui/art";
-import { REPORT_FAILED, REPORT_REJECTED } from "./rental";
+import { REPORT_FAILED, REPORT_REJECTED, REPORT_UNREAD } from "./rental";
 import { HOLD_MS } from "./ui/hold";
 import { useDemoHost } from "./useDemoHost";
 import {
@@ -1575,6 +1575,14 @@ describe("rental mode", () => {
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(acts.retryRental).toHaveBeenCalledOnce();
     expect(acts.restartRental).not.toHaveBeenCalled();
+    cleanup();
+
+    // The app couldn't read this PC: nothing reached the server, and the screen says so.
+    acts = renderReal("live", off, failedAt("report", REPORT_UNREAD));
+    expect(h1()).toHaveTextContent("Lanterel couldn't read this PC");
+    expect(screen.queryByText(/internet connection/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(acts.retryRental).toHaveBeenCalledOnce();
     cleanup();
 
     acts = renderReal("live", off, failedAt("once", "bcdedit failed: exit code 5"));
