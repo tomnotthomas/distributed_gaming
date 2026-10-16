@@ -71,6 +71,7 @@
       "network.cjs",
       "tpm-seal.cjs",
       "user-data.cjs",
+      "relaunch.cjs",
       "dist/**"
     ],
     "win": {

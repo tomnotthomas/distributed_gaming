@@ -44,7 +44,9 @@ them for real: one UAC prompt starts the app again as administrator, as a worker
 worker with, without sending it, and every later message is sealed with a key from that
 token and both ends' nonces, so a process that opens or relays the pipe cannot add an
 operation. The owner's one OK starts the run, and every step runs by itself up to the
-restart, which waits for the owner's Restart now.
+restart, which waits for the owner's Restart now. Before each restart it runs, the app asks
+Windows to open it once at the owner's next sign-in, at the step after the restart
+(`desktop/relaunch.cjs`, this user's own RunOnce), so the owner need not reopen it.
 
 **The BitLocker recovery key first.** When BitLocker protects C: or the games drive, nothing
 that changes what the PC starts (the install, the key's restarts, Go live, Remove Swiff OS) is
