@@ -550,6 +550,29 @@ describe("useHost", () => {
       expect(pcReports[1]!.games).not.toContain(first);
     });
 
+    it("still sends this PC's next report after one failed before it was sent", async () => {
+      const { result } = await ready();
+      expect(pcReports).toHaveLength(1);
+      const stringify = JSON.stringify;
+      // The next report fails while being put together, before anything is sent.
+      const spy = vi.spyOn(JSON, "stringify").mockImplementation((value, ...rest) => {
+        if (Array.isArray(value) && (value[0] as { machineId?: string })?.machineId) {
+          spy.mockRestore();
+          throw new TypeError("broken report");
+        }
+        return stringify(value, ...(rest as [undefined]));
+      });
+      const [first, second] = result.current.view.games.offered!;
+      act(() => result.current.actions.toggleOffer!(first!));
+      await settle();
+      spy.mockRestore();
+      expect(pcReports).toHaveLength(1);
+      act(() => result.current.actions.toggleOffer!(second!));
+      await settle();
+      expect(pcReports).toHaveLength(2);
+      expect(pcReports[1]!.games).not.toContain(second);
+    });
+
     it("does not arm Go live when the network could not be measured", async () => {
       const { result } = await ready();
       const bridge = (window as { swiffHost?: HostBridge }).swiffHost!;

@@ -457,7 +457,7 @@ export function useHost(): Host {
       if (ok) rentalReported.current = key;
       return ok;
     };
-    const turn = rentalReports.current.then(send);
+    const turn = rentalReports.current.then(send).catch(() => false);
     rentalReports.current = turn;
     return turn;
   };
