@@ -1204,7 +1204,11 @@ mode; a socket on an attested host certificate is rental mode either way.
   is served at once, with a new key. Otherwise it waits (status `preparing`, during which
   the owner may take the PC back) for the Steam client to be ready at its sign-in window
   and kept for the next boot, at most 15 minutes, so no renter waits on a download; then
-  it closes the keeping, before it offers or serves anyone (above, "What runs").
+  it closes the keeping, before it offers or serves anyone (above, "What runs"). In the
+  boot the owner's Go live restarted the PC into (swiff-provision's `go-live` note), it
+  then offers the PC itself, on the owner's terms as of now; the host app offers nothing
+  from Windows. Otherwise a PC found off offer that it did not take off itself goes back
+  to Windows.
 - **Opens the persistent state only for an untouched system** (report §5.3, the U/V split),
   before anything else on boot. The state is a LUKS2 partition whose key is U XOR V: U is
   sealed to this PC's TPM under Swiff's signed PCR 11 policy (a `systemd-creds` credential
