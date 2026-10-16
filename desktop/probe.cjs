@@ -104,11 +104,14 @@ $out | ConvertTo-Json -Compress -Depth 4
 
 /**
  * The model of a graphics chip Windows names only by its maker ("AMD
- * Radeon(TM) Graphics", a Ryzen's own), by its PCI vendor and device id: the
- * platform scores a card by its model and would score the maker's name 0.
+ * Radeon(TM) Graphics", a Ryzen's own), by its PCI vendor and device id and
+ * the processor it sits in: the platform scores a card by its model and would
+ * score the maker's name 0. One id can be more than one model: 1002:1681 is
+ * the Radeon 680M of a Ryzen 7 or 9 6800/6900 or 7735/7736, and the smaller
+ * 660M of a Ryzen 5 6600 or 7535, so the processor's name decides.
  */
 const MODELS = {
-  "1002:1681": "AMD Radeon 680M",
+  "1002:1681": [{ cpu: /\bRyzen [79](?: PRO)? (?:6[89]\d\d|773[56])[A-Z]*\b/i, model: "AMD Radeon 680M" }],
 };
 
 /** A name that says only who made the chip: nothing left once the maker's words are taken out. */
@@ -118,12 +121,16 @@ const makerOnly = (name) =>
     .replace(/\b(AMD|ATI|Radeon|Graphics)\b/gi, " ")
     .trim();
 
-/** The card's name as the report gives it: its model where Windows gave only the maker's name and the id is known. */
-function cardModel({ name, vendor, device }) {
+/**
+ * The card's name as the report gives it: its model where Windows gave only
+ * the maker's name and the id and processor say which model it is.
+ */
+function cardModel({ name, vendor, device }, cpu) {
   const id = [vendor, device]
     .map((n) => (Number.isSafeInteger(n) ? n.toString(16).padStart(4, "0") : ""))
     .join(":");
-  return (makerOnly(name) && MODELS[id]) || name.trim();
+  const known = makerOnly(name) && MODELS[id]?.find((m) => typeof cpu === "string" && m.cpu.test(cpu));
+  return known ? known.model : name.trim();
 }
 
 /** PowerShell's -EncodedCommand form of `script`: UTF-16LE, base64. */
@@ -161,6 +168,7 @@ function parseProbe(stdout) {
   );
   const ram = list(raw.ram).map(Number);
   const cpus = list(raw.cpus);
+  const cpu = typeof cpus[0]?.name === "string" && cpus[0].name.trim() ? cpus[0].name.trim() : null;
   const cores = cpus.reduce((sum, c) => sum + (count(c?.cores) ?? 0), 0);
   // A codec that could not be listed (-1) leaves the whole set unread.
   const encoders =
@@ -171,10 +179,10 @@ function parseProbe(stdout) {
       : null;
 
   return {
-    gpu: card ? cardModel(card) : null,
+    gpu: card ? cardModel(card, cpu) : null,
     vramMb: card ? Math.round((Number(card.vram) || 0) / 1024 ** 2) : null,
     ramMb: ram.length && ram.every(Number.isFinite) ? wholeMb(ram.reduce((a, b) => a + b, 0)) : null,
-    cpu: typeof cpus[0]?.name === "string" && cpus[0].name.trim() ? cpus[0].name.trim() : null,
+    cpu,
     cores: cores || null,
     encoders: encoders ? Object.keys(CODECS).filter((codec) => Number(encoders[codec]) > 0) : null,
     pad: raw.vigem === true,
