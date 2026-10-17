@@ -154,8 +154,10 @@ PUT  /machines/:id/availability
   where swiff-hostd makes the offers, at once on its own; one that fails to save goes back
   to the last confirmed choice, with a note), and shows "Who does your PC play for?" while the owner is in a
   crew or the PC is crew-only. In rental mode the host app sends this call (`available:
-  false`, with or without `crews`) only from Windows, where the PC is already off offer,
-  so it never ends a session; Swiff OS's next offer applies the saved crew choice.
+  false`, with or without `crews`, or with the host report) only from Windows, where the
+  PC is already off offer, so it never ends a session; Swiff OS's next offer applies the
+  saved crew choice. swiff-hostd makes that offer itself in the boot the owner's Go live
+  restarted the PC into, once it is attested and ready.
   A crew-only PC that plays for no crew (its owner picked none, or left the crews it
   played for) matches nobody; the app says so and, when the owner is in no crew, points
   them to the web app's `/crews` page to start one; when they are in crews but the PC
@@ -302,8 +304,15 @@ section is optional: one that is sent replaces what the platform stored for it, 
 is left out keeps it. The host app sends every section it knows with the first
 availability call, then each section again only when it changes: `games` when a game is
 installed or removed (it watches the Steam libraries) or the owner offers or stops offering
-one, `net` once its figures move, and nothing more on a plain heartbeat. A body is at most
-32 KB.
+one, `net` once its figures move, and nothing more on a plain heartbeat. In rental mode
+Lanterel OS reports nothing, so the app reports the PC from Windows with its off-offer call
+whenever a section changes, and at Go live with `net` measured then over HTTP (round trips
+to `GET /api/ping` and one upload test), once the PC's read (hardware and games) is in, waiting
+up to 45 seconds for it and reading it again when the last read left it unread, and before its plan changes anything. A Go live whose network it cannot
+measure, whose PC it could not read, or whose report the server does not take, changes nothing
+and does not restart: the app says which, that it could not reach the server, that it could not
+read this PC, or that the server did not take the report when it answered no (a 4xx other than
+408 or 429), and Try again goes live afresh. A body is at most 32 KB.
 
 ```json
 {
@@ -323,20 +332,20 @@ one, `net` once its figures move, and nothing more on a plain heartbeat. A body 
 }
 ```
 
-| Field               | Rule                                                                                                                                           | Where the PC gets it                                                   |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `name`              | 1–64 characters, shown to renters                                                                                                              | The owner, in the host app's settings; else the machine id             |
-| `hardware`          | All seven fields required                                                                                                                      |                                                                        |
-| `hardware.gpu`      | 1–200 characters, the adapter's name as Windows reports it; scored against the GPU score table (`packages/rank`), and an unknown card scores 0 | DXGI adapter description, of the card with the most memory of its own  |
-| `hardware.vramMb`   | Whole MB, 0–262144; stored as the whole GB when within 3% of it (8028 → 8192): drivers report under the marketed size; else kept as sent       | DXGI `DedicatedVideoMemory`                                            |
-| `hardware.ramMb`    | Whole MB, 0–4194304; snapped to a whole GB in the same way (16311 → 16384), other values kept                                                  | WMI `Win32_PhysicalMemory` capacities, summed                          |
-| `hardware.cpu`      | 1–200 characters                                                                                                                               | WMI `Win32_Processor.Name`                                             |
-| `hardware.cores`    | Whole number, 1–1024: physical cores                                                                                                           | WMI `Win32_Processor.NumberOfCores`, summed                            |
-| `hardware.encoders` | Any of `h264`, `hevc`, `av1`: what the GPU can encode the stream with                                                                          | NVENC, AMF or QSV probe: Media Foundation's hardware encoders          |
-| `hardware.display`  | `width`, `height` (1–16384) and `refreshHz` (1–1000), whole numbers: the display the stream captures                                           | The primary display's mode                                             |
-| `games`             | Up to 2000 Steam appids, whole numbers from 1: installed, ready to launch and offered by the owner. `[]` means none                            | `libraryfolders.vdf` → `appmanifest_<appid>.acf` with `StateFlags` = 4 |
-| `controls`          | Any of `kb`, `mouse`, `pad`; `pad` only when the ViGEmBus driver is installed                                                                  | Driver check                                                           |
-| `net`               | All three fields required, numbers from 0: `rttMs` and `jitterMs` up to 60000, `upMbps` up to 100000                                           | Round trip to the server, and an upload test (below)                   |
+| Field               | Rule                                                                                                                                                                                                                                                          | Where the PC gets it                                                   |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `name`              | 1–64 characters, shown to renters                                                                                                                                                                                                                             | The owner, in the host app's settings; else the machine id             |
+| `hardware`          | All seven fields required                                                                                                                                                                                                                                     |                                                                        |
+| `hardware.gpu`      | 1–200 characters, the adapter's name as Windows reports it, or its model where Windows names only the maker and the PCI id and processor say which (a Ryzen's own Radeon); scored against the GPU score table (`packages/rank`), and an unknown card scores 0 | DXGI adapter description, of the card with the most memory of its own  |
+| `hardware.vramMb`   | Whole MB, 0–262144; stored as the whole GB when within 3% of it (8028 → 8192): drivers report under the marketed size; else kept as sent                                                                                                                      | DXGI `DedicatedVideoMemory`                                            |
+| `hardware.ramMb`    | Whole MB, 0–4194304; snapped to a whole GB in the same way (16311 → 16384), other values kept                                                                                                                                                                 | WMI `Win32_PhysicalMemory` capacities, summed                          |
+| `hardware.cpu`      | 1–200 characters                                                                                                                                                                                                                                              | WMI `Win32_Processor.Name`                                             |
+| `hardware.cores`    | Whole number, 1–1024: physical cores                                                                                                                                                                                                                          | WMI `Win32_Processor.NumberOfCores`, summed                            |
+| `hardware.encoders` | Any of `h264`, `hevc`, `av1`: what the GPU can encode the stream with                                                                                                                                                                                         | NVENC, AMF or QSV probe: Media Foundation's hardware encoders          |
+| `hardware.display`  | `width`, `height` (1–16384) and `refreshHz` (1–1000), whole numbers: the display the stream captures                                                                                                                                                          | The primary display's mode                                             |
+| `games`             | Up to 2000 Steam appids, whole numbers from 1: installed, ready to launch and offered by the owner. `[]` means none                                                                                                                                           | `libraryfolders.vdf` → `appmanifest_<appid>.acf` with `StateFlags` = 4 |
+| `controls`          | Any of `kb`, `mouse`, `pad`; `pad` only when the ViGEmBus driver is installed. In rental mode all three (Lanterel OS injects them)                                                                                                                            | Driver check; none in rental mode                                      |
+| `net`               | All three fields required, numbers from 0: `rttMs` and `jitterMs` up to 60000, `upMbps` up to 100000                                                                                                                                                          | Round trip to the server, and an upload test (below)                   |
 
 The host app reads the hardware once per launch, in one PowerShell run (`desktop/probe.cjs`);
 the section is sent only once all seven fields are read. `rttMs` is the median round trip

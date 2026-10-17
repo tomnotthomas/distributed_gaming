@@ -134,6 +134,7 @@ function harness(
     unmet = [],
     saved: initial = null,
     served: servedBefore = null,
+    wentLive: live = false,
     bootId = "boot-now",
     rebootFails = false,
     steamReady = () => true,
@@ -143,6 +144,8 @@ function harness(
     saved?: Resume | null;
     /** The boot a renter was last served in, and their session, as a previous run of the agent noted it. */
     served?: Served | null;
+    /** The owner's Go live restarted the PC into this boot: swiff-provision's note is there. */
+    wentLive?: boolean;
     bootId?: string;
     /** `systemctl reboot` fails: the agent is left running in the same boot. */
     rebootFails?: boolean;
@@ -196,7 +199,11 @@ function harness(
     resume: {
       save: async (resume) => void (saved = resume),
       read: async () => saved,
-      clear: async () => void (saved = null),
+      wentLive: async () => live,
+      clear: async () => {
+        saved = null;
+        live = false;
+      },
       markServed: async (next) => void (served = next),
       servedBoot: async () => served,
       forgetServed: async () => void (served = null),
@@ -218,6 +225,7 @@ function harness(
     steam,
     running,
     saved: () => saved,
+    wentLive: () => live,
     served: () => served,
     socket: () => sockets.at(-1)!,
   };
@@ -313,7 +321,36 @@ describe("offering and serving", () => {
     expect(h.saved()).toBeNull();
   });
 
-  it("goes back to Windows when it boots off offer with no reset of its own behind it", async () => {
+  it("offers the PC itself, once ready, in the boot the owner's Go live restarted it into", async () => {
+    const h = harness(fakeServer({ status: "idle", until: Date.now() - HOUR }), { wentLive: true });
+    await until(() => phase(h.agent) === "offered", "the offer");
+    // On the owner's terms as of now, not the share-until an earlier share left.
+    expect(h.server.state).toMatchObject({ status: "available", until: null });
+    expect(h.server.calls.slice(0, 3)).toEqual(["session end", "heartbeat", "availability true"]);
+    // Offered only once the Steam client was kept and closed for the renter.
+    expect(h.steam.closed?.calls).not.toContain("availability true");
+    expect(h.wentLive()).toBe(false);
+    expect(h.system).toEqual({ reboots: 0, windows: 0 });
+  });
+
+  it("keeps the Go live note while it retries the offer, and clears it once offered", async () => {
+    const h = harness(fakeServer({ status: "idle", unreachable: 1_000 }), { wentLive: true });
+    await until(() => h.server.calls.includes("availability true"), "a try to offer");
+    expect(h.wentLive()).toBe(true);
+    h.server.state.unreachable = 0;
+    await until(() => phase(h.agent) === "offered", "the offer");
+    expect(h.wentLive()).toBe(false);
+  });
+
+  it("serves a renter held through the restart, even in a Go live boot", async () => {
+    const h = harness(fakeServer({ status: "in_session", sessionId: "s1" }), { wentLive: true });
+    await until(() => h.streamers.length === 1, "the streamer");
+    expect(h.agent.status()).toMatchObject({ phase: "serving", sessionId: "s1" });
+    expect(h.server.calls).not.toContain("availability true");
+    expect(h.wentLive()).toBe(false);
+  });
+
+  it("goes back to Windows when it boots off offer with neither a Go live nor a reset of its own behind it", async () => {
     const h = harness(fakeServer({ status: "idle" }));
     expect(await h.running).toBe("windows");
     expect(h.system).toEqual({ reboots: 0, windows: 1 });

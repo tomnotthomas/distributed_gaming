@@ -16,6 +16,13 @@ describe("gpuScore", () => {
     expect(gpuScore("  rtx   4070 ti ")).toBe(310);
   });
 
+  it("scores a Ryzen's own Radeon by the model the host app names it, above the lowest game minimum", () => {
+    expect(gpuScore("AMD Radeon 680M")).toBe(35);
+    expect(gpuScore("AMD Radeon 680M")).toBeGreaterThanOrEqual(gpuScore("GTX 1050"));
+    // Windows' own name for it says only who made it.
+    expect(gpuScore("AMD Radeon(TM) Graphics")).toBe(0);
+  });
+
   it("keeps variants apart rather than matching a prefix", () => {
     expect(gpuScore("RTX 4070 Ti Super")).toBe(330);
     expect(gpuScore("RTX 4070")).toBe(230);

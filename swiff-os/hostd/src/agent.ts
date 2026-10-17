@@ -20,10 +20,12 @@
 // session is live. Unless a renter already waits on the PC, the agent then
 // waits for the Steam client to be ready and kept for the next boot (it is kept
 // only from before any renter: steam/client), and closes that keeping before
-// anyone is served. A session still live there is served at once. A machine off
-// offer is one the agent paused before its reset reboot, and is offered again
-// on the owner's terms; otherwise its owner stopped sharing it, and it goes
-// back to Windows.
+// anyone is served. A session still live there is served at once. In the boot
+// the owner's Go live restarted the PC into (swiff-provision's note), the agent
+// offers it itself, now that it is attested and ready: the host app offers
+// nothing from Windows. A machine off offer otherwise is one the agent paused
+// before its reset reboot, and is offered again on the owner's terms; or its
+// owner stopped sharing it, and it goes back to Windows.
 //
 // Offered. The machine-key socket holds the room and hears `session-claimed`.
 // A heartbeat now and then also learns of a claim the socket missed, and of
@@ -185,14 +187,14 @@ export function createAgent(deps: AgentDeps): Agent {
     }
   }
 
-  /** Offer the machine again after the reset, tried every few seconds until the server answers. */
-  async function offerAgain(until: number | null): Promise<MachineView> {
+  /** Offer the machine until `until`, tried every few seconds until the server answers. */
+  async function offerUntil(until: number | null): Promise<MachineView> {
     for (;;) {
       try {
         return await api.setAvailability(true, until);
       } catch (cause) {
         if (refusal(cause)) throw new Refused("the server refused the machine key");
-        log(`could not offer the machine again: ${describe(cause)}`);
+        log(`could not offer the machine: ${describe(cause)}`);
       }
       await inbox.next(timing.offlineBeatMs);
     }
@@ -231,14 +233,19 @@ export function createAgent(deps: AgentDeps): Agent {
     }
     // From here on a renter may run things as the renter: nothing of theirs is kept for the next boot.
     await system.closeSteamClient();
-    // Kept on disk until the server has the machine on offer again: an agent
-    // restarted while offerAgain() retries must still know the reset was its own.
+    // Both kept until the server has the machine on offer: an agent restarted
+    // while offerUntil() retries must still know why it offers.
     const resumed = await resume.read();
+    const wentLive = await resume.wentLive();
     if (view.session) {
       await resume.clear();
       return { sessionId: view.session.id };
     }
-    if (view.status === "idle") {
+    if (wentLive) {
+      // On the owner's terms as of now, not a share-until left from before.
+      log("offering the PC: its owner went live");
+      view = await offerUntil(null);
+    } else if (view.status === "idle") {
       if (!resumed) {
         log("the owner is not sharing this PC");
         return "windows";
@@ -248,7 +255,7 @@ export function createAgent(deps: AgentDeps): Agent {
         return "windows";
       }
       log("offering the PC again after its own reset, on the terms it kept");
-      view = await offerAgain(resumed.until);
+      view = await offerUntil(resumed.until);
     }
     await resume.clear();
     if (!sharing(view)) return "windows";

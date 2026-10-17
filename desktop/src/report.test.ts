@@ -12,6 +12,8 @@ import {
   hostReport,
   netMoved,
   netOf,
+  offOffer,
+  offOfferAnswer,
   playingFor,
   reportHardware,
   UPLOAD_TEST_BYTES,
@@ -531,6 +533,64 @@ describe("who may play", () => {
       only: false,
       crews: [{ ...read, plays: false }],
     });
+  });
+
+  it("tells a report the server turned down from a server it could not reach", async () => {
+    const machine = { url: "wss://signal.example", machineId: "pc-1", machineKey: "k" };
+    const answering = (res: () => Response) => vi.fn(async () => res()) as unknown as typeof fetch;
+    const crew = { only: false, crews: [] };
+    expect(
+      await offOfferAnswer(
+        machine,
+        {},
+        answering(() => Response.json({ crew })),
+      ),
+    ).toEqual(crew);
+    // Answered, and no: a bad field (400) or a key it does not take (403).
+    expect(
+      await offOfferAnswer(
+        machine,
+        {},
+        answering(() => new Response("{}", { status: 400 })),
+      ),
+    ).toBe("rejected");
+    expect(
+      await offOfferAnswer(
+        machine,
+        {},
+        answering(() => new Response("{}", { status: 403 })),
+      ),
+    ).toBe("rejected");
+    // Not reached: no answer at all, or a server or its proxy down (5xx).
+    const offline = vi.fn(async () => {
+      throw new TypeError("offline");
+    }) as unknown as typeof fetch;
+    expect(await offOfferAnswer(machine, {}, offline)).toBeNull();
+    expect(
+      await offOfferAnswer(
+        machine,
+        {},
+        answering(() => new Response("{}", { status: 503 })),
+      ),
+    ).toBeNull();
+    // Answered, but only to say try later: timed out (408) or throttled (429).
+    for (const status of [408, 429]) {
+      expect(
+        await offOfferAnswer(
+          machine,
+          {},
+          answering(() => new Response("{}", { status })),
+        ),
+      ).toBeNull();
+    }
+    // offOffer itself reads either as nothing taken.
+    expect(
+      await offOffer(
+        machine,
+        {},
+        answering(() => new Response("{}", { status: 400 })),
+      ),
+    ).toBeNull();
   });
 
   it("makes the PC crew-only, playing for exactly the crews picked", () => {

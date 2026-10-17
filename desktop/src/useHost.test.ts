@@ -8,6 +8,7 @@ import type { SteamRead } from "../steam.cjs";
 import type { HostBridge } from "./bridge";
 import { DEMAND_EVERY_MS } from "./demand";
 import { untilChoices } from "./model";
+import { REPORT_REJECTED, REPORT_UNREAD } from "./rental";
 import { BUSY_MS, IDLE_MS } from "./useSteam";
 import { rentalOf, type RentalPlan } from "../rental.cjs";
 import FACTS from "./test/rental-facts.json";
@@ -50,7 +51,7 @@ vi.mock("./useScreenShare", () => ({
   },
 }));
 
-const { CREW_RETRY_MS, useHost } = await import("./useHost");
+const { CREW_RETRY_MS, PC_READ_MS, useHost } = await import("./useHost");
 const { trayDo } = await import("./App");
 
 const STREAM = {} as MediaStream;
@@ -407,6 +408,10 @@ describe("useHost", () => {
     type Answer = "ok" | "fail" | ((land: (ok: boolean) => void) => void);
     let answers: Answer[];
     let playing: string[];
+    /** This PC's report as the app sent it off offer (report.ts), each a call of its own beside the crew's. */
+    let pcReports: Record<string, unknown>[];
+    /** The platform's answers to those reports, in turn, as for the crew's. */
+    let pcAnswers: Answer[];
     /** Who may play, as the platform says it: crew-only, playing for Alex's crew or for none. */
     const crewOf = (plays: boolean) => ({
       only: true,
@@ -434,6 +439,8 @@ describe("useHost", () => {
       devShare.on = false;
       answers = [];
       playing = ["c1"];
+      pcReports = [];
+      pcAnswers = [];
       vi.stubGlobal(
         "fetch",
         vi.fn(async (url: string, init: RequestInit) => {
@@ -441,6 +448,14 @@ describe("useHost", () => {
           if (path.endsWith("/demand")) throw new TypeError("no network in tests");
           if (path === "/api/pairings/mine") return pairedAnswer();
           const body = typeof init.body === "string" ? JSON.parse(init.body) : null;
+          if (path === "/api/ping") throw new TypeError("no ping in tests");
+          if (body?.name !== undefined) {
+            pcReports.push(body);
+            const answer = pcAnswers.shift() ?? "ok";
+            if (typeof answer === "function" && !(await new Promise<boolean>((land) => answer(land))))
+              throw new TypeError("offline");
+            return Response.json({ crew: crewOf(playing.includes("c1")) });
+          }
           calls.push({ method: init.method ?? "GET", path, body, keepalive: Boolean(init.keepalive) });
           const answer = answers.shift() ?? "ok";
           const ok =
@@ -494,6 +509,294 @@ describe("useHost", () => {
       expect(result.current.view.crewNote).toBeNull();
       // Nothing offers this PC from Windows.
       expect(reports().some((c) => c.body?.available === true)).toBe(false);
+    });
+
+    it("reports this PC with it off offer, and again once the games offered change", async () => {
+      const { result } = await ready();
+      expect(pcReports).toHaveLength(1);
+      expect(pcReports[0]).toMatchObject({ available: false, name: "gaming-pc-1" });
+      expect(pcReports[0]!.games).toEqual(result.current.view.games.offered);
+      expect(pcReports[0]).not.toHaveProperty("net");
+      expect(pcReports[0]).not.toHaveProperty("crews");
+      // Windows reads no gamepad here, but Lanterel OS gives the renter one.
+      expect(pcReports[0]!.controls).toEqual(["kb", "mouse", "pad"]);
+
+      // Checked again with nothing changed: not sent again.
+      act(() => result.current.actions.checkRental());
+      await settle();
+      expect(pcReports).toHaveLength(1);
+
+      const [first] = result.current.view.games.offered!;
+      act(() => result.current.actions.toggleOffer!(first!));
+      await settle();
+      expect(pcReports).toHaveLength(2);
+      expect(pcReports[1]!.games).not.toContain(first);
+      // Nothing offers this PC from Windows.
+      expect(pcReports.some((r) => r.available !== false)).toBe(false);
+    });
+
+    it("sends this PC's reports one at a time, so the last the platform takes is the latest", async () => {
+      let land: (ok: boolean) => void = () => {};
+      pcAnswers.push((l) => (land = l));
+      const { result } = await ready();
+      expect(pcReports).toHaveLength(1);
+      const [first] = result.current.view.games.offered!;
+      act(() => result.current.actions.toggleOffer!(first!));
+      await settle();
+      // The games changed while the first report is on its way: the next waits for it.
+      expect(pcReports).toHaveLength(1);
+      land(true);
+      await settle();
+      expect(pcReports).toHaveLength(2);
+      expect(pcReports[1]!.games).not.toContain(first);
+    });
+
+    it("still sends this PC's next report after one failed before it was sent", async () => {
+      const { result } = await ready();
+      expect(pcReports).toHaveLength(1);
+      const stringify = JSON.stringify;
+      // The next report fails while being put together, before anything is sent.
+      const spy = vi.spyOn(JSON, "stringify").mockImplementation((value, ...rest) => {
+        if (Array.isArray(value) && (value[0] as { machineId?: string })?.machineId) {
+          spy.mockRestore();
+          throw new TypeError("broken report");
+        }
+        return stringify(value, ...(rest as [undefined]));
+      });
+      const [first, second] = result.current.view.games.offered!;
+      act(() => result.current.actions.toggleOffer!(first!));
+      await settle();
+      spy.mockRestore();
+      expect(pcReports).toHaveLength(1);
+      act(() => result.current.actions.toggleOffer!(second!));
+      await settle();
+      expect(pcReports).toHaveLength(2);
+      expect(pcReports[1]!.games).not.toContain(second);
+    });
+
+    it("does not arm Go live when the network could not be measured", async () => {
+      const { result } = await ready();
+      const bridge = (window as { swiffHost?: HostBridge }).swiffHost!;
+      // Lanterel OS would have a network: Go live goes ahead (network.ts).
+      bridge.readRental = vi.fn(async () => ({ ...READY, network: { kind: "wired" as const } }));
+      act(() => result.current.actions.checkRental());
+      await settle();
+      bridge.planRental = vi.fn(async () => ({ kind: "once", steps: [] }) as unknown as RentalPlan);
+      bridge.runRental = vi.fn(async () => ({ status: "done" as const, done: [], results: [] }));
+      bridge.restartRental = vi.fn(async () => true);
+      act(() => result.current.actions.goLiveRental());
+      await vi.waitFor(async () => {
+        await settle();
+        expect(result.current.view.rental.run.status).toBe("failed");
+      });
+      // Not reported: nothing is written and BootNext is not set, so nothing restarts.
+      expect(bridge.runRental).not.toHaveBeenCalled();
+      expect(bridge.restartRental).not.toHaveBeenCalled();
+      expect(result.current.view.rental.run.failed?.step).toBe("report");
+    });
+
+    it("ends Go live when the connection changes while the network is measured", async () => {
+      const { result } = await ready();
+      const bridge = (window as { swiffHost?: HostBridge }).swiffHost!;
+      bridge.readRental = vi.fn(async () => ({ ...READY, network: { kind: "wired" as const } }));
+      act(() => result.current.actions.checkRental());
+      await settle();
+      bridge.planRental = vi.fn(async () => ({ kind: "once", steps: [] }) as unknown as RentalPlan);
+      bridge.runRental = vi.fn(async () => ({ status: "done" as const, done: [], results: [] }));
+      bridge.restartRental = vi.fn(async () => true);
+      // The first ping is held: the owner switches to another PC's connection meanwhile.
+      const platform = globalThis.fetch;
+      let pong: () => void = () => {};
+      const held = new Promise<void>((resolve) => (pong = resolve));
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string, init: RequestInit) => {
+          const path = new URL(url).pathname;
+          if (path === "/api/ping") {
+            await held;
+            return new Response("{}");
+          }
+          if (path.endsWith("/upload-test")) return new Response(null, { status: 204 });
+          return platform(url, init);
+        }),
+      );
+      act(() => result.current.actions.goLiveRental());
+      await settle();
+      await act(async () =>
+        result.current.actions.saveConnection({
+          url: "signal.example",
+          machineId: "pc-2",
+          machineKey: "k2",
+          name: "",
+        }),
+      );
+      await settle();
+      pong();
+      await vi.waitFor(async () => {
+        await settle();
+        expect(result.current.view.rental.run.status).toBe("failed");
+      });
+      // The network measured for the planned PC goes to no other: nothing is armed.
+      expect(pcReports.some((r) => "net" in r)).toBe(false);
+      expect(bridge.runRental).not.toHaveBeenCalled();
+      expect(bridge.restartRental).not.toHaveBeenCalled();
+      expect(result.current.view.rental.run.failed?.step).toBe("report");
+    });
+
+    it("says so when the server turns Go live's report down, and arms nothing", async () => {
+      const { result } = await ready();
+      const bridge = (window as { swiffHost?: HostBridge }).swiffHost!;
+      bridge.readRental = vi.fn(async () => ({ ...READY, network: { kind: "wired" as const } }));
+      act(() => result.current.actions.checkRental());
+      await settle();
+      bridge.planRental = vi.fn(async () => ({ kind: "once", steps: [] }) as unknown as RentalPlan);
+      bridge.runRental = vi.fn(async () => ({ status: "done" as const, done: [], results: [] }));
+      bridge.restartRental = vi.fn(async () => true);
+      // The network is measured; the report carrying it is answered with a 400.
+      const platform = globalThis.fetch;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string, init: RequestInit) => {
+          const path = new URL(url).pathname;
+          if (path === "/api/ping") return new Response("{}");
+          if (path.endsWith("/upload-test")) return new Response(null, { status: 204 });
+          if (typeof init.body === "string" && "net" in JSON.parse(init.body))
+            return new Response("{}", { status: 400 });
+          return platform(url, init);
+        }),
+      );
+      act(() => result.current.actions.goLiveRental());
+      await vi.waitFor(async () => {
+        await settle();
+        expect(result.current.view.rental.run.status).toBe("failed");
+      });
+      expect(bridge.runRental).not.toHaveBeenCalled();
+      expect(bridge.restartRental).not.toHaveBeenCalled();
+      expect(result.current.view.rental.run.failed).toEqual({ step: "report", error: REPORT_REJECTED });
+    });
+
+    it("waits for this PC's first read before Go live reports it", async () => {
+      const bridge = (window as { swiffHost?: HostBridge }).swiffHost!;
+      let read: (pc: typeof PC) => void = () => {};
+      bridge.readPc = vi.fn(() => new Promise<typeof PC>((resolve) => (read = resolve)));
+      const { result } = renderHook(() => useHost());
+      await settle();
+      expect(result.current.view.pc.reading).toBe(true);
+      bridge.readRental = vi.fn(async () => ({ ...READY, network: { kind: "wired" as const } }));
+      act(() => result.current.actions.checkRental());
+      await settle();
+      bridge.planRental = vi.fn(async () => ({ kind: "once", steps: [] }) as unknown as RentalPlan);
+      bridge.runRental = vi.fn(async () => ({ status: "done" as const, done: [], results: [] }));
+      bridge.restartRental = vi.fn(async () => true);
+      const platform = globalThis.fetch;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string, init: RequestInit) => {
+          const path = new URL(url).pathname;
+          if (path === "/api/ping") return new Response("{}");
+          if (path.endsWith("/upload-test")) return new Response(null, { status: 204 });
+          return platform(url, init);
+        }),
+      );
+      act(() => result.current.actions.goLiveRental());
+      await settle();
+      // The network is measured, but the PC is not read yet: nothing is reported or armed.
+      expect(pcReports.some((r) => "net" in r)).toBe(false);
+      expect(bridge.runRental).not.toHaveBeenCalled();
+      await act(async () => read(PC));
+      await vi.waitFor(async () => {
+        await settle();
+        expect(bridge.runRental).toHaveBeenCalledOnce();
+      });
+      const goLive = pcReports.find((r) => "net" in r)!;
+      expect(goLive.hardware).toMatchObject({ gpu: PC.hardware.gpu });
+      expect(goLive.games).toEqual([730, 1245620]);
+    });
+
+    /** Go live with Lanterel OS on a wired network, the server answering pings, and `readPc` as given. */
+    async function goLiveWithRead(readPc: HostBridge["readPc"]) {
+      const bridge = (window as { swiffHost?: HostBridge }).swiffHost!;
+      bridge.readPc = vi.fn(readPc);
+      const hook = renderHook(() => useHost());
+      await settle();
+      bridge.readRental = vi.fn(async () => ({ ...READY, network: { kind: "wired" as const } }));
+      act(() => hook.result.current.actions.checkRental());
+      await settle();
+      bridge.planRental = vi.fn(async () => ({ kind: "once", steps: [] }) as unknown as RentalPlan);
+      bridge.runRental = vi.fn(async () => ({ status: "done" as const, done: [], results: [] }));
+      bridge.restartRental = vi.fn(async () => true);
+      const platform = globalThis.fetch;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string, init: RequestInit) => {
+          const path = new URL(url).pathname;
+          if (path === "/api/ping") return new Response("{}");
+          if (path.endsWith("/upload-test")) return new Response(null, { status: 204 });
+          return platform(url, init);
+        }),
+      );
+      act(() => hook.result.current.actions.goLiveRental());
+      return { ...hook, bridge };
+    }
+
+    it("says it couldn't read this PC when the read failed, and reports and arms nothing", async () => {
+      const { result, bridge } = await goLiveWithRead(async () => {
+        throw new Error("main is gone");
+      });
+      await vi.waitFor(async () => {
+        await settle();
+        expect(result.current.view.rental.run.status).toBe("failed");
+      });
+      expect(result.current.view.rental.run.failed).toEqual({ step: "report", error: REPORT_UNREAD });
+      expect(pcReports.some((r) => "net" in r)).toBe(false);
+      expect(bridge.runRental).not.toHaveBeenCalled();
+    });
+
+    it("says it couldn't read this PC when a part of it was not read, and reports and arms nothing", async () => {
+      const { result, bridge } = await goLiveWithRead(async () => ({
+        ...PC,
+        hardware: { ...PC.hardware, gpu: null },
+      }));
+      await vi.waitFor(async () => {
+        await settle();
+        expect(result.current.view.rental.run.status).toBe("failed");
+      });
+      expect(result.current.view.rental.run.failed).toEqual({ step: "report", error: REPORT_UNREAD });
+      expect(pcReports.some((r) => "net" in r)).toBe(false);
+      expect(bridge.runRental).not.toHaveBeenCalled();
+    });
+
+    it("reads this PC again when Go live is tried again after it couldn't read it", async () => {
+      let fails = true;
+      const { result, bridge } = await goLiveWithRead(async () => {
+        if (fails) throw new Error("main is gone");
+        return PC;
+      });
+      await vi.waitFor(async () => {
+        await settle();
+        expect(result.current.view.rental.run.failed).toEqual({ step: "report", error: REPORT_UNREAD });
+      });
+      // The read at launch failed, and so did the one Go live started of its own.
+      expect(bridge.readPc).toHaveBeenCalledTimes(2);
+      fails = false;
+      act(() => result.current.actions.retryRental());
+      await vi.waitFor(async () => {
+        await settle();
+        expect(bridge.runRental).toHaveBeenCalledOnce();
+      });
+      expect(bridge.readPc).toHaveBeenCalledTimes(3);
+      expect(pcReports.find((r) => "net" in r)!.hardware).toMatchObject({ gpu: PC.hardware.gpu });
+    });
+
+    it("stops waiting for a read that never comes", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const { result, bridge } = await goLiveWithRead(() => new Promise(() => {}));
+      await settle();
+      expect(result.current.view.rental.run.status).toBe("running");
+      await act(async () => void (await vi.advanceTimersByTimeAsync(PC_READ_MS)));
+      await settle();
+      expect(result.current.view.rental.run.failed).toEqual({ step: "report", error: REPORT_UNREAD });
+      expect(bridge.runRental).not.toHaveBeenCalled();
     });
 
     it("puts a choice that did not save back to the platform's, and says so", async () => {
@@ -714,7 +1017,9 @@ describe("useHost", () => {
           "PUT https://swiff.onrender.com/api/machines/geekom/ek",
         ]);
         expect(result.current.view.rental.run.failed?.step).not.toBe("ek");
-        expect(bridge.runRental).toHaveBeenCalledOnce();
+        // No network here to report this PC over: Go live stops at the report, after the EK.
+        expect(result.current.view.rental.run.failed?.step).toBe("report");
+        expect(bridge.runRental).not.toHaveBeenCalled();
         // Lanterel OS is provisioned with the same server.
         expect(bridge.planRental).toHaveBeenCalledWith(
           expect.objectContaining({

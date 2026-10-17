@@ -6,7 +6,17 @@ import type { EkResult } from "./ek";
 import { IDLE_RUN, type ImageDownload, type RentalRun, type RentalSetup, type WritePass } from "./model";
 import { meter } from "./progress";
 import { agreedWifi, networkReady } from "./network";
-import { endsInRestart, fileName, firmwareChecks, pcChecks, recoveryDue, writesOf } from "./rental";
+import {
+  REPORT_FAILED,
+  REPORT_REJECTED,
+  REPORT_UNREAD,
+  endsInRestart,
+  fileName,
+  firmwareChecks,
+  pcChecks,
+  recoveryDue,
+  writesOf,
+} from "./rental";
 import { loadMachineId, loadUrl, toSocketUrl } from "./settings";
 
 /**
@@ -54,16 +64,28 @@ export function stepBytes(
 }
 
 /**
+ * Go live's report of this PC: true once the server took it, "rejected" when it answered no,
+ * "unread" when the app couldn't read this PC to report it, false when the server couldn't be reached.
+ */
+export type PcReported = boolean | "rejected" | "unread";
+
+/**
  * Rental mode on this PC, read through main (rental.cjs) once on opening and
  * again when the owner asks: after a trip to the BIOS, say. A plan comes back
  * for the screen; running it is main's (rental-exec.cjs), which runs every
  * step by itself after the owner's one OK and tells how each goes. A restart
  * waits for the owner's Restart now. Go live registers the TPM's EK with the
- * server first, with `registerEk` (ek.ts).
+ * server first, with `registerEk` (ek.ts), and reports this PC to the server
+ * with `reportPc` while it plans, taken before the plan changes anything: Lanterel OS
+ * offers the PC, and renters are matched on what the app reported.
  */
 export function useRental({
   registerEk = async () => ({ ok: false, error: "no-machine" }),
-}: { registerEk?: (ek: EkCertificate) => Promise<EkResult> } = {}): RentalSetup & {
+  reportPc = async () => true,
+}: {
+  registerEk?: (ek: EkCertificate) => Promise<EkResult>;
+  reportPc?: () => Promise<PcReported>;
+} = {}): RentalSetup & {
   check(): void;
   choose(id: string): void;
   plan(kind: RentalPlan["kind"], options?: { key?: boolean }): void;
@@ -284,9 +306,12 @@ export function useRental({
       });
   };
 
-  /** Go live stopped at the TPM's EK (`error`, ek.ts's or "none" for no certificate): nothing restarts. */
-  const ekFailed = (error: string) =>
-    setRun((r) => ({ ...r, status: "failed", endedAt: Date.now(), failed: { step: "ek", error } }));
+  /**
+   * Go live stopped at the TPM's EK (`error`, ek.ts's or "none" for no certificate), or at this PC's
+   * report (step "report"): nothing restarts.
+   */
+  const stopped = (step: "ek" | "report", error: string) =>
+    setRun((r) => ({ ...r, status: "failed", endedAt: Date.now(), failed: { step, error } }));
 
   /**
    * Swiff OS once, for now: going live for good (Swiff OS first in the boot order) waits on Swiff OS
@@ -308,10 +333,10 @@ export function useRental({
         ? { certificate: r.facts.checked.certificate, intermediates: r.facts.checked.intermediates }
         : null;
     void (async () => {
+      const reported = reportPc();
       let registered = checked(read);
       for (let again = false; ; again = true) {
-        if (registered)
-          setRun({ ...IDLE_RUN, status: "running", startedAt: Date.now(), stepStartedAt: Date.now() });
+        setRun({ ...IDLE_RUN, status: "running", startedAt: Date.now(), stepStartedAt: Date.now() });
         const plan = await host
           .planRental({
             kind: "once",
@@ -321,16 +346,20 @@ export function useRental({
           })
           .catch(() => null);
         if (n !== plans.current) return;
-        if (!plan) {
-          if (registered) setRun(IDLE_RUN);
-          return;
-        }
+        if (!plan) return setRun(IDLE_RUN);
         setPreview(plan);
         if (registered) {
           const result = await registerEk(registered);
           if (n !== plans.current) return;
-          if (!result.ok) return ekFailed(result.error);
+          if (!result.ok) return stopped("ek", result.error);
         }
+        const taken = await reported.catch(() => false);
+        if (n !== plans.current) return;
+        if (taken !== true)
+          return stopped(
+            "report",
+            taken === "rejected" ? REPORT_REJECTED : taken === "unread" ? REPORT_UNREAD : REPORT_FAILED,
+          );
         const outcome = await runPlan(plan);
         if (n !== plans.current || !outcome) return;
         if (outcome.status === "done") return restart();
@@ -342,7 +371,7 @@ export function useRental({
         setRun((r) => ({ ...r, status: "running", failed: null, endedAt: null, stepStartedAt: Date.now() }));
         const now = checked(await host.readRental().catch(() => null));
         if (n !== plans.current) return;
-        if (!now || now.certificate === registered?.certificate) return ekFailed(error);
+        if (!now || now.certificate === registered?.certificate) return stopped("ek", error);
         registered = now;
       }
     })();

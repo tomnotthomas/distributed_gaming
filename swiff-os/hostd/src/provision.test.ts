@@ -4,7 +4,8 @@
 // TPM's part of the hand-over is handover.test.ts's.
 
 import { createHash, randomBytes } from "node:crypto";
-import { mkdir, mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -210,6 +211,7 @@ describe("provisioning a boot", () => {
       config: join(dir, "hostd.json"),
       machineKey: join(dir, "machine-key"),
       wifi: join(dir, "iwd"),
+      goLive: join(dir, "go-live"),
     };
     await writeFile(paths.imageConfig, JSON.stringify(IMAGE));
     await mkdir(paths.wifi);
@@ -281,8 +283,10 @@ describe("provisioning a boot", () => {
     });
     expect(JSON.stringify(config)).not.toContain(GIVEN.machineKey);
     expect(await readFile(m.paths.machineKey, "utf8")).toBe(`${GIVEN.machineKey}\n`);
+    // A fresh record is the owner's Go live: swiff-hostd offers the PC in this boot.
+    expect(await readFile(m.paths.goLive, "utf8")).toBe("");
     // Root's alone.
-    for (const file of [m.paths.config, m.paths.machineKey, m.paths.credential])
+    for (const file of [m.paths.config, m.paths.machineKey, m.paths.credential, m.paths.goLive])
       expect((await stat(file)).mode & 0o777).toBe(0o600);
     expect(m.logs.join("\n")).not.toContain(GIVEN.machineKey);
   });
@@ -327,13 +331,17 @@ describe("provisioning a boot", () => {
   it("writes the config from the sealed provisioning at every later boot", async () => {
     const m = await machine(await sealedRecord(GIVEN));
     await m.run();
+    // A new boot: /var/lib/swiff is a tmpfs again.
     await writeFile(m.paths.config, "");
+    await rm(m.paths.goLive);
     m.disk.mounted = false;
     m.sealed.length = 0;
     expect(await m.run()).toBe(true);
     expect(m.sealed).toEqual([]);
     expect(m.disk.mounted).toBe(true);
     expect(JSON.parse(await readFile(m.paths.config, "utf8")).machineId).toBe(GIVEN.machineId);
+    // No Go live came with this boot: the agent offers only what it took off offer itself.
+    expect(existsSync(m.paths.goLive)).toBe(false);
   });
 
   it("zeroes the record when the TPM cannot seal it", async () => {

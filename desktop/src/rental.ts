@@ -1002,6 +1002,15 @@ function ekFailure(setup: RentalSetup, error: string, stoppedAt: string): Failur
   return { ...base, title, why: line };
 }
 
+/** Go live's error when the server didn't take this PC's report: nothing on the PC changed. */
+export const REPORT_FAILED = "Lanterel couldn't report this PC to the server.";
+
+/** Go live's error when the app couldn't read this PC's hardware and games to report: nothing on the PC changed. */
+export const REPORT_UNREAD = "Lanterel couldn't read this PC.";
+
+/** Go live's error when the server answered and turned this PC's report down: nothing on the PC changed. */
+export const REPORT_REJECTED = "The server didn't take this PC's report.";
+
 /** Which failure this is, and everything it says. */
 export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "failed" }>): Failure {
   const { plan, step, error } = s;
@@ -1059,6 +1068,43 @@ export function failureOf(setup: RentalSetup, s: Extract<RentalScreen, { kind: "
       what: "Network",
       at: "Not started",
       far: "before the restart",
+    };
+  }
+  if (failedStep === "report") {
+    const base = {
+      kind: "network" as const,
+      action: "again" as const,
+      label: "Try again",
+      what: "Go live",
+      at: "Not started",
+      far: "not started",
+    };
+    // The app builds the report itself: one the server turns down is not the owner's to correct.
+    if (error === REPORT_REJECTED)
+      return {
+        ...base,
+        title: "The server didn't take this PC's report",
+        why: "The Lanterel server answered but didn't accept this PC's report, so Lanterel didn't go live.",
+        changed:
+          "Nothing on this PC has changed. Try again, and update the Lanterel app if it keeps happening.",
+        rail: "Report not taken",
+      };
+    // Nothing reached the server: the app couldn't read this PC to report it.
+    if (error === REPORT_UNREAD)
+      return {
+        ...base,
+        title: "Lanterel couldn't read this PC",
+        why: "Lanterel couldn't read this PC's hardware and games to report them, so it didn't go live.",
+        changed:
+          "Nothing on this PC has changed. Try again, and restart the Lanterel app if it keeps happening.",
+        rail: "PC not read",
+      };
+    return {
+      ...base,
+      title: "Lanterel couldn't reach the server",
+      why: "This PC's report didn't reach the server, so Lanterel didn't go live.",
+      changed: "Nothing on this PC has changed. Check this PC's internet connection, then try again.",
+      rail: "Server unreachable",
     };
   }
   if (failedStep === "restart")
